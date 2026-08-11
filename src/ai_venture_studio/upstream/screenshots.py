@@ -8,6 +8,7 @@ surfaced by the Studio and the build report.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import time
@@ -30,7 +31,60 @@ def _playwright_available() -> bool:
         return False
 
 
-def capture_web(workspace: str | Path, paths: list[str] | None = None, port: int = 8642) -> ShotResult:
+#: Enough to show a founder their product, few enough that capture stays
+#: a tail on the build rather than a second build.
+MAX_SHOTS = 8
+
+_ROUTE = re.compile(
+    r"""@\w+\.(?:get|post|route)\(\s*['"](/[^'"{<]*)['"]""", re.IGNORECASE
+)
+
+
+def discover_paths(workspace: str | Path) -> list[str]:
+    """The product's own GET routes, so the gallery is the product and not
+    just its front door.
+
+    Capture was called with the default `["/"]`, so a founder who built
+    five pages got one picture of the home page — and after a change that
+    touched checkout, the one picture was of the page that had not moved.
+    Parameterised routes are skipped: there is no id to substitute, and a
+    404 screenshot is worse than a missing one.
+    """
+    root = Path(workspace).resolve()
+    found: list[str] = []
+    files = [root / e for e in ("app/main.py", "main.py", "app.py")]
+    files += sorted((root / "app").rglob("*.py")) if (root / "app").is_dir() else []
+    for path in files:
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for route in _ROUTE.findall(text):
+            if route not in found:
+                found.append(route)
+    ordered = ["/"] + [r for r in found if r != "/"]
+    return ordered[:MAX_SHOTS]
+
+
+def _free_port() -> int:
+    """A port the OS just told us is free.
+
+    Capture used to hardcode 8642, which was survivable while it ran once
+    per workspace lifetime. It now runs again after every change, so a
+    leftover server from an earlier capture — or the founder's own
+    `avs preview` — would make every subsequent screenshot a picture of the
+    wrong process, or of nothing.
+    """
+    import socket
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
+
+
+def capture_web(workspace: str | Path, paths: list[str] | None = None, port: int = 0) -> ShotResult:
     root = Path(workspace).resolve()
     if not _playwright_available():
         return ShotResult(
@@ -50,6 +104,7 @@ def capture_web(workspace: str | Path, paths: list[str] | None = None, port: int
 
     from ai_venture_studio.upstream.provisioning import preview_env
 
+    port = port or _free_port()
     out_dir = root / "product" / "screenshots"
     out_dir.mkdir(parents=True, exist_ok=True)
     server = subprocess.Popen(
@@ -72,16 +127,29 @@ def capture_web(workspace: str | Path, paths: list[str] | None = None, port: int
 
         from playwright.sync_api import sync_playwright
 
+        wanted = paths or discover_paths(root)
+        fresh: set[Path] = set()
         with sync_playwright() as p:
             browser = p.chromium.launch()
             page = browser.new_page(viewport={"width": 900, "height": 700})
-            for url_path in paths or ["/"]:
+            for url_path in wanted:
                 slug = url_path.strip("/").replace("/", "-") or "home"
-                page.goto(f"http://127.0.0.1:{port}{url_path}", timeout=15000)
                 target = out_dir / f"{slug}.png"
-                page.screenshot(path=str(target), full_page=True)
+                try:
+                    page.goto(f"http://127.0.0.1:{port}{url_path}", timeout=15000)
+                    page.screenshot(path=str(target), full_page=True)
+                except Exception:  # noqa: BLE001 — one bad page, not a lost set
+                    continue
+                fresh.add(target)
                 captured.append(str(target.relative_to(root)))
             browser.close()
+        # A page the founder deleted must not keep its picture. Only prune
+        # once something was captured: an empty run means the capture failed,
+        # and deleting the last evidence over a failure is its own bug.
+        if fresh:
+            for old in out_dir.glob("*.png"):
+                if old not in fresh:
+                    old.unlink(missing_ok=True)
         return ShotResult(captured=captured)
     except Exception as exc:  # noqa: BLE001 — capture is best-effort, visibly
         return ShotResult(captured=captured, note=f"screenshot error: {exc}")

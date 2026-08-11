@@ -20,7 +20,12 @@ from pydantic import BaseModel
 from ai_venture_studio.providers import get_provider
 from ai_venture_studio.testing import _pytest_in_subprocess, combine_reports, run_js_tests
 from ai_venture_studio.upstream.build import _write_files
-from ai_venture_studio.upstream.spec import approve_scr, load_spec, raise_scr
+from ai_venture_studio.upstream.spec import (
+    approve_scr,
+    load_spec,
+    raise_scr,
+    write_pending_amendment,
+)
 from ai_venture_studio.yamlx import extract_mapping
 
 CORRECTION_MARKER = "correction router for a founder's plain-language complaint"
@@ -57,12 +62,70 @@ issues:
 """
 
 
+CHANGE_MARKER = "change drafter for a founder's requirement change"
+
+_CHANGE_SYSTEM = f"""You are the {CHANGE_MARKER}, writing for a
+non-technical founder. They said what they want different about ONE feature
+of their product. Write the detail they did not, so they only have to react
+to a draft instead of specifying one.
+
+You are given the feature's CURRENT acceptance criteria. Return the criteria
+the feature should have AFTER the change — the complete list, not a diff:
+carry over every criterion the change does not touch, reword the ones it
+does, add what is newly promised, drop only what the founder is replacing.
+
+Write `summary` in the founder's own language, one sentence, describing what
+will be different for someone USING the product. No file names, no jargon.
+
+`assumptions` are the decisions you had to make because they did not say —
+each a flat statement they can disagree with ("deleting a task asks for
+confirmation first"), never a question. Empty when they truly left nothing
+open. Never invent scope: an assumption narrows what they asked for, it does
+not add a feature next to it.
+
+Respond with ONLY YAML:
+summary: one plain sentence
+criteria:
+  - the complete post-change acceptance criteria, one per line
+assumptions:
+  - flat statements of what you decided for them
+fdr: |
+  # <feature title>
+  A short feature brief for the implementer: what changes, for whom, and
+  what "done" looks like. Plain prose, no headings beyond the title.
+"""
+
+
+class ChangePlan(BaseModel):
+    """What a requirement change will do, drafted before anything is built.
+
+    This is the object the founder confirms. It is deliberately the SAME
+    object that later amends the spec: `criteria` is what they approved and
+    `criteria` is what gets written, with no second model call in between
+    to reinterpret it.
+    """
+
+    spec_slug: str
+    summary: str
+    criteria: list[str] = []
+    assumptions: list[str] = []
+    fdr: str = ""
+    #: The founder's OWN words for this change, carried so the SCR records
+    #: them rather than the model's `summary`. ADR-U02 makes the complaint
+    #: the human authorization; a paraphrase filed as the authorization is
+    #: a record of a decision nobody made.
+    words: str = ""
+
+
 class CorrectionResult(BaseModel):
-    status: str  # fixed | scr_raised | error
+    status: str  # fixed | change_planned | scr_raised | error
     spec_slug: str = ""
     kind: str = ""
     detail: str = ""
     commit: str | None = None
+    #: Present only on `change_planned` — the drafted change awaiting the
+    #: founder's yes. Nothing has been written to the workspace yet.
+    plan: ChangePlan | None = None
 
 
 class CorrectionRoute(BaseModel):
@@ -197,6 +260,84 @@ def _built_specs(root: Path) -> list[dict]:
     return specs
 
 
+def draft_change(
+    repo_dir: str | Path,
+    route: CorrectionRoute,
+    complaint: str,
+    *,
+    provider: str = "anthropic",
+    model: str = "claude-opus-4-8",
+) -> ChangePlan:
+    """Turn "make the cart remember things" into something buildable.
+
+    Pure: reads the spec, calls the model, returns. Nothing is written and
+    no SCR is raised, so a founder who reads the draft and closes the tab
+    leaves the workspace exactly as they found it.
+    """
+    root = Path(repo_dir).resolve()
+    spec = load_spec(root, route.spec_slug)
+    raw = get_provider(provider).complete(
+        model=model,
+        system=_CHANGE_SYSTEM,
+        user=yaml.safe_dump(
+            {"feature": spec.title, "current_criteria": list(spec.criteria)},
+            sort_keys=False, allow_unicode=True,
+        )
+        + f"\n<founder_words>\n{route.words(complaint)}\n</founder_words>"
+        + f"\n<instruction>\n{route.instruction}\n</instruction>",
+        max_tokens=4096,
+    )
+    try:
+        data = extract_mapping(raw, ("summary",))
+    except ValueError as exc:
+        raise CorrectionRouteError(f"could not draft the change: {exc}") from exc
+    criteria = [str(c).strip() for c in (data.get("criteria") or []) if str(c).strip()]
+    # A draft that would erase the contract is not a draft. Falling back to
+    # the spec's existing criteria keeps the change buildable and the
+    # acceptance list intact; the FDR still carries what must change.
+    if not criteria:
+        criteria = list(spec.criteria)
+    return ChangePlan(
+        spec_slug=route.spec_slug,
+        summary=str(data.get("summary", "")).strip() or route.instruction,
+        criteria=criteria,
+        assumptions=[
+            str(a).strip() for a in (data.get("assumptions") or []) if str(a).strip()
+        ],
+        fdr=str(data.get("fdr", "")).strip()
+        or f"# {spec.title}\n\n{route.words(complaint)}\n\n{route.instruction}\n",
+        words=route.words(complaint),
+    )
+
+
+def apply_change(repo_dir: str | Path, plan: ChangePlan) -> Path:
+    """The founder said go. Authorize the spec change and stage the build.
+
+    Three things, in this order, because the order is what makes it safe:
+
+    1. The SCR is raised and approved HERE, not at classification time. The
+       founder's own words are the human authorization, recorded verbatim
+       (ADR-U02) — `plan.words`, never `plan.summary`, because a paraphrase
+       filed as the authorization is a record of a decision nobody made —
+       and the grant only exists once they have actually agreed.
+    2. The amendment is PARKED, not applied. `run_feature` spends it only if
+       the build succeeds — a spec promising behaviour that failed to build
+       would be worse than the stale spec this whole path exists to fix.
+    3. The FDR is written last, so the file the builder consumes never
+       exists without the authorization behind it.
+
+    Returns the FDR path for `run_feature`.
+    """
+    root = Path(repo_dir).resolve()
+    scr_path = raise_scr(root, plan.spec_slug, f"founder correction: {plan.words}")
+    approve_scr(root, int(scr_path.stem.split("-")[1]))
+    write_pending_amendment(root, plan.spec_slug, plan.criteria, plan.fdr)
+    fdr_path = root / ".mas" / "pending-change.md"
+    fdr_path.parent.mkdir(parents=True, exist_ok=True)
+    fdr_path.write_text(plan.fdr, encoding="utf-8")
+    return fdr_path
+
+
 def run_correction(
     repo_dir: str | Path,
     complaint: str,
@@ -248,14 +389,23 @@ def run_correction(
         )
 
     if kind == "scope_change":
-        # The complaint is the human decision — recorded verbatim on the SCR.
-        scr_path = raise_scr(root, slug, f"founder correction: {complaint}")
-        number = int(scr_path.stem.split("-")[1])
-        approve_scr(root, number)
+        # A scope change is a BUILD, not a note. It used to raise an SCR,
+        # approve it, and hand the founder "re-run `avs add`/`spec` for
+        # 'cart' to regenerate" — a terminal instruction, in a browser, to
+        # someone who has never opened a terminal. Nothing was built, the
+        # page said it worked, and the same complaint came back.
+        #
+        # No SCR is raised here. Raising one at classification time left an
+        # approved, unconsumed grant behind whenever the founder looked at
+        # the plan and walked away — a free pass to edit a frozen spec,
+        # banked by someone who decided NOT to change anything. The grant is
+        # raised in `apply_change`, when they say go.
+        plan = draft_change(
+            root, route, complaint, provider=provider, model=model,
+        )
         return CorrectionResult(
-            status="scr_raised", spec_slug=slug, kind=kind,
-            detail=f"SCR-{number:03d} approved by founder correction; "
-            f"re-run `avs add`/`spec` for {slug!r} to regenerate",
+            status="change_planned", spec_slug=slug, kind=kind,
+            detail=plan.summary, plan=plan,
         )
 
     # Repair path: complaint + spec + implicated sources → smallest change.

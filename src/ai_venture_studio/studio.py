@@ -22,6 +22,7 @@ may only ADD visibility — never remove a form or a required action.
 from __future__ import annotations
 
 import html
+import json
 import os
 import re
 import subprocess
@@ -1606,6 +1607,15 @@ def create_studio_app(
                 )
                 if images:
                     gallery = f"<h2>{_('h_screenshots')}</h2>{images}"
+            if not gallery:
+                from ai_venture_studio.studio_try import screenshot_note
+
+                shot_note = screenshot_note(root)
+                if shot_note:
+                    gallery = (
+                        f"<h2>{_('h_screenshots')}</h2>"
+                        f"<p class=muted>{html.escape(shot_note)}</p>"
+                    )
 
             no_features = f"<p class=muted>{_('first_version')}</p>"
 
@@ -2543,6 +2553,44 @@ def create_studio_app(
             h1="",
         )
 
+    def _change_card(result) -> str:
+        """What will change, and one button that does it.
+
+        This is what replaced `re-run \\`avs add\\`/\\`spec\\` for 'cart' to
+        regenerate` — a terminal instruction rendered to someone in a
+        browser, under a message saying it had worked.
+
+        The founder is spending their own token, so there is no cost to
+        confirm. What is worth confirming is whether the change was
+        understood, which is why the assumptions are on the card: they are
+        the decisions made on the founder's behalf, stated flat so a wrong
+        one is visible before it is built rather than after.
+        """
+        plan = result.plan
+        if plan is None:  # pragma: no cover — status implies a plan
+            return f"<p class=muted>{html.escape(result.detail)}</p>"
+        assumptions = "".join(
+            f"<li>{html.escape(a)}</li>" for a in plan.assumptions
+        )
+        criteria = "".join(
+            f"<li>{html.escape(c)}</li>" for c in plan.criteria
+        )
+        payload = json.dumps(plan.model_dump(), ensure_ascii=False)
+        return (
+            f"<p><b>{html.escape(plan.summary)}</b></p>"
+            + (f"<div class=lbl>{_('chg_assumptions')}</div>"
+               f"<ul class=muted>{assumptions}</ul>" if assumptions else "")
+            + (f"<div class=lbl>{_('chg_criteria')}</div>"
+               f"<ul class=muted>{criteria}</ul>" if criteria else "")
+            + "<form method=post action='/correct/change'>"
+            # The whole plan travels in the form, including the founder's own
+            # words: the confirmation arrives in a SECOND request, and by then
+            # the draft is gone unless the page carried it.
+            f"<input type=hidden name=plan value=\"{html.escape(payload, quote=True)}\">"
+            f"<button class=primary type=submit>{_('btn_chg_go')}</button>"
+            "</form>"
+        )
+
     def _correction_result_page(
         request: Request, results: list
     ) -> HTMLResponse:
@@ -2554,6 +2602,7 @@ def create_studio_app(
         # as a plain red row rather than a KeyError on the results page.
         look = {
             "fixed": ("green", "ok", "cls_res_fixed"),
+            "change_planned": ("amber", "warn", "cls_res_change_planned"),
             "scr_raised": ("amber", "warn", "cls_res_scr_raised"),
             "error": ("red", "warn", "cls_res_error"),
         }
@@ -2567,7 +2616,9 @@ def create_studio_app(
                 f"<span class='slabel {klass}'>{_(key)}</span></div>"
                 + (f"<p><code>{html.escape(r.spec_slug)}</code></p>"
                    if r.spec_slug else "")
-                + f"<p class=muted>{html.escape(r.detail)}</p></div>"
+                + (_change_card(r) if r.status == "change_planned"
+                   else f"<p class=muted>{html.escape(r.detail)}</p>")
+                + "</div>"
             )
         return _render(
             request, _("title_cls_result"),
@@ -2576,6 +2627,30 @@ def create_studio_app(
             + f"<p><a href='/'>{_('link_back')}</a></p>",
             h1="",
         )
+
+    def _spawn_add(fdr_path: Path) -> None:
+        """Start `avs add <fdr> --yes` detached, the one way a feature-sized
+        build is run.
+
+        Shared by "add a feature" and "change a requirement" on purpose: a
+        change IS a feature build, and giving it its own spawn would give it
+        its own pid handling, its own log, and eventually its own bugs. The
+        caller checks `_build_running` — two of these against one workspace
+        corrupts it, which is the real reason for the guard now that cost is
+        not one.
+        """
+        if spawn is not None:
+            spawn(root)
+            return
+        (root / ".mas").mkdir(parents=True, exist_ok=True)
+        log = (root / ".mas" / "build.log").open("ab")
+        proc = subprocess.Popen(  # noqa: S603
+            [sys.executable, "-m", "ai_venture_studio.cli", "add", str(fdr_path),
+             "--repo-dir", str(root), "--provider", provider, "--yes"],
+            cwd=root, stdout=log, stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        (root / ".mas" / "build.pid").write_text(str(proc.pid), encoding="utf-8")
 
     def _log_correction(complaint: str, result) -> None:
         path = root / "product" / "CORRECTION-LOG.md"
@@ -2698,6 +2773,49 @@ def create_studio_app(
             _log_correction(route.words(complaint), result)
         return _correction_result_page(request, results)
 
+    @app.post("/correct/change")
+    async def correct_change(request: Request):
+        """The founder read the change and pressed go. Build it.
+
+        This is the button that used to be a sentence: `re-run \\`avs add\\`
+        for 'cart' to regenerate`, printed to someone who had never opened a
+        terminal, under a green tick claiming their change was handled.
+
+        The plan travels back in the form rather than being re-drafted here,
+        for the same reason `/correct/confirm` carries its routes: what the
+        founder read is what runs. A second model call could quietly plan
+        something else and build that instead.
+        """
+        from pydantic import ValidationError
+
+        from ai_venture_studio.upstream.correction import ChangePlan, apply_change
+
+        form = await request.form()
+        try:
+            plan = ChangePlan.model_validate(json.loads(str(form.get("plan", ""))))
+        except (ValueError, ValidationError):
+            return RedirectResponse("/", status_code=303)
+        # `spec_slug` reaches the filesystem, and `criteria` becomes the
+        # acceptance contract — an empty one would ratify a spec that
+        # promises nothing, which every later gate would happily pass.
+        if not _REVIEW_ID.match(plan.spec_slug) or not plan.criteria:
+            return RedirectResponse("/", status_code=303)
+        if not (root / "specs" / plan.spec_slug / "spec.yaml").is_file():
+            return _no_such_page(request, "title_no_spec", plan.spec_slug)
+        # Refuse BEFORE authorizing anything. Applying now would approve an
+        # SCR and park an amendment for a build that is not going to start,
+        # leaving a grant banked against a change nobody built.
+        if _build_running(root):
+            return _render(
+                request, _("title_chg"),
+                f"<div class=card><b class=warn>{_('chg_busy')}</b>"
+                f"<p class=muted>{_('chg_busy_hint')}</p></div>"
+                f"<p><a href='/'>{_('link_back')}</a></p>",
+                h1="",
+            )
+        _spawn_add(apply_change(root, plan))
+        return RedirectResponse("/", status_code=303)
+
     def _no_such_page(request: Request, title_key: str, what: str) -> HTMLResponse:
         """A named thing the workspace does not have. Redirecting home would
         read as "my click did nothing" — the exact failure the in-flight
@@ -2783,18 +2901,7 @@ def create_studio_app(
         if not feature_dir.is_dir():
             return _no_such_page(request, "title_no_feature", slug)
         if not _build_running(root):
-            fdr_path = feature_dir / "fdr.md"
-            if spawn is not None:
-                spawn(root)
-            else:
-                log = (root / ".mas" / "build.log").open("ab")
-                proc = subprocess.Popen(  # noqa: S603
-                    [sys.executable, "-m", "ai_venture_studio.cli", "add", str(fdr_path),
-                     "--repo-dir", str(root), "--provider", provider, "--yes"],
-                    cwd=root, stdout=log, stderr=subprocess.STDOUT,
-                    start_new_session=True,
-                )
-                (root / ".mas" / "build.pid").write_text(str(proc.pid), encoding="utf-8")
+            _spawn_add(feature_dir / "fdr.md")
         return RedirectResponse("/", status_code=303)
 
     @app.post("/build")

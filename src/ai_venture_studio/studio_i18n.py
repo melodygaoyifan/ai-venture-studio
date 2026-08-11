@@ -1444,6 +1444,36 @@ STRINGS: dict[str, dict[str, str]] = {
         "zh": "没能做成 / NOT DONE",
         "en": "NOT DONE",
     },
+    # ── A requirement change, drafted and waiting for one press. Deliberately
+    # not "SCR raised": nothing is raised until the founder agrees, and the
+    # founder does not know what an SCR is.
+    "cls_res_change_planned": {
+        "zh": "改动方案已拟好 / CHANGE DRAFTED",
+        "en": "CHANGE DRAFTED",
+    },
+    "chg_assumptions": {
+        "zh": "我替你做的判断 / What I assumed",
+        "en": "What I assumed",
+    },
+    "chg_criteria": {
+        "zh": "改完之后的验收标准 / Acceptance after the change",
+        "en": "Acceptance after the change",
+    },
+    "btn_chg_go": {"zh": "就这么改，开始做 / Make this change",
+                   "en": "Make this change"},
+    "title_chg": {"zh": "改需求 / Change a requirement",
+                  "en": "Change a requirement"},
+    "chg_busy": {
+        "zh": "正在做上一次的改动，这次还没开始。"
+              " / A build is already running — this change has NOT started.",
+        "en": "A build is already running — this change has NOT started.",
+    },
+    "chg_busy_hint": {
+        "zh": "等它做完，再点一次「哪里不对」把这条说一遍。"
+              " / Wait for it to finish, then say this again.",
+        "en": "Two builds on one workspace corrupt it. Wait for the current "
+              "one to finish, then say this again.",
+    },
     "cls_your_words": {"zh": "你说的 / Your words", "en": "Your words"},
     "cls_criterion": {
         "zh": "对应的验收条件 / The criterion this came from",

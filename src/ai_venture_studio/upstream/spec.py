@@ -501,3 +501,110 @@ def approve_spec(repo_dir: str | Path, slug: str) -> Spec:
     spec.approved_hash = contract_hash(spec)
     _save(repo_dir, spec)
     return spec
+
+
+def amend_spec_criteria(
+    repo_dir: str | Path, slug: str, criteria: list[str]
+) -> Spec:
+    """Rewrite a built spec's acceptance criteria, spending one approved SCR.
+
+    ADR-U02's channel finally has a consumer. `raise_scr` + `approve_scr`
+    existed on one side and `_scr_grant` on the other, but the only thing
+    that ever spent a grant was a full spec regeneration — so a founder
+    correction classified as a scope change raised an SCR, approved it, and
+    left it sitting there while the spec kept describing the behaviour they
+    had just changed away from.
+
+    Criteria ONLY. `test_skeletons` belong to the build that authored the
+    tests now on disk; regenerating them here would orphan those files, and
+    the feature build has already written its own tests against the new
+    behaviour.
+
+    The amendment re-stamps `approved_hash`, because re-stamping is what
+    ratification MEANS. `contract_hash` covers criteria, so leaving the old
+    stamp would make `_approval_drift` refuse every later build of this slug
+    as "an unratified fork" (build.py) — the founder's approved change would
+    quietly destroy the product's ability to build at all.
+    """
+    cleaned = [str(c).strip() for c in criteria if str(c).strip()]
+    if not cleaned:
+        # An empty amendment is never what anyone meant, and it would erase
+        # the contract silently — the acceptance list is derived from it.
+        raise ValueError(f"refusing to amend spec {slug!r} to zero criteria")
+    spec = load_spec(repo_dir, slug)
+    if spec.built and not _scr_grant(repo_dir, slug):
+        raise PermissionError(
+            f"spec {slug!r} is built and frozen; amending it requires an "
+            f"approved SCR: avs scr {slug} \"<reason>\" then "
+            "avs scr-approve <n>"
+        )
+    spec.criteria = cleaned
+    spec.revisions += 1
+    spec.approved_hash = contract_hash(spec)
+    _save(repo_dir, spec)
+    return spec
+
+
+def _amendment_path(repo_dir: str | Path) -> Path:
+    return Path(repo_dir) / ".mas" / "pending-amendment.yaml"
+
+
+def _fdr_digest(fdr_text: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(" ".join(fdr_text.split()).encode("utf-8")).hexdigest()
+
+
+def write_pending_amendment(
+    repo_dir: str | Path, slug: str, criteria: list[str], fdr_text: str
+) -> Path:
+    """Park an amendment until the build that earns it succeeds.
+
+    The Studio confirms a change in one process and builds it in a detached
+    subprocess minutes later, so the amendment cannot simply be applied at
+    confirmation time: a build that fails would leave the spec promising
+    behaviour that was never built, which is worse than the stale spec this
+    fixes. Parking it on disk also means it survives the Studio being closed.
+
+    Bound to the FDR by digest so a stale record can never attach itself to
+    an unrelated build that happens to finish next.
+    """
+    path = _amendment_path(repo_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        yaml.safe_dump(
+            {"spec_slug": slug, "criteria": [str(c) for c in criteria],
+             "fdr_digest": _fdr_digest(fdr_text)},
+            sort_keys=False, allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def apply_pending_amendment(repo_dir: str | Path, fdr_text: str) -> Spec | None:
+    """Spend a parked amendment iff THIS build is the one it was parked for.
+
+    Returns the amended spec, or None when there is nothing to apply. The
+    record is removed either way once it matches: a grant is spent once.
+    """
+    path = _amendment_path(repo_dir)
+    if not path.exists():
+        return None
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError:
+        path.unlink(missing_ok=True)
+        return None
+    if data.get("fdr_digest") != _fdr_digest(fdr_text):
+        return None
+    path.unlink(missing_ok=True)
+    try:
+        return amend_spec_criteria(
+            repo_dir, str(data.get("spec_slug", "")), data.get("criteria") or []
+        )
+    except (FileNotFoundError, PermissionError, ValueError):
+        # The build succeeded; refusing to record it is not a reason to
+        # report the founder's change as failed. The spec stays stale and
+        # the SCR stays unspent — both visible, neither destructive.
+        return None

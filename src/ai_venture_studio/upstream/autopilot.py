@@ -31,7 +31,11 @@ from ai_venture_studio.upstream.plan import (
     reusable_plan,
     run_planning,
 )
-from ai_venture_studio.upstream.spec import approve_spec, run_spec_stage
+from ai_venture_studio.upstream.spec import (
+    apply_pending_amendment,
+    approve_spec,
+    run_spec_stage,
+)
 from ai_venture_studio.upstream.build import run_build
 from ai_venture_studio.yamlx import extract_mapping
 
@@ -809,22 +813,35 @@ def _resume_outcomes(root: Path) -> list[TaskOutcome]:
     return kept
 
 
-def _post_build_artifacts(
-    root: Path, *, provider: str, model: str, fdr_text: str, outcomes, status: str
+def refresh_evidence(
+    root: Path, *, provider: str, model: str, fdr_text: str
 ) -> None:
-    """M2/M4/M5/M7 wiring: outcomes record (retry UX), screenshots,
-    acceptance walkthrough, telemetry module, undo checkpoint."""
-    (root / "product").mkdir(exist_ok=True)
-    (root / "product" / "outcomes.yaml").write_text(
-        yaml.safe_dump([o.model_dump() for o in outcomes], sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
-    try:
-        from ai_venture_studio.upstream.telemetry import install_telemetry
-        from ai_venture_studio.upstream.workspace import load_project
+    """Everything derived FROM the built product: the acceptance walkthrough,
+    the verification checklist, the screenshots.
 
+    Split out of `_post_build_artifacts` because a FEATURE build must run
+    it too. It used to be reachable only from the first build, so after a
+    change the Studio kept serving the pictures and the verification rows
+    of the product as it was BEFORE the founder changed it — with a green
+    success message above them. While a change was a no-op that staleness
+    was accidentally honest; the moment changes really rebuild, it is the
+    Studio lying about the founder's own product.
+
+    What is NOT here is deliberate. `outcomes.yaml` is the FIRST build's
+    per-module record, and feature outcomes are kept out of it on purpose
+    (`persist=False` below) — rewriting it with a feature's two tasks would
+    erase the main build's failures and turn the home page green. Telemetry
+    installation is idempotent and profile-level, not product-derived.
+
+    Best-effort by contract: evidence never fails a build that succeeded.
+    """
+    from ai_venture_studio.upstream.workspace import load_project
+
+    try:
         profile = load_project(root).profile
-        install_telemetry(root, profile)
+    except Exception:  # noqa: BLE001 — no project, nothing to derive
+        return
+    try:
         from ai_venture_studio.upstream.walkthrough import generate_walkthrough
 
         generate_walkthrough(
@@ -849,6 +866,26 @@ def _post_build_artifacts(
             )
     except Exception:  # noqa: BLE001 — artifacts never fail the build
         pass
+
+
+def _post_build_artifacts(
+    root: Path, *, provider: str, model: str, fdr_text: str, outcomes, status: str
+) -> None:
+    """M2/M4/M5/M7 wiring: outcomes record (retry UX), screenshots,
+    acceptance walkthrough, telemetry module, undo checkpoint."""
+    (root / "product").mkdir(exist_ok=True)
+    (root / "product" / "outcomes.yaml").write_text(
+        yaml.safe_dump([o.model_dump() for o in outcomes], sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    try:
+        from ai_venture_studio.upstream.telemetry import install_telemetry
+        from ai_venture_studio.upstream.workspace import load_project
+
+        install_telemetry(root, load_project(root).profile)
+    except Exception:  # noqa: BLE001 — artifacts never fail the build
+        pass
+    refresh_evidence(root, provider=provider, model=model, fdr_text=fdr_text)
     if status == "completed":
         tag_checkpoint(root)
 
@@ -1315,14 +1352,13 @@ def run_feature(
     (feature_dir / "REPORT.md").write_text(report, encoding="utf-8")
     built_count = sum(1 for o in outcomes if o.status == "built")
     if outcomes and built_count == len(outcomes):
+        # The spec is amended BEFORE the evidence is derived: the walkthrough
+        # and the verification probes are generated from the criteria, so
+        # refreshing them first would re-derive the founder's acceptance list
+        # from the contract they just changed away from.
+        apply_pending_amendment(root, fdr_text)
         tag_checkpoint(root)
-        try:
-            from ai_venture_studio.upstream.walkthrough import generate_walkthrough
-
-            generate_walkthrough(root, provider=provider, model=model,
-                                 language_sample=fdr_text)
-        except Exception:  # noqa: BLE001
-            pass
+        refresh_evidence(root, provider=provider, model=model, fdr_text=fdr_text)
     return AutopilotResult(
         status="completed" if outcomes and built_count == len(outcomes) else "failed",
         assessment=assessment, confirmation=confirmation, outcomes=outcomes,

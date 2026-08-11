@@ -103,7 +103,10 @@ class MockProvider(Provider):
         if REPORTER_MARKER in system:
             return "mock 确认/报告：会做 X，不做 Y。(plain-language output)"
         from ai_venture_studio.studio_chat import EXTRACTOR_MARKER
-        from ai_venture_studio.upstream.correction import CORRECTION_MARKER
+        from ai_venture_studio.upstream.correction import (
+            CHANGE_MARKER,
+            CORRECTION_MARKER,
+        )
         from ai_venture_studio.upstream.telemetry import DIGEST_MARKER
         from ai_venture_studio.upstream.walkthrough import WALKTHROUGH_MARKER
 
@@ -144,6 +147,27 @@ class MockProvider(Provider):
                     "instruction": "apply the founder's correction",
                 })
             return yaml.safe_dump({"issues": issues}, allow_unicode=True)
+        if CHANGE_MARKER in system:
+            # The founder's words become one added criterion on top of the
+            # feature's existing ones — the smallest thing that is still a
+            # real amendment, so a test can tell an applied change from an
+            # ignored one without a model.
+            words = re.search(
+                r"<founder_words>\n(.*?)\n</founder_words>", user, re.DOTALL
+            )
+            asked = (words.group(1) if words else "").strip()
+            current = re.findall(
+                r"^- (.+)$", user.split("<founder_words>")[0], re.MULTILINE
+            )
+            return yaml.safe_dump(
+                {
+                    "summary": f"mock change: {asked}"[:120],
+                    "criteria": current + [f"The system shall {asked}"],
+                    "assumptions": [f"mock assumption about {asked}"[:80]],
+                    "fdr": f"# mock change\n\n{asked}\n",
+                },
+                allow_unicode=True,
+            )
         if WALKTHROUGH_MARKER in system:
             return "(mock: not a checklist)"  # forces the deterministic fallback
         if DIGEST_MARKER in system:

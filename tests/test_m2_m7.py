@@ -91,15 +91,28 @@ def test_correction_fix_path_commits_repair(tmp_path):
     ).stdout
 
 
-def test_correction_scope_change_raises_approved_scr(tmp_path):
+def test_correction_scope_change_drafts_before_it_authorizes(tmp_path):
+    """A requirement change comes back as a PLAN. Nothing is authorized by
+    describing it — the SCR is raised by `apply_change`, once the founder
+    has actually said go — so a draft nobody accepted leaves no approved,
+    unconsumed grant behind."""
+    from ai_venture_studio.upstream.correction import apply_change
+
     root = _built_workspace(tmp_path)
     result = run_correction(root, "新增：住户可以取消订单", provider="mock")
-    assert result.status == "scr_raised"
+    assert result.status == "change_planned"
+    assert result.plan and result.plan.criteria
+    assert not list((root / ".mas" / "scr").glob("SCR-*.yaml"))
+
+    fdr_path = apply_change(root, result.plan)
+
+    assert fdr_path.read_text(encoding="utf-8").strip()
     scr = yaml.safe_load(
         next((root / ".mas" / "scr").glob("SCR-*.yaml")).read_text()
     )
     assert scr["status"] == "approved"
-    assert "founder correction" in scr["reason"]
+    # The founder's own words, not the model's summary of them (ADR-U02).
+    assert "住户可以取消订单" in scr["reason"]
 
 
 # --- M5: telemetry + digest -----------------------------------------------------

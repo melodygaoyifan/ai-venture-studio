@@ -211,11 +211,27 @@ def _walk_all_states(client, root) -> dict[str, list[tuple[str, str]]]:
     spec_one.write_text(yaml.safe_dump({
         "slug": "one", "title": "one", "request": "one (task:t1)", "built": True,
         "criteria": ["The system shall list items newest first."],
+        # A whole Spec, not a stub: the change path reads it through
+        # load_spec, and a fixture missing a required field would render a
+        # ValidationError page that still counts as "a state".
+        "profile": "web", "design": "one module", "test_skeletons": [],
     }), encoding="utf-8")
     pages.append(
         client.post("/correct", data={
             "complaint": "the button on the task form should say Add task",
         }).text
+    )
+
+    # 7c. The change-drafted result: a requirement change comes back as a
+    # plan with its own "make this change" button, which is the only place
+    # /correct/change is rendered. Drafting writes nothing to the workspace,
+    # so this state does not disturb the ones after it.
+    pages.append(
+        client.post("/correct/confirm", data={
+            "complaint": "actually I want to sort them oldest first",
+            "spec_slug": "one", "kind": "scope_change",
+            "instruction": "sort items oldest first",
+        }, follow_redirects=False).text
     )
 
     # 8. Engineer and enterprise modes (v0.56) — the mode cards render
@@ -325,6 +341,16 @@ _POST_BODIES: dict[str, list[dict[str, str]]] = {
         {"complaint": "a\nb", "include": ["0", "1"],
          "spec_slug": ["one", "no-such-spec"], "kind": ["fix", "fix"],
          "quote": ["a", "b"], "instruction": ["x", "y"]},
+    ],
+    # Pressing "make this change" with junk, with a well-formed absent spec,
+    # and with an empty acceptance list. The real draft→press→build path is
+    # pinned in tests/test_studio_correction.py; here the point is that a
+    # hand-edited hidden field cannot 500 or reach the filesystem.
+    "/correct/change": [
+        {"plan": "not json"},
+        {"plan": '{"spec_slug": "../../etc", "summary": "s", "criteria": ["c"]}'},
+        {"plan": '{"spec_slug": "no-such-spec", "summary": "s", "criteria": ["c"]}'},
+        {"plan": '{"spec_slug": "one", "summary": "s", "criteria": []}'},
     ],
     "/retry": [{"task_id": "t2"}],
     "/undo": [{}],

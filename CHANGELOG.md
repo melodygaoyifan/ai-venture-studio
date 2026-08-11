@@ -4,6 +4,104 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.74.0 — "actually, make it X" is a button now, not a sentence
+
+Minor. A founder tells the Studio their requirement has changed. Until this
+release the whole path ended at a line of text:
+
+> re-run `avs add`/`spec` for 'cart' to regenerate
+
+printed in a browser, to someone who has never opened a terminal, under a
+green tick reporting that their complaint had been handled. Nothing was
+built. Nothing was scheduled. The spec still described the product they had
+just changed away from.
+
+**The change is now drafted, then built.** `draft_change` reads the spec and
+returns a plan — a plain-language summary, the complete post-change
+acceptance criteria, and the assumptions made on the founder's behalf. The
+assumptions are on the card rather than in the report afterwards, because a
+wrong one is cheap to catch before a build and expensive to catch inside a
+product. Drafting is pure: it writes nothing and raises nothing, so a
+founder who reads it and closes the tab leaves the workspace exactly as they
+found it.
+
+That last property is a fix, not a nicety. The old path raised **and
+approved** the SCR at classification time — before the founder had agreed to
+anything. Somebody who read the plan and decided against it left an
+approved, unconsumed grant behind: a banked free pass to edit a frozen spec,
+earned by a person who had chosen not to change anything. `apply_change`
+now does the raising, and the founder's press is what calls it.
+
+**The amendment is parked, not applied.** The Studio confirms in one process
+and builds in a detached subprocess minutes later, so there is no moment at
+which "the founder agreed" and "the build succeeded" are both true and in
+the same process. The criteria are written to `.mas/pending-amendment.yaml`,
+bound to the FDR by a sha256 of its whitespace-normalised text so a record
+left by an abandoned change cannot attach itself to whatever gets built
+next, and `run_feature` spends it only when **every** task built. A spec
+promising behaviour that failed to build would be worse than the stale spec
+this whole path exists to fix: it is the one file `avs status` and the
+acceptance page treat as the truth.
+
+**Amending re-stamps `approved_hash`.** `criteria` is inside
+`contract_hash`, and `_approval_drift` refuses to build any spec whose
+contract no longer matches its stamp. An amendment that changed the criteria
+without re-stamping would make the founder's own approved change look
+exactly like someone editing a frozen spec behind the SCR channel's back,
+and §13.35.5 would refuse every later build of that slug — permanently.
+Re-stamping is what ratification means. `test_skeletons` are deliberately
+untouched: they belong to the build that authored the test files now on
+disk, and the feature build has already written its own.
+
+Two smaller rules that the tests pin: the SCR records `plan.words` — the
+founder's own sentence — and never `plan.summary`, because a paraphrase
+filed as the authorization is a record of a decision nobody made (ADR-U02);
+and an empty criteria list is refused rather than ratified, since a spec
+that promises nothing passes every gate that follows it.
+
+**The other half: the evidence is refreshed after a change.** This would not
+have been noticed until the first half worked, which is why it ships with
+it. `_post_build_artifacts` wrote six artifacts; the feature path
+hand-inlined two of them. Screenshots and `VERIFICATION.md` came only from
+the first build — so a founder would change the cart, press "what does it
+look like", and be shown the old cart under a green success message. While a
+change was a no-op that staleness was accidentally honest.
+
+`refresh_evidence` is split out and called by both paths. What is *not* in
+it is deliberate: `outcomes.yaml` stays the first build's per-module record
+(`persist=False`), because rewriting it with a feature's two tasks would
+erase the main build's failures and turn the home page green. Evidence is
+best-effort by contract — it never fails a build that succeeded.
+
+Capture itself needed three fixes to be worth re-running:
+
+- **It photographs the product, not its front door.** `capture` was called
+  with the default `["/"]`, so a five-page product got one picture of the
+  home page — and after a change that touched checkout, the one picture was
+  of the page that had not moved. `discover_paths` scans the product's own
+  route decorators, caps at 8, and skips parameterised routes, because there
+  is no id to substitute and a 404 screenshot is worse than a missing one.
+- **The port is asked for, not assumed.** 8642 was survivable while capture
+  ran once per workspace lifetime. It now runs after every change, where a
+  leftover server — or the founder's own `avs preview` — would make every
+  subsequent screenshot a picture of the wrong process.
+- **Stale pictures are pruned, but never over a failure.** A page the
+  founder deleted must lose its picture; an empty capture run means the
+  capture failed, and deleting the last evidence of the product over a
+  failure is its own bug.
+
+And when there is nothing to photograph, the page says why. `capture` had
+always written its reason to `screenshots.yaml` — playwright missing, no
+runnable entry, the server never listened — and nothing read it, so the
+founder saw an empty space and concluded the Studio was broken.
+
+Contract surface: `POST /correct/change` is a new Studio route;
+`.mas/pending-amendment.yaml` is a new internal file; `avs correct` gains
+`--yes` and a `change_planned` status; `spec.yaml` is written by a new
+caller (the SCR channel is unchanged). All additive.
+
+Suite 1761 hermetic tests, 8 skipped.
+
 ## v0.73.0 — a founder says three things and gets three answers
 
 Minor. A founder wrote one message listing three problems with their

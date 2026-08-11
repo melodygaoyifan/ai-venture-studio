@@ -16,6 +16,10 @@ out too late what their sentence did:
 
 from __future__ import annotations
 
+import html
+import json
+import os
+import re
 import shutil
 import subprocess
 
@@ -62,7 +66,10 @@ def built(tmp_path):
     spec_dir.mkdir(parents=True, exist_ok=True)
     (spec_dir / "spec.yaml").write_text(yaml.safe_dump({
         "slug": "tasks", "title": "Task list", "built": True,
-        "request": "a task list", "design": "one module",
+        # `profile` is not decoration: the change path loads the whole spec
+        # through load_spec, so a fixture missing a required field renders a
+        # ValidationError page instead of the behaviour under test.
+        "request": "a task list", "design": "one module", "profile": "web",
         "criteria": ["The system shall show a button labelled Submit."],
         "test_skeletons": [],
     }), encoding="utf-8")
@@ -179,23 +186,126 @@ def test_confirming_executes_the_classification_that_was_shown(built, monkeypatc
     assert "fixed" in log and "Add task" in log
 
 
-def test_a_confirmed_scope_change_really_raises_the_scr(built):
-    """End to end on the mock: the confirmed classification is the one that
-    executes, and the founder's words are the recorded authorization."""
-    client, root = built
-    client.post("/correct/confirm", data={
-        "complaint": "this is a new requirement: let people cancel an order",
+WORDS = "this is a new requirement: let people cancel an order"
+
+
+def _plan_from(page: str) -> dict:
+    """The plan the page is actually offering to build.
+
+    Read out of the rendered HTML rather than rebuilt in the test: the
+    round trip through the hidden field IS the mechanism — the confirmation
+    arrives in a second request, and anything the page failed to carry is
+    gone by then.
+    """
+    field = re.search(r"name=plan value=\"(.*?)\">", page, re.DOTALL)
+    assert field, "the change card carried no plan"
+    return json.loads(html.unescape(field.group(1)))
+
+
+def _draft(client) -> str:
+    """The change-drafted page a founder gets from a confirmed scope change."""
+    return client.post("/correct/confirm", data={
+        "complaint": WORDS,
         "spec_slug": "tasks",
         "kind": "scope_change",
         "instruction": "add order cancellation",
-    }, follow_redirects=False)
+    }, follow_redirects=False).text
+
+
+def test_a_scope_change_comes_back_as_a_plan_and_changes_nothing_yet(built):
+    """Reading a draft is not agreeing to it.
+
+    This used to raise and approve the SCR at classification time, so a
+    founder who read the plan and closed the tab left an approved,
+    unconsumed grant behind — a banked free pass to edit a frozen spec,
+    earned by someone who had decided NOT to change anything.
+    """
+    client, root = built
+    page = _draft(client)
+
+    assert "/correct/change" in page, "no button to make the change"
+    assert not list((root / ".mas" / "scr").glob("*.yaml")), "SCR raised too early"
+    assert not (root / ".mas" / "pending-amendment.yaml").exists()
+    assert not (root / ".mas" / "pending-change.md").exists()
+    log = (root / "product" / "CORRECTION-LOG.md").read_text(encoding="utf-8")
+    assert "change_planned" in log
+
+
+def test_pressing_make_this_change_authorizes_it_in_the_founders_words(built):
+    """The press is the authorization, and what it records is what the
+    founder said — not the model's summary of it (ADR-U02)."""
+    client, root = built
+    plan = _plan_from(_draft(client))
+    assert plan["words"] == WORDS
+
+    client.post("/correct/change", data={"plan": json.dumps(plan)},
+                follow_redirects=False)
 
     scrs = sorted((root / ".mas" / "scr").glob("*.yaml"))
     assert scrs, "no SCR was raised"
-    body = scrs[0].read_text(encoding="utf-8")
-    assert "let people cancel an order" in body
-    log = (root / "product" / "CORRECTION-LOG.md").read_text(encoding="utf-8")
-    assert "scr_raised" in log
+    scr = yaml.safe_load(scrs[0].read_text(encoding="utf-8"))
+    assert WORDS in scr["reason"]
+    assert scr["status"] == "approved"
+    # Parked, not applied: the spec only changes if the build succeeds.
+    assert (root / ".mas" / "pending-amendment.yaml").exists()
+    spec = yaml.safe_load(
+        (root / "specs" / "tasks" / "spec.yaml").read_text(encoding="utf-8")
+    )
+    assert "cancel" not in yaml.safe_dump(spec.get("criteria") or [])
+
+
+def test_a_change_does_not_start_a_second_build_on_a_busy_workspace(built):
+    """Two builds on one workspace corrupt it. The refusal has to happen
+    BEFORE the SCR, or a founder who pressed during a build would bank an
+    approved grant against a change that never ran."""
+    client, root = built
+    plan = _plan_from(_draft(client))
+    (root / ".mas").mkdir(exist_ok=True)
+    (root / ".mas" / "build.pid").write_text(str(os.getpid()), encoding="utf-8")
+
+    page = client.post("/correct/change", data={"plan": json.dumps(plan)}).text
+
+    assert "NOT started" in page or "还没开始" in page
+    assert not list((root / ".mas" / "scr").glob("*.yaml"))
+    assert not (root / ".mas" / "pending-change.md").exists()
+
+
+@pytest.mark.parametrize(
+    ("lang", "expected", "forbidden"),
+    [("en", "Make this change", "改"), ("zh", "就这么改", None)],
+)
+def test_the_change_card_is_written_in_the_founders_language(
+    built, lang, expected, forbidden
+):
+    """`lang` is a CONSTRUCTION parameter, not a cookie — a smoke test that
+    sets a cookie renders English and passes without proving anything. So
+    the app is rebuilt in the language under test."""
+    _client, root = built
+    client = TestClient(
+        create_studio_app(root, spawn=lambda r: 1, provider="mock", lang=lang),
+        raise_server_exceptions=False,
+    )
+
+    page = _draft(client)
+
+    assert expected in page
+    assert "chg_" not in page, "an untranslated key reached the page"
+    if forbidden:
+        assert forbidden not in page
+
+
+def test_a_hand_edited_plan_never_ratifies_an_empty_contract(built):
+    """`criteria` becomes the acceptance contract. An empty one would ratify
+    a spec that promises nothing, and every later gate would pass it."""
+    client, root = built
+    plan = _plan_from(_draft(client))
+    plan["criteria"] = []
+
+    client.post("/correct/change", data={"plan": json.dumps(plan)},
+                follow_redirects=False)
+
+    assert not list((root / ".mas" / "scr").glob("*.yaml"))
+    assert not (root / ".mas" / "pending-amendment.yaml").exists()
 
 
 def test_a_slug_from_the_form_is_never_taken_on_trust(built):
@@ -295,7 +405,7 @@ def three_built(built):
         spec_dir.mkdir(parents=True, exist_ok=True)
         (spec_dir / "spec.yaml").write_text(yaml.safe_dump({
             "slug": slug, "title": title, "built": True,
-            "request": title, "design": "one module",
+            "request": title, "design": "one module", "profile": "web",
             "criteria": [f"The system shall provide {title}."],
             "test_skeletons": [],
         }), encoding="utf-8")

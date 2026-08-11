@@ -126,6 +126,26 @@ def set_tick(root: Path, row: Row, *, on: bool) -> None:
     )
 
 
+def screenshot_note(root: Path) -> str:
+    """Why there are no pictures, when there are none.
+
+    `capture` already explains itself — playwright missing, no runnable
+    entry, the server never listened — and `screenshots.yaml` already
+    stores that sentence. Nothing read it, so a founder whose product
+    could not be photographed saw an empty space and concluded the
+    Studio was broken, or worse, saw the PREVIOUS build's pictures with
+    nothing to say they were old.
+    """
+    path = Path(root) / "product" / "screenshots.yaml"
+    if not path.exists():
+        return ""
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError:
+        return ""
+    return str(data.get("note", "")) if isinstance(data, dict) else ""
+
+
 def preview_plan(root: Path, profile: str) -> tuple[str, str]:
     """(how to run it, which entry point) — exactly what `avs preview`
     would do, named rather than performed.
@@ -173,11 +193,13 @@ def try_body(
     gallery = "".join(
         f"<img class=shot src='/shots/{html.escape(shot.name)}'>" for shot in shots
     )
+    note = screenshot_note(root)
     left = (
         f"<div class=colcard><div class=collab>{t_('try_left_head')}</div>"
         f"{run}"
         + (f"<div class=lbl>{t_('h_screenshots')}</div>{gallery}"
            if gallery else f"<p class=muted>{t_('try_no_shots')}</p>")
+        + (f"<p class=muted>{html.escape(note)}</p>" if note and not gallery else "")
         + "</div>"
     )
 

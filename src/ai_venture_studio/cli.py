@@ -1278,23 +1278,54 @@ def correct(
     complaint: str = typer.Argument(..., help="What's wrong, in your own words"),
     repo_dir: str = typer.Option(".", help="Workspace directory"),
     provider: str = typer.Option("anthropic", help="Provider (e.g. 'mock')"),
+    yes: bool = typer.Option(
+        False, "--yes", help="Build the drafted changes without asking"
+    ),
 ):
-    """M3 — 这不是我要的: repairs go through the fix path, scope changes
-    raise an SCR (your complaint IS the approval, recorded verbatim).
+    """M3 — 这不是我要的: repairs go through the fix path, requirement
+    changes come back as a DRAFT — what would change, and what was assumed —
+    and build only once you agree (your complaint IS the approval, recorded
+    verbatim).
 
     Raise several things at once and each is routed and answered on its own
     line — none is dropped for being second."""
-    from ai_venture_studio.upstream.correction import run_corrections
+    from ai_venture_studio.upstream.autopilot import run_feature
+    from ai_venture_studio.upstream.correction import apply_change, run_corrections
 
     results = run_corrections(repo_dir, complaint, provider=provider)
     if len(results) > 1:
         console.print(f"{len(results)} separate issues:")
     for result in results:
-        color = {"fixed": "green", "scr_raised": "yellow"}.get(result.status, "red")
+        color = {
+            "fixed": "green", "scr_raised": "yellow", "change_planned": "yellow",
+        }.get(result.status, "red")
         where = f"{result.spec_slug}: " if len(results) > 1 and result.spec_slug else ""
         console.print(
             f"[bold {color}]{result.status}[/bold {color}] — {where}{result.detail}"
         )
+        if result.status != "change_planned" or result.plan is None:
+            continue
+        # The assumptions are the decisions made on your behalf. They are
+        # printed BEFORE the build, not filed in the report afterwards,
+        # because a wrong one is cheap to catch here and expensive to catch
+        # in a built product.
+        for line in result.plan.assumptions:
+            console.print(f"    assumed: {line}")
+        for line in result.plan.criteria:
+            console.print(f"    [dim]after:[/dim] {line}")
+        if not yes:
+            console.print("  re-run with --yes to make this change")
+            continue
+        # One change at a time, in this process: `run_feature` amends the
+        # spec on success, and two of them racing on one workspace is the
+        # corruption the Studio's build guard exists to prevent.
+        built = run_feature(
+            repo_dir, apply_change(repo_dir, result.plan),
+            provider=provider, yes=True,
+        )
+        console.print(f"  build: {built.status}")
+        if built.status != "completed":
+            result.status = "error"
     # Exit non-zero if ANY issue failed: a run that repaired two of three
     # and exited 0 would report success for the one it could not do.
     if any(r.status == "error" for r in results):
