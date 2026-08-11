@@ -81,11 +81,11 @@ def built(tmp_path):
 
 def test_the_preview_reuses_the_one_router(built):
     _client, root = built
-    route = route_complaint(root, "the button should say Add task",
-                            provider="mock")
-    assert isinstance(route, CorrectionRoute)
-    assert route.spec_slug == "tasks"
-    assert route.kind == "fix"
+    routes = route_complaint(root, "the button should say Add task",
+                             provider="mock")
+    assert [type(r) for r in routes] == [CorrectionRoute]
+    assert routes[0].spec_slug == "tasks"
+    assert routes[0].kind == "fix"
 
 
 def test_a_complaint_is_classified_before_anything_happens(built):
@@ -250,7 +250,7 @@ def test_the_classification_is_guarded_against_a_double_submit(built):
         calls.append(1)
         started.set()
         release.wait(timeout=10)
-        return CorrectionRoute(spec_slug="tasks", kind="fix", instruction="x")
+        return [CorrectionRoute(spec_slug="tasks", kind="fix", instruction="x")]
 
     correction.route_complaint = slow
     try:
@@ -274,6 +274,182 @@ def test_route_complaint_raises_rather_than_returning_a_non_decision(tmp_path):
     root = init_workspace(tmp_path / "none", "none", "web")
     with pytest.raises(CorrectionRouteError, match="nothing built yet"):
         route_complaint(root, "it is wrong", provider="mock")
+
+
+# ── several problems in one message ──────────────────────────────────────
+#
+# A founder does not write one complaint per feature. They write what is
+# wrong with their product, and that is routinely three things at once —
+# which used to be routed to the ONE most responsible feature, repaired,
+# and reported as done, with the other two gone from the system entirely.
+
+
+@pytest.fixture
+def three_built(built):
+    """Three built features, so three problems have three real homes."""
+    _client, root = built
+    for slug, title in (
+        ("cart", "Cart and checkout"), ("reviews", "Product reviews"),
+    ):
+        spec_dir = root / "specs" / slug
+        spec_dir.mkdir(parents=True, exist_ok=True)
+        (spec_dir / "spec.yaml").write_text(yaml.safe_dump({
+            "slug": slug, "title": title, "built": True,
+            "request": title, "design": "one module",
+            "criteria": [f"The system shall provide {title}."],
+            "test_skeletons": [],
+        }), encoding="utf-8")
+    _commit(root, "feat: two more features")
+    return built
+
+
+THREE = "the tasks button is wrong\nthe cart total is wrong\nreviews show no stars"
+
+
+def test_three_problems_route_to_three_features(three_built):
+    _client, root = three_built
+    routes = route_complaint(root, THREE, provider="mock")
+    assert [r.spec_slug for r in routes] == ["tasks", "cart", "reviews"]
+    # …and each carries the founder's own words for ITS issue, so the
+    # repair prompt and the SCR are not handed two unrelated problems.
+    assert [r.quote for r in routes] == THREE.split("\n")
+
+
+def test_the_page_shows_every_issue_and_hides_none(three_built):
+    client, _root = three_built
+    page = client.post("/correct", data={"complaint": THREE},
+                       follow_redirects=True).text
+
+    assert "You raised 3 separate things" in page
+    for slug in ("tasks", "cart", "reviews"):
+        assert slug in page
+    # Every issue is individually selectable, and all start ticked: the
+    # founder said all three, so the default is to believe them.
+    assert page.count("name=include") == 3
+    assert page.count("checked") == 3
+    assert "Yes, do all 3" in page
+    assert "Nothing has been changed yet" in page
+
+
+def test_confirming_runs_every_issue_not_just_the_first(three_built, monkeypatch):
+    import ai_venture_studio.upstream.correction as correction
+
+    ran = []
+
+    def fake_run(root, complaint, *, provider="mock", model="", criterion="",
+                 route=None):
+        ran.append(route.spec_slug)
+        return correction.CorrectionResult(
+            status="fixed", spec_slug=route.spec_slug, kind=route.kind,
+            detail="repaired in 1 attempt(s)",
+        )
+
+    monkeypatch.setattr(correction, "run_correction", fake_run)
+    client, root = three_built
+    page = client.post("/correct/confirm", data={
+        "complaint": THREE,
+        "include": ["0", "1", "2"],
+        "spec_slug": ["tasks", "cart", "reviews"],
+        "kind": ["fix", "fix", "fix"],
+        "quote": THREE.split("\n"),
+        "instruction": ["a", "b", "c"],
+    }, follow_redirects=True).text
+
+    assert ran == ["tasks", "cart", "reviews"]
+    # …and the founder is told what happened to each, rather than being
+    # bounced home to infer it from a log file.
+    assert "What happened to each of the 3" in page
+    assert page.count("FIXED") == 3
+    log = (root / "product" / "CORRECTION-LOG.md").read_text(encoding="utf-8")
+    assert log.count("fixed") == 3
+
+
+def test_unticking_an_issue_leaves_it_undone(three_built, monkeypatch):
+    """The checkbox is the founder's, and it has to actually mean no."""
+    import ai_venture_studio.upstream.correction as correction
+
+    ran = []
+
+    def fake_run(root, complaint, *, provider="mock", model="", criterion="",
+                 route=None):
+        ran.append(route.spec_slug)
+        return correction.CorrectionResult(status="fixed",
+                                           spec_slug=route.spec_slug,
+                                           kind=route.kind, detail="ok")
+
+    monkeypatch.setattr(correction, "run_correction", fake_run)
+    client, _root = three_built
+    client.post("/correct/confirm", data={
+        "complaint": THREE,
+        "include": ["0", "2"],                       # issue 2 unticked
+        "spec_slug": ["tasks", "cart", "reviews"],
+        "kind": ["fix", "fix", "fix"],
+        "quote": THREE.split("\n"),
+        "instruction": ["a", "b", "c"],
+    }, follow_redirects=True)
+
+    assert ran == ["tasks", "reviews"]
+
+
+def test_one_issue_still_reads_as_one_thing(three_built):
+    """The plural must not tax the common case: one problem gets the same
+    single-decision page it always had, with no checkbox to consider."""
+    client, _root = three_built
+    page = client.post("/correct", data={
+        "complaint": "the tasks button is wrong",
+    }, follow_redirects=True).text
+
+    assert "SMALL FIX" in page
+    assert "repaired directly" in page
+    assert "Yes, fix it" in page
+    assert "name=include" not in page
+    assert "separate things" not in page
+
+
+def test_a_quote_that_is_not_the_founders_words_is_refused(three_built):
+    """A router asked to quote will sometimes summarise. A summary shown
+    back under "Your words" is a lie the founder cannot catch, so a quote
+    that is not a real span of what they wrote is dropped."""
+    import ai_venture_studio.upstream.correction as correction
+
+    routes = correction.route_complaint(three_built[1], THREE, provider="mock")
+    assert all(r.quote for r in routes)          # the mock quotes honestly
+
+    assert correction._is_verbatim("the cart total is wrong", THREE)
+    assert correction._is_verbatim("the  cart\ntotal is wrong", THREE)  # rewrapped
+    assert not correction._is_verbatim("the cart is broken somehow", THREE)
+    assert not correction._is_verbatim("", THREE)
+
+
+def test_run_correction_refuses_to_pick_one_of_several(three_built):
+    """The singular entry point must not quietly answer the first issue —
+    that IS the defect. It refuses and names the plural entry point."""
+    from ai_venture_studio.upstream.correction import run_correction
+
+    _client, root = three_built
+    result = run_correction(root, THREE, provider="mock")
+    assert result.status == "error"
+    assert "3 separate issues" in result.detail
+    assert "run_corrections" in result.detail
+
+
+def test_an_unroutable_issue_fails_the_whole_plan_loudly(three_built, monkeypatch):
+    """Keeping the routable issues and discarding the rest would be the
+    original defect wearing a plural."""
+    import ai_venture_studio.upstream.correction as correction
+
+    monkeypatch.setattr(
+        correction, "get_provider",
+        lambda _p: type("P", (), {"complete": staticmethod(lambda **k: yaml.safe_dump(
+            {"issues": [
+                {"quote": "a", "spec_slug": "tasks", "kind": "fix", "instruction": "x"},
+                {"quote": "b", "spec_slug": "ghost", "kind": "fix", "instruction": "y"},
+            ]}
+        ))})(),
+    )
+    _client, root = three_built
+    with pytest.raises(CorrectionRouteError, match="ghost"):
+        correction.route_complaint(root, THREE, provider="mock")
 
 
 # ── the change list, and the honesty of its label ────────────────────────

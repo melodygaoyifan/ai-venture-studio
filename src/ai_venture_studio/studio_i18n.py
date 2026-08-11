@@ -1409,6 +1409,41 @@ STRINGS: dict[str, dict[str, str]] = {
               "formal change with your own words as the authorization, and "
               "the feature is rebuilt from the new requirement.",
     },
+    "cls_many_head": {
+        "zh": "你一次说了 {n} 件事 / You raised {n} separate things",
+        "en": "You raised {n} separate things",
+    },
+    "cls_many_what": {
+        "zh": "它们分别属于不同的功能，所以会一件一件处理 —— 每件都单独改、"
+              "单独记录。不想现在处理的，把勾去掉就行。/ Each is handled on "
+              "its own; untick anything you do not want done now.",
+        "en": "They belong to different features, so each is handled on its "
+              "own — its own change, its own record. Nothing here is "
+              "bundled into anything else. Untick anything you did not "
+              "mean as a request.",
+    },
+    "cls_issue_n": {"zh": "第 {n} 件 / Issue {n}", "en": "Issue {n}"},
+    "btn_cls_confirm_all": {
+        "zh": "好，这 {n} 件都做 / Yes, do all {n}",
+        "en": "Yes, do all {n}",
+    },
+    "title_cls_result": {
+        "zh": "改完了 / What was done",
+        "en": "What was done",
+    },
+    "cls_result_head": {
+        "zh": "{n} 件，每件的结果 / What happened to each of the {n}",
+        "en": "What happened to each of the {n}",
+    },
+    "cls_res_fixed": {"zh": "已修好 / FIXED", "en": "FIXED"},
+    "cls_res_scr_raised": {
+        "zh": "已记为新需求 / RECORDED AS A NEW REQUIREMENT",
+        "en": "RECORDED AS A NEW REQUIREMENT",
+    },
+    "cls_res_error": {
+        "zh": "没能做成 / NOT DONE",
+        "en": "NOT DONE",
+    },
     "cls_your_words": {"zh": "你说的 / Your words", "en": "Your words"},
     "cls_criterion": {
         "zh": "对应的验收条件 / The criterion this came from",

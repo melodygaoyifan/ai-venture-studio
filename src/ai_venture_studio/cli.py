@@ -1280,13 +1280,24 @@ def correct(
     provider: str = typer.Option("anthropic", help="Provider (e.g. 'mock')"),
 ):
     """M3 — 这不是我要的: repairs go through the fix path, scope changes
-    raise an SCR (your complaint IS the approval, recorded verbatim)."""
-    from ai_venture_studio.upstream.correction import run_correction
+    raise an SCR (your complaint IS the approval, recorded verbatim).
 
-    result = run_correction(repo_dir, complaint, provider=provider)
-    color = {"fixed": "green", "scr_raised": "yellow"}.get(result.status, "red")
-    console.print(f"[bold {color}]{result.status}[/bold {color}] — {result.detail}")
-    if result.status == "error":
+    Raise several things at once and each is routed and answered on its own
+    line — none is dropped for being second."""
+    from ai_venture_studio.upstream.correction import run_corrections
+
+    results = run_corrections(repo_dir, complaint, provider=provider)
+    if len(results) > 1:
+        console.print(f"{len(results)} separate issues:")
+    for result in results:
+        color = {"fixed": "green", "scr_raised": "yellow"}.get(result.status, "red")
+        where = f"{result.spec_slug}: " if len(results) > 1 and result.spec_slug else ""
+        console.print(
+            f"[bold {color}]{result.status}[/bold {color}] — {where}{result.detail}"
+        )
+    # Exit non-zero if ANY issue failed: a run that repaired two of three
+    # and exited 0 would report success for the one it could not do.
+    if any(r.status == "error" for r in results):
         raise typer.Exit(code=1)
 
 

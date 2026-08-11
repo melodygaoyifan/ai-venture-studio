@@ -320,6 +320,11 @@ _POST_BODIES: dict[str, list[dict[str, str]]] = {
     "/correct/confirm": [
         {"complaint": "say Add task", "spec_slug": "no-such-spec", "kind": "fix"},
         {"complaint": "say Add task", "spec_slug": "one", "kind": "carrier-pigeon"},
+        # Several issues in one message: the fields arrive as parallel
+        # repeated values, and a bad slug anywhere must still be caught.
+        {"complaint": "a\nb", "include": ["0", "1"],
+         "spec_slug": ["one", "no-such-spec"], "kind": ["fix", "fix"],
+         "quote": ["a", "b"], "instruction": ["x", "y"]},
     ],
     "/retry": [{"task_id": "t2"}],
     "/undo": [{}],

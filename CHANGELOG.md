@@ -4,6 +4,64 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.73.0 — a founder says three things and gets three answers
+
+Minor. A founder wrote one message listing three problems with their
+product. The Studio showed one classification card, repaired one feature,
+and returned to the home page. The other two were not refused, not queued,
+not logged — they were gone, and nothing on screen ever said so. Reporting
+the same problem twice is what a founder does when the first report seems
+to have been read, so the failure was also self-concealing.
+
+It was singular in three places at once, which is why nothing caught it:
+
+- `_ROUTER_SYSTEM` said "map the complaint to the ONE responsible feature"
+  and gave the model a reply shape — `spec_slug` / `kind` / `instruction` —
+  with no field a second issue could occupy. A model asked for one answer
+  is not withholding the rest; it has nowhere to put them.
+- `route_complaint` validated that the one returned slug exists. Nothing
+  compared the routed issue against the message it came from, so leftover
+  problems were not a state the system could be in.
+- The repair stage collected `_related_sources` for the routed spec only,
+  so even a router that had somehow named three features would have handed
+  the implementer the files of one.
+
+Now the router splits first. `route_complaint` returns a **list** — one
+route per distinct problem, in the founder's order — and each route carries
+the founder's own words for *its* issue. That quote is checked the way
+intake checks a "said" value (§13.26.7): a whitespace-normalised span of
+what they actually wrote, or it is dropped, because a summary shown back
+under the heading "Your words" is a lie the founder cannot catch. A slug
+the workspace does not have fails the whole plan loudly rather than
+routing the rest — keeping the routable issues and discarding the others
+would be the original defect wearing a plural.
+
+The classification page shows every issue as its own card, with the whole
+original message above the split so the founder can see nothing of theirs
+went missing. Each card has a checkbox, ticked, because "fix all three"
+and "fix the first, I was thinking aloud about the others" are both
+reasonable and only the founder knows which. Confirming runs every ticked
+issue as its own repair against its own spec — one correction, one commit,
+one log line, unchanged — and the founder lands on a page stating what
+happened to each, instead of a redirect home that was fine for one result
+and a lie for three.
+
+Details:
+
+- `run_corrections` is the new entry point; `run_correction` still repairs
+  exactly one issue, and now **refuses** when handed an unrouted complaint
+  that turns out to hold several, naming the plural entry point. Silently
+  picking the first is the defect, so it is not a fallback.
+- One issue that cannot be repaired does not stop the ones after it. Every
+  issue gets a result, whatever it is.
+- `avs correct` prints one line per issue and **exits 1 if any failed** — a
+  run that repaired two of three and exited 0 reports success for the one
+  it could not do.
+- The router's `max_tokens` went 512 → 2048. A truncated list parses as
+  valid YAML that is quietly short, which is this bug again.
+- A single-issue complaint renders exactly the page it always did: one
+  decision, no checkbox, no plural. The fix must not tax the common case.
+
 ## v0.72.3 — the scheduler tells you when it is running an old build
 
 Patch. Releasing v0.72.2 exposed the gap between *published* and *deployed*:

@@ -2405,8 +2405,49 @@ def create_studio_app(
             raise HTTPException(404)
         return FileResponse(path)
 
+    def _issue_card(index: int, route, many: bool) -> str:
+        """One routed issue, with its own promise stated on its own card.
+
+        Each carries a checkbox when there are several, because "fix all
+        three" and "fix the first one, I was only thinking aloud about the
+        others" are both reasonable and only the founder knows which.
+        """
+        scope = route.kind == "scope_change"
+        chip = _("cls_scope_chip") if scope else _("cls_fix_chip")
+        # The founder's own words for THIS issue when the router quoted
+        # them verbatim; the check that they ARE verbatim already happened
+        # in the router, so anything here is safe to show under "Your words".
+        quoted = (
+            f"<div class=lbl style='margin-top:0'>{_('cls_your_words')}</div>"
+            f"<p>{html.escape(route.quote)}</p>" if route.quote else ""
+        )
+        box = (
+            f"<label class=lbl style='margin-top:0'>"
+            f"<input type=checkbox name=include value='{index}' checked> "
+            f"{_('cls_issue_n').format(n=index + 1)}</label>" if many else ""
+        )
+        return (
+            "<div class=card>"
+            + box
+            + f"<div class=stateline style='margin:6px 0 10px'>"
+            f"<span class='sdot {'amber' if scope else 'green'}'></span>"
+            f"<span class='slabel {'warn' if scope else 'ok'}'>{chip}</span></div>"
+            + quoted
+            + f"<div class=lbl>{_('cls_feature')}</div>"
+            f"<p><code>{html.escape(route.spec_slug)}</code></p>"
+            f"<div class=lbl>{_('cls_instruction')}</div>"
+            f"<p class=muted>{html.escape(route.instruction)}</p>"
+            # Aligned with `include` by position, so unticking issue 2
+            # cannot shift what issue 3 means.
+            f"<input type=hidden name=spec_slug value='{html.escape(route.spec_slug)}'>"
+            f"<input type=hidden name=kind value='{html.escape(route.kind)}'>"
+            f"<input type=hidden name=quote value='{html.escape(route.quote)}'>"
+            f"<input type=hidden name=instruction value='{html.escape(route.instruction)}'>"
+            "</div>"
+        )
+
     def _classification_page(
-        request: Request, complaint: str, criterion: str, route
+        request: Request, complaint: str, criterion: str, routes: list
     ) -> HTMLResponse:
         """What the router decided, before it is acted on.
 
@@ -2414,44 +2455,125 @@ def create_studio_app(
         directly, a new requirement becomes its own small build — and the
         founder is the only one who knows which they meant. Two plain
         forms: confirm what it says, or reword it and route again.
+
+        A founder listing three problems in one message gets three cards,
+        not the first one silently answered. That was worth the plural:
+        the page is where the split becomes visible, and a split the
+        founder cannot see is the same as a split that did not happen.
         """
-        scope = route.kind == "scope_change"
+        many = len(routes) > 1
+        scope = any(r.kind == "scope_change" for r in routes)
+        if many:
+            head = f"<h1>{_('cls_many_head').format(n=len(routes))}</h1>"
+            lead = f"<p>{_('cls_many_what')}</p>"
+            # The whole message stays on the page above the split, so the
+            # founder can check nothing of theirs went missing.
+            said = (
+                "<div class=card>"
+                f"<div class=lbl style='margin-top:0'>{_('cls_your_words')}</div>"
+                f"<p>{html.escape(complaint)}</p></div>"
+            )
+        else:
+            one = routes[0]
+            one_scope = one.kind == "scope_change"
+            head = (
+                "<div class=stateline>"
+                f"<span class='sdot {'amber' if one_scope else 'green'}'></span>"
+                f"<span class='slabel {'warn' if one_scope else 'ok'}'>"
+                f"{_('cls_scope_chip') if one_scope else _('cls_fix_chip')}"
+                "</span></div>"
+                f"<h1>{_('cls_scope_head') if one_scope else _('cls_fix_head')}</h1>"
+            )
+            lead = f"<p>{_('cls_scope_what') if one_scope else _('cls_fix_what')}</p>"
+            said = (
+                "<div class=card>"
+                f"<div class=lbl style='margin-top:0'>{_('cls_your_words')}</div>"
+                f"<p>{html.escape(complaint)}</p>"
+                + (f"<div class=lbl>{_('cls_criterion')}</div>"
+                   f"<p class=muted>{html.escape(criterion)}</p>" if criterion else "")
+                + f"<div class=lbl>{_('cls_feature')}</div>"
+                f"<p><code>{html.escape(routes[0].spec_slug)}</code></p>"
+                f"<div class=lbl>{_('cls_instruction')}</div>"
+                f"<p class=muted>{html.escape(routes[0].instruction)}</p></div>"
+            )
+        if many:
+            crit = (
+                "<div class=card>"
+                f"<div class=lbl style='margin-top:0'>{_('cls_criterion')}</div>"
+                f"<p class=muted>{html.escape(criterion)}</p></div>"
+                if criterion else ""
+            )
+            cards = crit + "".join(
+                _issue_card(i, r, True) for i, r in enumerate(routes)
+            )
+        else:
+            # The single card already said everything; repeating it would
+            # only add a checkbox with nothing to choose between.
+            cards = ""
+        if many:
+            button = _("btn_cls_confirm_all").format(n=len(routes))
+        else:
+            button = (
+                _("btn_cls_confirm_scope") if scope else _("btn_cls_confirm_fix")
+            )
+        # Confirm: the classification the founder just read is the one that
+        # executes — the routes travel with the form rather than being
+        # decided a second time.
+        hidden = "" if many else (
+            f"<input type=hidden name=spec_slug value='{html.escape(routes[0].spec_slug)}'>"
+            f"<input type=hidden name=kind value='{html.escape(routes[0].kind)}'>"
+            f"<input type=hidden name=quote value='{html.escape(routes[0].quote)}'>"
+            f"<input type=hidden name=instruction value='{html.escape(routes[0].instruction)}'>"
+        )
         return _render(
             request, _("title_classify"),
-            "<div class=stateline>"
-            f"<span class='sdot {'amber' if scope else 'green'}'></span>"
-            f"<span class='slabel {'warn' if scope else 'ok'}'>"
-            f"{_('cls_scope_chip') if scope else _('cls_fix_chip')}</span></div>"
-            f"<h1>{_('cls_scope_head') if scope else _('cls_fix_head')}</h1>"
-            f"<p>{_('cls_scope_what') if scope else _('cls_fix_what')}</p>"
-            "<div class=card>"
-            f"<div class=lbl style='margin-top:0'>{_('cls_your_words')}</div>"
-            f"<p>{html.escape(complaint)}</p>"
-            + (f"<div class=lbl>{_('cls_criterion')}</div>"
-               f"<p class=muted>{html.escape(criterion)}</p>" if criterion else "")
-            + f"<div class=lbl>{_('cls_feature')}</div>"
-            f"<p><code>{html.escape(route.spec_slug)}</code></p>"
-            f"<div class=lbl>{_('cls_instruction')}</div>"
-            f"<p class=muted>{html.escape(route.instruction)}</p></div>"
-            # Confirm: the classification the founder just read is the one
-            # that executes — the route travels with the form rather than
-            # being decided a second time.
-            "<form method=post action=/correct/confirm>"
-            f"<input type=hidden name=complaint value='{html.escape(complaint)}'>"
-            f"<input type=hidden name=criterion value='{html.escape(criterion)}'>"
-            f"<input type=hidden name=spec_slug value='{html.escape(route.spec_slug)}'>"
-            f"<input type=hidden name=kind value='{html.escape(route.kind)}'>"
-            f"<input type=hidden name=instruction value='{html.escape(route.instruction)}'>"
-            f"<button class=primary>"
-            f"{_('btn_cls_confirm_scope') if scope else _('btn_cls_confirm_fix')}"
-            "</button></form>"
-            "<form method=post action=/correct style='margin-top:18px'>"
-            f"<div class=lbl>{_('cls_reword')}</div>"
-            f"<input type=hidden name=criterion value='{html.escape(criterion)}'>"
-            f"<textarea name=complaint>{html.escape(complaint)}</textarea>"
-            f"<p><button class=secondary>{_('btn_cls_reword')}</button></p>"
-            "</form>"
-            f"<p class=muted>{_('cls_nothing_yet')}</p>",
+            head + lead + said
+            + "<form method=post action=/correct/confirm>"
+            + f"<input type=hidden name=complaint value='{html.escape(complaint)}'>"
+            + f"<input type=hidden name=criterion value='{html.escape(criterion)}'>"
+            + cards + hidden
+            + f"<button class=primary>{button}</button></form>"
+            + "<form method=post action=/correct style='margin-top:18px'>"
+            + f"<div class=lbl>{_('cls_reword')}</div>"
+            + f"<input type=hidden name=criterion value='{html.escape(criterion)}'>"
+            + f"<textarea name=complaint>{html.escape(complaint)}</textarea>"
+            + f"<p><button class=secondary>{_('btn_cls_reword')}</button></p>"
+            + "</form>"
+            + f"<p class=muted>{_('cls_nothing_yet')}</p>",
+            h1="",
+        )
+
+    def _correction_result_page(
+        request: Request, results: list
+    ) -> HTMLResponse:
+        """What each issue actually got. A redirect home was fine for one
+        repair and a lie for three — it left the founder to infer from a
+        log file whether the second and third had happened."""
+        # dot colour, label class, string key — one row per status the
+        # correction path can end in, so an unrecognised one still renders
+        # as a plain red row rather than a KeyError on the results page.
+        look = {
+            "fixed": ("green", "ok", "cls_res_fixed"),
+            "scr_raised": ("amber", "warn", "cls_res_scr_raised"),
+            "error": ("red", "warn", "cls_res_error"),
+        }
+        rows = ""
+        for r in results:
+            dot, klass, key = look.get(r.status, ("red", "warn", "cls_res_error"))
+            rows += (
+                "<div class=card>"
+                "<div class=stateline style='margin-top:0'>"
+                f"<span class='sdot {dot}'></span>"
+                f"<span class='slabel {klass}'>{_(key)}</span></div>"
+                + (f"<p><code>{html.escape(r.spec_slug)}</code></p>"
+                   if r.spec_slug else "")
+                + f"<p class=muted>{html.escape(r.detail)}</p></div>"
+            )
+        return _render(
+            request, _("title_cls_result"),
+            f"<h1>{_('cls_result_head').format(n=len(results))}</h1>"
+            + rows
+            + f"<p><a href='/'>{_('link_back')}</a></p>",
             h1="",
         )
 
@@ -2485,7 +2607,7 @@ def create_studio_app(
 
         thinking["correct"] = _("working_correct")
         try:
-            route = await run_in_threadpool(
+            routes = await run_in_threadpool(
                 lambda: correction_mod.route_complaint(
                     root, complaint, provider=provider, criterion=criterion
                 )
@@ -2503,7 +2625,7 @@ def create_studio_app(
             return _failure_page(request, exc)
         finally:
             thinking.pop("correct", None)
-        return _classification_page(request, complaint, criterion, route)
+        return _classification_page(request, complaint, criterion, routes)
 
     @app.post("/correct/confirm")
     async def correct_confirm(request: Request):
@@ -2512,44 +2634,69 @@ def create_studio_app(
             return _thinking_page(request, thinking["correct"])
         from ai_venture_studio.upstream.correction import (
             CorrectionRoute,
-            run_correction,
+            run_corrections,
         )
 
         form = await request.form()
         complaint = str(form.get("complaint", "")).strip()
         criterion = str(form.get("criterion", "")).strip()
-        slug = str(form.get("spec_slug", ""))
-        kind = str(form.get("kind", "fix"))
-        # `spec_slug` becomes a directory name under specs/, so it gets the
-        # same segment rule as every other identifier arriving from a form —
-        # and `kind` decides between two very different actions, so it is
-        # checked against the two it is allowed to be.
-        if not complaint or not _REVIEW_ID.match(slug) or kind not in (
-            "fix", "scope_change"
-        ):
+        # The classification page sends one hidden field per issue, in the
+        # order it showed them, so these lists are parallel by position.
+        slugs = [str(s) for s in form.getlist("spec_slug")]
+        kinds = [str(k) for k in form.getlist("kind")]
+        quotes = [str(q) for q in form.getlist("quote")]
+        instructions = [str(i) for i in form.getlist("instruction")]
+        if not complaint or not slugs or len(kinds) != len(slugs):
             return RedirectResponse("/", status_code=303)
-        if not (root / "specs" / slug / "spec.yaml").is_file():
-            return _no_such_page(request, "title_no_spec", slug)
-        route = CorrectionRoute(
-            spec_slug=slug, kind=kind,
-            instruction=str(form.get("instruction", "")) or complaint,
-        )
+        # Which issues the founder left ticked. A page with a single issue
+        # renders no checkbox at all, so "no boxes sent" means all of them
+        # — but an explicit tick of none is an explicit nothing to do.
+        if "include" in form:
+            chosen = {
+                int(v) for v in form.getlist("include")
+                if str(v).isdigit() and int(v) < len(slugs)
+            }
+        else:
+            chosen = set(range(len(slugs)))
+        routes = []
+        for i, slug in enumerate(slugs):
+            if i not in chosen:
+                continue
+            kind = kinds[i]
+            # `spec_slug` becomes a directory name under specs/, so it gets
+            # the same segment rule as every other identifier arriving from
+            # a form — and `kind` decides between two very different
+            # actions, so it is checked against the two it is allowed to be.
+            if not _REVIEW_ID.match(slug) or kind not in ("fix", "scope_change"):
+                return RedirectResponse("/", status_code=303)
+            if not (root / "specs" / slug / "spec.yaml").is_file():
+                return _no_such_page(request, "title_no_spec", slug)
+            routes.append(CorrectionRoute(
+                spec_slug=slug, kind=kind,
+                quote=quotes[i] if i < len(quotes) else "",
+                instruction=(
+                    instructions[i] if i < len(instructions) else ""
+                ) or complaint,
+            ))
+        if not routes:
+            return RedirectResponse("/", status_code=303)
         from starlette.concurrency import run_in_threadpool
 
         thinking["correct"] = _("working_correct")
         try:
-            result = await run_in_threadpool(
-                lambda: run_correction(
+            results = await run_in_threadpool(
+                lambda: run_corrections(
                     root, complaint, provider=provider,
-                    criterion=criterion, route=route,
+                    criterion=criterion, routes=routes,
                 )
             )
         except Exception as exc:  # noqa: BLE001 — a page, never a 500
             return _failure_page(request, exc)
         finally:
             thinking.pop("correct", None)
-        _log_correction(complaint, result)
-        return RedirectResponse("/", status_code=303)
+        for route, result in zip(routes, results):
+            _log_correction(route.words(complaint), result)
+        return _correction_result_page(request, results)
 
     def _no_such_page(request: Request, title_key: str, what: str) -> HTMLResponse:
         """A named thing the workspace does not have. Redirecting home would

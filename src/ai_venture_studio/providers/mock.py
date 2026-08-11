@@ -110,19 +110,40 @@ class MockProvider(Provider):
         if EXTRACTOR_MARKER in system:
             return self._intake_extract(user)
         if CORRECTION_MARKER in system:
-            slug = re.search(r"slug: ([\w-]+)", user)
-            # Both spellings of the same intent: the zh UI says 新增, and the
-            # en Studio's tests have to be able to reach the scope-change
-            # branch without writing Chinese into an English page.
-            kind = (
-                "scope_change"
-                if "新增" in user or "new requirement" in user.lower()
-                else "fix"
+            slugs = re.findall(r"slug: ([\w-]+)", user)
+            body = re.search(
+                r"<complaint>\n(.*?)\n</complaint>", user, re.DOTALL
             )
-            return yaml.safe_dump(
-                {"spec_slug": slug.group(1) if slug else "unknown",
-                 "kind": kind, "instruction": "apply the founder's correction"}
-            )
+            # One issue per non-empty line — the shape a founder actually
+            # pastes when several things are wrong at once, and the only
+            # split a mock can make without a model. A single-line
+            # complaint therefore still yields exactly one issue.
+            lines = [
+                ln.strip() for ln in (body.group(1) if body else user).splitlines()
+                if ln.strip()
+            ] or [""]
+            issues = []
+            for line in lines:
+                # Both spellings of the same intent: the zh UI says 新增, and
+                # the en Studio's tests have to be able to reach the
+                # scope-change branch without writing Chinese into an
+                # English page.
+                kind = (
+                    "scope_change"
+                    if "新增" in line or "new requirement" in line.lower()
+                    else "fix"
+                )
+                # A line naming a feature routes to it, so a multi-issue
+                # complaint can land on several specs the way a real
+                # router would.
+                named = next((s for s in slugs if s in line), None)
+                issues.append({
+                    "quote": line,
+                    "spec_slug": named or (slugs[0] if slugs else "unknown"),
+                    "kind": kind,
+                    "instruction": "apply the founder's correction",
+                })
+            return yaml.safe_dump({"issues": issues}, allow_unicode=True)
         if WALKTHROUGH_MARKER in system:
             return "(mock: not a checklist)"  # forces the deterministic fallback
         if DIGEST_MARKER in system:
