@@ -100,7 +100,8 @@ Contract surface: `POST /correct/change` is a new Studio route;
 `--yes` and a `change_planned` status; `spec.yaml` is written by a new
 caller (the SCR channel is unchanged). All additive.
 
-Suite 1761 hermetic tests, 8 skipped.
+Suite 1766 hermetic tests (as measured by CI at the tag; 1761 locally,
+where the five mutation-testing cases skip for want of `mutmut`).
 
 ## v0.73.0 — a founder says three things and gets three answers
 
