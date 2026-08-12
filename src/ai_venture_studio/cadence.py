@@ -468,6 +468,10 @@ ENV_POINTERS = (
     "AWS_PROFILE",
     "AWS_REGION",
     "AVS_PROVIDER",
+    # The alert's destination, as a pointer to a file. The URL itself is a
+    # credential (see ENV_SECRETS below) — anyone holding it can post into
+    # the channel — so it obeys the same rule as a model key.
+    "AVS_DISCORD_WEBHOOK_FILE",
 )
 
 #: Raw secrets, never copied. Refused *by name* so the operator learns which
@@ -478,6 +482,7 @@ ENV_SECRETS = (
     "OPENAI_API_KEY",
     "GEMINI_API_KEY",
     "AWS_SECRET_ACCESS_KEY",
+    "AVS_DISCORD_WEBHOOK",
 )
 
 
@@ -508,9 +513,13 @@ def scheduled_env(
             warnings.append(
                 f"{name} is set in your shell but will NOT be written to the "
                 f"plist — a secret does not belong in a readable file. Put the "
-                f"key in a file and export {name}_FILE instead."
+                f"value in a file and export {name}_FILE instead."
             )
-    if not any(n.endswith("_FILE") for n in env):
+    # `_KEY_FILE`, not `_FILE`: the alert webhook is also a `*_FILE` pointer,
+    # and counting it here would let a workspace that can notify but cannot
+    # authenticate pass as fully configured — the missing-credential warning
+    # would vanish the day someone set up Discord.
+    if not any(n.endswith("_KEY_FILE") for n in env):
         warnings.append(
             "No *_KEY_FILE pointer found, so the scheduled run may reach its "
             "provider without a credential. Loops that need one will fail into "
@@ -522,6 +531,7 @@ def scheduled_env(
 def render_plist(
     workspace: str | pathlib.Path, *, executable: str | None = None,
     hour: int = 9, minute: int = 0, env: dict[str, str] | None = None,
+    notify: bool = False,
 ) -> bytes:
     """The LaunchAgent, as plist bytes.
 
@@ -541,6 +551,10 @@ def render_plist(
         "Label": LAUNCH_AGENT_LABEL,
         "ProgramArguments": [
             binary, "cadence", "--repo-dir", str(root), "--run-due",
+            # The flag is in the plist rather than inferred from the presence
+            # of a webhook: the scheduled run is the one nobody watches, so
+            # what it does has to be readable in the file itself.
+            *(["--notify"] if notify else []),
         ],
         "WorkingDirectory": str(root),
         # Daily, not weekly. A weekly timer has one chance to be missed; the
@@ -560,7 +574,7 @@ def render_plist(
 def install_agent(
     workspace: str | pathlib.Path, *, executable: str | None = None,
     hour: int = 9, minute: int = 0, load: bool = True,
-    plist_path: pathlib.Path | None = None,
+    plist_path: pathlib.Path | None = None, notify: bool = False,
 ) -> dict:
     """Write the LaunchAgent, and by default ask launchd to load it.
 
@@ -589,9 +603,29 @@ def install_agent(
     binary = executable or shutil.which("avs") or sys.executable
     env, warnings = scheduled_env(binary=binary)
     body = render_plist(
-        root, executable=executable, hour=hour, minute=minute, env=env
+        root, executable=executable, hour=hour, minute=minute, env=env,
+        notify=notify,
     )
     path.write_bytes(body)
+    if notify:
+        from ai_venture_studio import notify as _notify
+
+        # launchd sets HOME, so the saved default file is reachable from the
+        # scheduled run with nothing carried in the plist at all — it counts
+        # as configured. Said at install time either way, because the
+        # alternative is finding out on the morning the alert mattered, and
+        # the point of the alert is that nobody reads the log that failure
+        # would land in.
+        reachable = any(k.startswith("AVS_DISCORD_WEBHOOK") for k in env) or (
+            _notify.default_webhook_path().exists()
+        )
+        if not reachable:
+            warnings.append(
+                "--notify is armed but there is no webhook to send through. "
+                "Run `avs cadence --set-webhook <url>` (or export "
+                "AVS_DISCORD_WEBHOOK_FILE and re-run --install), or the "
+                "scheduled alert will fail every morning."
+            )
     command = ["launchctl", "bootstrap", f"gui/{_uid()}", str(path)]
     result = {
         "plist": str(path),
@@ -602,6 +636,7 @@ def install_agent(
         "command": " ".join(command),
         "env_keys": sorted(k for k in env if k != "PATH"),
         "warnings": warnings,
+        "notify": bool(notify),
     }
     if not load:
         return result

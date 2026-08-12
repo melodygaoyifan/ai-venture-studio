@@ -379,7 +379,7 @@ def test_install_reports_what_it_carried(tmp_path, monkeypatch):
     )
     # The real shell may export any of these; the assertion is about what the
     # installer carries, not about this machine.
-    for name in cadence.ENV_SECRETS:
+    for name in (*cadence.ENV_SECRETS, *cadence.ENV_POINTERS):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY_FILE", "/Users/x/.secrets/k")
     done = cadence.install_agent(
@@ -387,6 +387,90 @@ def test_install_reports_what_it_carried(tmp_path, monkeypatch):
         plist_path=tmp_path / "agent.plist",
     )
     assert done["env_keys"] == ["ANTHROPIC_API_KEY_FILE"]
+    assert done["warnings"] == []
+
+
+def test_the_webhook_pointer_travels_but_the_webhook_itself_does_not(tmp_path):
+    """A Discord webhook URL is a credential: whoever holds it can post into
+    the channel as this app. So it follows the same rule as a model key —
+    the pointer goes into the world-readable plist, the URL never does."""
+    env, warnings = cadence.scheduled_env({
+        "ANTHROPIC_API_KEY_FILE": "/Users/x/.secrets/k",
+        "AVS_DISCORD_WEBHOOK_FILE": "/Users/x/.secrets/hook",
+        "AVS_DISCORD_WEBHOOK": "https://discord.com/api/webhooks/1/REAL",
+    })
+    assert env["AVS_DISCORD_WEBHOOK_FILE"] == "/Users/x/.secrets/hook"
+    assert "AVS_DISCORD_WEBHOOK" not in env
+    assert not any("REAL" in value for value in env.values())
+    assert any("AVS_DISCORD_WEBHOOK" in w and "_FILE" in w for w in warnings)
+
+    body = plistlib.loads(cadence.render_plist(tmp_path, env=env))
+    assert "REAL" not in plistlib.dumps(body).decode()
+
+
+def test_a_webhook_is_not_a_model_credential(tmp_path):
+    """The trap this guards: the webhook pointer also ends in `_FILE`, so a
+    naive "is anything pointed at a secret?" check would read a workspace
+    that can notify but cannot authenticate as fully configured — and the
+    09:00 run would fail every morning with no warning at install time."""
+    _, warnings = cadence.scheduled_env(
+        {"AVS_DISCORD_WEBHOOK_FILE": "/Users/x/.secrets/hook"}
+    )
+    assert any("without a credential" in w for w in warnings)
+
+
+def test_the_scheduler_only_notifies_when_asked(tmp_path):
+    plain = plistlib.loads(cadence.render_plist(tmp_path))
+    asked = plistlib.loads(cadence.render_plist(tmp_path, notify=True))
+    assert "--notify" not in plain["ProgramArguments"]
+    assert "--notify" in asked["ProgramArguments"]
+
+
+def test_installing_alerts_with_nowhere_to_send_them_warns(tmp_path, monkeypatch):
+    """Otherwise the install prints success, the plist carries `--notify`, and
+    every morning the alert fails to a log — the exact silence it was
+    installed to end."""
+    from ai_venture_studio import notify as notifier
+
+    (tmp_path / ".mas").mkdir()
+    monkeypatch.setattr(
+        cadence, "agent_log_path", lambda: tmp_path / "logs" / "loops.log"
+    )
+    monkeypatch.setattr(
+        notifier, "DEFAULT_WEBHOOK_PATH", str(tmp_path / "cfg" / "hook")
+    )
+    for name in (*cadence.ENV_SECRETS, *cadence.ENV_POINTERS):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY_FILE", "/Users/x/.secrets/k")
+    done = cadence.install_agent(
+        tmp_path, executable="/usr/local/bin/avs", load=False, notify=True,
+        plist_path=tmp_path / "agent.plist",
+    )
+    assert done["notify"] is True
+    assert any("--set-webhook" in w for w in done["warnings"])
+
+
+def test_a_saved_webhook_counts_as_configured(tmp_path, monkeypatch):
+    """launchd sets HOME, so the saved file is reachable from the scheduled
+    run with nothing carried in the plist — warning about it anyway would
+    train the operator to scroll past install warnings."""
+    from ai_venture_studio import notify as notifier
+
+    (tmp_path / ".mas").mkdir()
+    monkeypatch.setattr(
+        cadence, "agent_log_path", lambda: tmp_path / "logs" / "loops.log"
+    )
+    monkeypatch.setattr(
+        notifier, "DEFAULT_WEBHOOK_PATH", str(tmp_path / "cfg" / "hook")
+    )
+    notifier.save_webhook("https://discord.com/api/webhooks/1/abc")
+    for name in (*cadence.ENV_SECRETS, *cadence.ENV_POINTERS):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY_FILE", "/Users/x/.secrets/k")
+    done = cadence.install_agent(
+        tmp_path, executable="/usr/local/bin/avs", load=False, notify=True,
+        plist_path=tmp_path / "agent.plist",
+    )
     assert done["warnings"] == []
 
 

@@ -4,6 +4,57 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.79.0 — the alert leaves the machine
+
+Minor. The daily LaunchAgent has been doing its job since v0.72.0: at 09:00
+it runs the due loops, exits 3 when one needs a person, and writes the
+reason to `~/Library/Logs/ai-venture-studio/loops.log`. Nobody opens that
+file. So the machine noticed, told nothing that listens, and the week
+passed — the same silent-success shape the loops exist to prevent, one
+level up. Weekly maintenance that depends on the operator remembering to go
+look is not maintenance; it is a reminder they have to set themselves.
+
+`avs cadence --notify` posts the alert to a Discord webhook. Three rules
+shape it, and each one is a way the notifier could be worse than the log:
+
+- **Only when something needs a person.** No daily "all green". A channel
+  that speaks every morning is a channel that gets muted, and then the one
+  message that mattered is muted with it. `build_alert` returns `None` when
+  nothing is stale, vacuous, or behind.
+- **Not the same thing every morning.** An overdue weekly loop stays overdue
+  until someone acts. The alert is identified by a hash of its **content**,
+  not its date, so tomorrow's identical alert is recognised as already said
+  and held for `REPEAT_DAYS`; a *changed* alert goes out immediately,
+  because delaying new news would make the channel less trustworthy than
+  the log it replaces.
+- **Carry the command, not the diagnosis.** The reader is on a phone. Each
+  line says what is true and gives them something to paste — including the
+  `avs attention …` command, marked as the one no scheduler can answer, and
+  the v0.78.0 empty-window cause, which has to survive the trip.
+
+Setup is one command: `avs cadence --set-webhook <url>` validates the URL
+before it touches disk (an unvalidated one would sit there looking
+configured and fail once a week at 09:00, into the log this feature exists
+to stop using), writes it `0600`, and never echoes it back — the terminal
+scrolls, and whoever reads it can post as this app. `resolve_webhook` then
+finds it with no environment at all, which is the case that matters:
+launchd hands a job four variables and no login shell, so a feature
+configured only by an `export` would be missed by the one run that counts.
+
+The webhook URL is a credential: whoever holds it can post into the channel
+as this app. It follows the rule the scheduler already enforces —
+`AVS_DISCORD_WEBHOOK_FILE` (a pointer) travels into the plist, which is a
+world-readable file in `~/Library/LaunchAgents`; `AVS_DISCORD_WEBHOOK` (the
+URL itself) is refused there by name. The missing-credential check moved
+from `*_FILE` to `*_KEY_FILE` in the same change: the webhook pointer also
+ends in `_FILE`, so without that a workspace that can notify but cannot
+authenticate would have installed clean and failed every morning.
+
+A failed delivery is never recorded as sent — otherwise the dedupe
+suppresses tomorrow's retry of an alert that never arrived, and silence is
+remembered as success. And `--notify` does not change the exit code:
+telling someone is not fixing it.
+
 ## v0.78.0 — an empty window says which kind of empty
 
 Minor. `avs cadence` reported the compounding loop green over a workspace

@@ -3486,6 +3486,21 @@ def cadence_cmd(
         help="With --install, load it into launchd now (default: write the "
              "plist and print the command for you to run)",
     ),
+    notify: bool = typer.Option(
+        False, "--notify",
+        help="Post the alert to Discord when a loop needs a person (with "
+             "--install, arm the scheduled run to do it every day)",
+    ),
+    force_notify: bool = typer.Option(
+        False, "--force-notify",
+        help="Send even if the same alert went out recently — for checking "
+             "that the webhook works",
+    ),
+    set_webhook: str = typer.Option(
+        None, "--set-webhook", metavar="URL",
+        help="Save the Discord webhook URL (0600) so --notify and the daily "
+             "run can find it without any environment setup",
+    ),
 ):
     """Which recurring loop is overdue, and the trigger that keeps them from
     lapsing. Reads the artifacts compound/sweep/attention already write; a
@@ -3495,6 +3510,23 @@ def cadence_cmd(
     import datetime as _dt
 
     from ai_venture_studio import cadence as cad
+
+    if set_webhook:
+        from ai_venture_studio import notify as notifier
+
+        try:
+            saved = notifier.save_webhook(set_webhook)
+        except notifier.NotifyError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(code=2) from exc
+        # The URL is never echoed: this scrolls back in a terminal, and
+        # whoever reads it can post into the channel as this app.
+        console.print(f"[green]saved[/green] {saved} (readable only by you)")
+        console.print(
+            "  [dim]Next: [bold]avs cadence --install --notify --arm[/bold] "
+            "for the daily run, or add --notify to any cadence run.[/dim]"
+        )
+        return
 
     if uninstall:
         removed = cad.uninstall_agent()
@@ -3508,13 +3540,17 @@ def cadence_cmd(
         try:
             hour, _, minute = at.partition(":")
             done = cad.install_agent(
-                repo_dir, hour=int(hour), minute=int(minute or 0), load=arm
+                repo_dir, hour=int(hour), minute=int(minute or 0), load=arm,
+                notify=notify,
             )
         except (ValueError, cad.CadenceError) as exc:
             console.print(f"[red]{exc}[/red]")
             raise typer.Exit(code=2) from exc
         console.print(f"[green]wrote[/green] {done['plist']}")
-        console.print(f"  {done['schedule']} → avs cadence --run-due")
+        console.print(
+            f"  {done['schedule']} → avs cadence --run-due"
+            + (" --notify" if done.get("notify") else "")
+        )
         console.print(f"  workspace: {done['workspace']}")
         console.print(f"  log: {done['log']}")
         if done["env_keys"]:
@@ -3602,6 +3638,24 @@ def cadence_cmd(
             f"  [bold]{build.binary.replace('/avs', '/pip')} install --upgrade "
             f"ai-venture-studio[/bold]"
         )
+
+    if notify or force_notify:
+        from ai_venture_studio import notify as notifier
+
+        # Delivery is reported, never assumed. A notifier that fails silently
+        # is worse than no notifier: the log nobody reads at least did not
+        # claim to have told anyone.
+        try:
+            outcome = notifier.notify(
+                repo_dir, report, build, today=day, force=force_notify
+            )
+        except notifier.NotifyError as exc:
+            console.print(f"[red]alert NOT sent: {exc}[/red]")
+        else:
+            if outcome.sent:
+                console.print("[green]alert sent to Discord[/green]")
+            else:
+                console.print(f"[dim]no alert: {outcome.reason}[/dim]")
 
     if report.stale or build.behind:
         raise typer.Exit(code=3)
