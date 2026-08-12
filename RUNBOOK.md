@@ -172,6 +172,25 @@ it, and it fires on its own schedule after that. Logs:
 `avs cadence --run-due` from cron or a systemd timer; the check is portable
 and only the LaunchAgent is macOS-only.
 
+**Do not plan to read that log.** Nobody does, and a machine that notices
+correctly and tells nothing that listens has failed in the same way the
+loops exist to prevent. Send the alert to where you already are:
+
+```bash
+avs cadence --set-webhook '<Discord webhook URL>'   # stored 0600, never echoed
+avs cadence --install --notify --arm
+avs cadence --force-notify                          # test message, now
+```
+
+The webhook URL is a credential — whoever holds it can post into that
+channel as this app — so it is stored outside the plist and found by the
+scheduled run with no environment setup at all. What arrives is only what
+needs a person: no daily all-green (a channel that speaks every morning is
+one you mute, along with the message that mattered), the same unchanged
+alert at most once a week, and each line carrying the command to paste
+rather than the diagnosis to interpret. `--notify` does not change the exit
+code — telling someone is not fixing it.
+
 Then, weekly:
 
 1. `avs compound --pr` — review and merge (or close) the proposal.
