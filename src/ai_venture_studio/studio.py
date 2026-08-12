@@ -2800,13 +2800,14 @@ def create_studio_app(
         someone technical for help it is the thing they need.
         """
         from ai_venture_studio.upstream import correction as correction_mod
-        # dot colour, label class, string key — one row per status the
-        # correction path can end in, so an unrecognised one still renders
-        # as a plain red row rather than a KeyError on the results page.
+        # dot colour, label class, string key — one row per status in
+        # `correction.STATUSES` and no more, checked by a test, so a status
+        # retired upstream cannot leave a row here that nothing can reach.
+        # An unrecognised status still renders as a plain red row rather
+        # than a KeyError on the results page.
         look = {
             "fixed": ("green", "ok", "cls_res_fixed"),
             "change_planned": ("amber", "warn", "cls_res_change_planned"),
-            "scr_raised": ("amber", "warn", "cls_res_scr_raised"),
             "error": ("red", "warn", "cls_res_error"),
         }
         rows = ""

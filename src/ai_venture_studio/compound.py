@@ -34,6 +34,16 @@ class Signals(BaseModel):
     taxonomy_counts: dict[str, int] = Field(default_factory=dict)
     recurring_titles: list[tuple[str, int]] = Field(default_factory=list)
     voter_block_rates: dict[str, str] = Field(default_factory=dict)
+    #: Every review final in the workspace, in the window or not. A window of
+    #: zero is ambiguous on its own: a loop pointed at a workspace nobody has
+    #: ever built and a loop over a workspace where the work stopped both read
+    #: "0 reviews", and only one of those is a misconfiguration. The founder
+    #: cannot tell them apart by looking, and the machine can.
+    reviews_on_disk: int = 0
+    #: The newest final's `written_at`, whatever its age. The distance between
+    #: this and the window IS the diagnosis — "the work stopped eleven days
+    #: ago" is a fact somebody can act on; "nothing to compound" is not.
+    newest_written_at: str = ""
 
     @property
     def has_material(self) -> bool:
@@ -59,6 +69,13 @@ def collect_signals(repo_dir: str | Path, days: int = 7) -> Signals:
     for final_path in sorted(reviews_dir.glob("*/[0-9]*-final.yaml")):
         data = yaml.safe_load(final_path.read_text(encoding="utf-8")) or {}
         written = data.get("written_at")
+        signals.reviews_on_disk += 1
+        if written:
+            # Kept as written, so the reader sees the review's own stamp
+            # rather than a date this module invented for it.
+            signals.newest_written_at = max(
+                signals.newest_written_at, str(written)
+            )
         if written and datetime.datetime.fromisoformat(str(written)) < cutoff:
             continue
         signals.review_count += 1
@@ -140,6 +157,19 @@ def render_proposal(signals: Signals, proposals: list[Proposal], *, date: str) -
         "",
         f"Window: {signals.review_count} review(s). "
         f"Verdicts: {signals.verdicts or '{}'}.",
+    ]
+    # Why the window was empty, on the artifact itself — `avs cadence` reads
+    # this file back and is otherwise left saying "nothing to compound",
+    # which names the symptom and no cause.
+    if signals.review_count == 0:
+        lines.append(
+            "Nothing reached this window: "
+            + (f"{signals.reviews_on_disk} review(s) exist, newest "
+               f"{signals.newest_written_at[:10]}."
+               if signals.reviews_on_disk and signals.newest_written_at
+               else "no review has ever been written here.")
+        )
+    lines += [
         "",
         "## Recurring signals",
     ]

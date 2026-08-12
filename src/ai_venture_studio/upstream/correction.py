@@ -176,8 +176,17 @@ REASONS = (
 )
 
 
+#: Every status a correction can end in — the one source both presenters
+#: read. It exists because they used to keep their own lists: a status
+#: (`scr_raised`) was removed from this module and stayed in the Studio's
+#: colour table and the CLI's for four releases, a row nothing could ever
+#: reach. A drifted table is not a visible bug, which is exactly why it
+#: survives; a shared tuple with a test on it cannot drift quietly.
+STATUSES = ("fixed", "change_planned", "error")
+
+
 class CorrectionResult(BaseModel):
-    status: str  # fixed | change_planned | scr_raised | error
+    status: str  # one of STATUSES
     spec_slug: str = ""
     kind: str = ""
     detail: str = ""

@@ -395,3 +395,51 @@ def test_an_idle_home_page_shows_no_clock(tmp_path):
     client, _root = _light(tmp_path)
 
     assert "Running for" not in client.get("/").text
+
+
+def test_the_status_vocabulary_is_closed():
+    """`STATUSES` has to name exactly the statuses the module constructs.
+
+    Read off the source rather than by exercising every path, because the
+    failure this guards is a status that no path reaches any more — which
+    is invisible to any test that runs the code."""
+    import inspect
+    import re
+
+    from ai_venture_studio.upstream import correction as correction_mod
+
+    built = set(re.findall(
+        r'status=["\'](\w+)["\']', inspect.getsource(correction_mod)
+    ))
+    assert built == set(correction_mod.STATUSES)
+
+
+def test_both_presenters_show_exactly_the_statuses_that_exist():
+    """The Studio's colour table and the CLI's used to keep their own
+    lists. `scr_raised` left this module in v0.73 and stayed in both of
+    them for four releases as a row nothing could ever reach — a dead row
+    is not a visible bug, which is why it survived. Neither list may name
+    a status that does not exist, nor miss one that does."""
+    import inspect
+    import re
+
+    from ai_venture_studio import cli, studio
+    from ai_venture_studio.upstream.correction import STATUSES
+
+    page = re.search(
+        r"look = \{(.*?)\}", inspect.getsource(studio), re.DOTALL
+    )
+    assert page, "the results page no longer has a status table"
+    assert set(re.findall(r'"(\w+)":', page.group(1))) == set(STATUSES)
+
+    terminal = re.search(
+        r"color = \{(.*?)\}\.get", inspect.getsource(cli.correct), re.DOTALL
+    )
+    assert terminal, "the CLI no longer colours correction results"
+    # `error` is the CLI's fallback rather than a row, so it colours the
+    # statuses it does not treat as ordinary — the set has to close either
+    # way round.
+    assert set(re.findall(r'"(\w+)":', terminal.group(1))) <= set(STATUSES)
+    assert set(STATUSES) - set(re.findall(r'"(\w+)":', terminal.group(1))) == {
+        "error"
+    }

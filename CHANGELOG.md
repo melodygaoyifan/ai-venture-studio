@@ -4,6 +4,35 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.78.0 — an empty window says which kind of empty
+
+Minor. `avs cadence` reported the compounding loop green over a workspace
+where it had read nothing for weeks, and the only sentence it had for that
+was `read 0 reviews — nothing to compound`. That names the symptom and no
+cause, and the two causes are opposites: a loop pointed at a workspace
+nobody ever built is a misconfiguration to fix, and a loop over a workspace
+where the work paused is a loop doing its job. The founder cannot tell them
+apart by looking. The machine can, and now does.
+
+`collect_signals` counts **every** review on disk and keeps the newest
+`written_at`, window or not — the distance between that stamp and the
+window is the diagnosis. `render_proposal` writes it onto the artifact
+(`Nothing reached this window: 9 review(s) exist, newest 2026-07-31.`, or
+`no review has ever been written here.`), `cadence` reads it back into
+`LoopStatus.empty_because` (`work_stopped` | `never_any` | `""`), and the
+CLI turns that into the line worth acting on: *the loop is almost certainly
+pointed at the wrong `--repo-dir`*, or *the loop is fine; the work is what
+paused*. The age is measured from the stamp, clamped at zero so a future
+date reads `0d old` rather than a negative one.
+
+Also: `scr_raised` left `correction.py` four releases ago and stayed behind
+in the results page's colour table and the CLI's — a row nothing could
+reach. A dead row is not a visible bug, which is why it survived. Both
+tables now key off a single `correction.STATUSES`, with tests asserting the
+module constructs exactly those statuses and that neither presenter names
+one that does not exist. Read off the source rather than by exercising the
+paths, because the failure being guarded is a status no path reaches.
+
 ## v0.77.0 — "not that", said with one tap
 
 Minor. A requirement change comes back as a draft: what will be different,

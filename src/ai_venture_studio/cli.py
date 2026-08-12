@@ -1297,7 +1297,7 @@ def correct(
         console.print(f"{len(results)} separate issues:")
     for result in results:
         color = {
-            "fixed": "green", "scr_raised": "yellow", "change_planned": "yellow",
+            "fixed": "green", "change_planned": "yellow",
         }.get(result.status, "red")
         where = f"{result.spec_slug}: " if len(results) > 1 and result.spec_slug else ""
         console.print(
@@ -3566,11 +3566,23 @@ def cadence_cmd(
     console.print(report.summary())
 
     for loop in report.vacuous:
+        # "Check that work is reaching it" was the whole advice, which leaves
+        # the founder to work out WHICH of two opposite problems they have:
+        # a loop watching the wrong directory, or a loop watching the right
+        # one while the work is paused. The run recorded which; say it.
+        hint = {
+            "never_any":
+                "No review has ever been written in this workspace — the "
+                "loop is almost certainly pointed at the wrong --repo-dir.",
+            "work_stopped":
+                "Reviews exist but all of them are older than the window — "
+                "the loop is fine; the work is what paused.",
+        }.get(loop.empty_because,
+              "Check that work is reaching it before trusting the green.")
         console.print(
             f"  [yellow]{loop.name} is on schedule but read nothing — the "
             f"cadence is being kept over an empty window.[/yellow]\n"
-            f"  [dim]Check that work is reaching it before trusting the "
-            f"green.[/dim]"
+            f"  [dim]{hint}[/dim]"
         )
 
     for loop in report.stale:

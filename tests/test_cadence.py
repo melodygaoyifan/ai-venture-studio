@@ -241,12 +241,18 @@ def test_install_writes_the_plist_but_arms_nothing(tmp_path, monkeypatch):
     assert plistlib.loads(target.read_bytes())["Label"] == cadence.LAUNCH_AGENT_LABEL
 
 
-def _proposal_text(root, date: str, *, reviews: int, barren: bool = True):
+def _proposal_text(root, date: str, *, reviews: int, barren: bool = True,
+                   why: str = ""):
     directory = root / ".mas" / "compound"
     directory.mkdir(parents=True, exist_ok=True)
     body = [
         f"# Compounding-loop proposal — {date}", "",
-        f"Window: {reviews} review(s). Verdicts: {{}}.", "",
+        f"Window: {reviews} review(s). Verdicts: {{}}.",
+    ]
+    if why:
+        body.append(f"Nothing reached this window: {why}")
+    body += [
+        "",
         "## Proposed CLAUDE.md constraints",
         "- (no constraint met the evidence bar this window)" if barren
         else "- always name the port explicitly",
@@ -559,3 +565,70 @@ def test_version_flag_reports_the_installed_build():
     result = CliRunner().invoke(app, ["--version"])
     assert result.exit_code == 0, result.output
     assert __version__ in result.output
+
+# ── an empty window has two opposite causes ──────────────────────────────
+
+
+def test_an_empty_window_says_the_work_stopped_when_that_is_why(tmp_path):
+    """"Nothing to compound" named the symptom and no cause, so the founder
+    was left to work out which of two opposite problems they had. Reviews on
+    disk, all older than the window, means the loop is doing its job."""
+    _proposal_text(tmp_path, "2026-08-04", reviews=0,
+                   why="15 review(s) exist, newest 2026-07-24.")
+    loop = _loop(cadence.assess(tmp_path, today=TODAY), "compound")
+
+    assert loop.vacuous is True
+    assert loop.empty_because == "work_stopped"
+    assert "15 on disk" in loop.produced
+    assert "2026-07-24" in loop.produced
+
+
+def test_the_age_of_the_newest_review_is_measured_not_recited(tmp_path):
+    """The actionable number is how long ago the work stopped, and it moves
+    every day the artifact does not."""
+    _proposal_text(tmp_path, "2026-08-04", reviews=0,
+                   why="3 review(s) exist, newest 2026-07-24.")
+    loop = _loop(cadence.assess(tmp_path, today=dt.date(2026, 8, 4)), "compound")
+
+    assert "11d old" in loop.produced
+
+
+def test_a_workspace_that_never_produced_a_review_says_so(tmp_path):
+    """The other cause, and the one that means the loop is watching the
+    wrong directory — an answer nobody can reach from "nothing to read"."""
+    _proposal_text(tmp_path, "2026-08-04", reviews=0,
+                   why="no review has ever been written here.")
+    loop = _loop(cadence.assess(tmp_path, today=TODAY), "compound")
+
+    assert loop.empty_because == "never_any"
+    assert "ever been written here" in loop.produced
+
+
+def test_an_older_artifact_is_not_made_to_confess_a_cause(tmp_path):
+    """A proposal written before the run recorded why says nothing about
+    why. It stays vacuous — that much is still true — and claims no
+    diagnosis it does not have."""
+    _proposal_text(tmp_path, "2026-08-04", reviews=0)
+    loop = _loop(cadence.assess(tmp_path, today=TODAY), "compound")
+
+    assert loop.vacuous is True
+    assert loop.empty_because == ""
+    assert "nothing to compound" in loop.produced
+
+
+def test_a_window_with_reviews_in_it_claims_no_emptiness(tmp_path):
+    _proposal_text(tmp_path, "2026-08-04", reviews=4, barren=False)
+    loop = _loop(cadence.assess(tmp_path, today=TODAY), "compound")
+
+    assert loop.vacuous is False
+    assert loop.empty_because == ""
+
+
+def test_a_future_dated_review_is_not_reported_as_negative_days(tmp_path):
+    """Clock skew, or a hand-written date. Same rule `_classify` already
+    follows for a future-dated artifact: it means "recent", not "-3 days"."""
+    _proposal_text(tmp_path, "2026-08-04", reviews=0,
+                   why="2 review(s) exist, newest 2026-08-20.")
+    loop = _loop(cadence.assess(tmp_path, today=dt.date(2026, 8, 4)), "compound")
+
+    assert "0d old" in loop.produced

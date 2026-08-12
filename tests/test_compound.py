@@ -84,3 +84,70 @@ def test_render_proposal_mentions_human_gate(tmp_path):
     signals = collect_signals(tmp_path, days=7)
     report = render_proposal(signals, [], date="2026-07-22")
     assert "Human-gated" in report
+
+
+# ── an empty window records WHY it was empty ─────────────────────────────
+
+
+def _write_stale_final(tmp_path, review_id: str, *, days_ago: int):
+    review_dir = tmp_path / ".mas" / "reviews" / review_id
+    review_dir.mkdir(parents=True)
+    when = datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=days_ago)
+    (review_dir / "08-final.yaml").write_text(
+        yaml.safe_dump({"written_at": when.isoformat(), "verdict": "APPROVE",
+                        "findings": []})
+    )
+    return when
+
+
+def test_signals_count_the_reviews_the_window_left_behind(tmp_path):
+    """A window of zero is ambiguous by itself: a loop pointed at a workspace
+    nobody ever built and a loop over a workspace where the work stopped both
+    read "0 reviews", and only one of those is a misconfiguration."""
+    _write_stale_final(tmp_path, "old-1", days_ago=30)
+    newest = _write_stale_final(tmp_path, "old-2", days_ago=11)
+
+    signals = collect_signals(tmp_path, days=7)
+
+    assert signals.review_count == 0
+    assert signals.reviews_on_disk == 2
+    assert signals.newest_written_at.startswith(newest.date().isoformat())
+
+
+def test_a_workspace_with_no_reviews_at_all_says_nothing_it_cannot_know(tmp_path):
+    signals = collect_signals(tmp_path, days=7)
+
+    assert (signals.reviews_on_disk, signals.newest_written_at) == (0, "")
+
+
+def test_the_proposal_records_why_its_window_was_empty(tmp_path):
+    """`avs cadence` reads this file back. Without the sentence it can only
+    report the symptom — "nothing to compound" — which names no cause and
+    supports no decision."""
+    _write_stale_final(tmp_path, "old", days_ago=11)
+    signals = collect_signals(tmp_path, days=7)
+
+    report = render_proposal(signals, [], date="2026-08-12")
+
+    assert "Nothing reached this window: 1 review(s) exist, newest " in report
+    assert signals.newest_written_at[:10] in report
+
+
+def test_a_never_built_workspace_is_reported_as_such(tmp_path):
+    """The other cause, and the one that means the loop is watching the
+    wrong directory."""
+    report = render_proposal(collect_signals(tmp_path, days=7), [],
+                             date="2026-08-12")
+
+    assert "no review has ever been written here" in report
+
+
+def test_a_window_with_reviews_claims_no_emptiness(tmp_path):
+    """The sentence appears only when it is true — a run that read reviews
+    and found nothing worth proposing did real work."""
+    _write_final(tmp_path, "r1", ["X"])
+
+    report = render_proposal(collect_signals(tmp_path, days=7), [],
+                             date="2026-08-12")
+
+    assert "Nothing reached this window" not in report

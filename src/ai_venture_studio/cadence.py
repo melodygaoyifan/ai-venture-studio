@@ -83,6 +83,13 @@ class LoopStatus(BaseModel):
     #: is healthy — but reporting it as a plain "ok" would let a loop that
     #: compounds nothing read as a loop that is working.
     vacuous: bool = False
+    #: WHY it was empty, when the run recorded it: `never_any` (this workspace
+    #: has never produced a review — the loop is almost certainly pointed at
+    #: the wrong directory) or `work_stopped` (reviews exist, all older than
+    #: the window — the loop is fine and the work is what paused). Empty when
+    #: the artifact predates the distinction. Two opposite responses hid
+    #: behind one "nothing to read" until this.
+    empty_because: str = ""
 
     @property
     def needs_run(self) -> bool:
@@ -195,30 +202,53 @@ _WINDOW_RE = re.compile(r"Window:\s*(\d+)\s*review")
 
 #: The sentinel `render_proposal` writes when nothing cleared the evidence bar.
 _NO_CONSTRAINT = "no constraint met the evidence bar"
+#: What the run itself recorded about an empty window. Written by
+#: `compound.render_proposal`; absent from artifacts older than it, which is
+#: why every reader of it falls back rather than assuming.
+_EMPTY_WHY_RE = re.compile(
+    r"Nothing reached this window: (\d+) review\(s\) exist, "
+    r"newest (\d{4}-\d{2}-\d{2})"
+)
+_NEVER_WRITTEN = "no review has ever been written here"
 
 
-def _proposal_substance(path: str) -> tuple[int | None, str, bool]:
+def _proposal_substance(
+    path: str, today: dt.date
+) -> tuple[int | None, str, bool, str]:
     """What the last compounding run actually read, and whether it read at all.
 
-    Returns `(reviews, produced, vacuous)`. An unrecognised format returns
-    `(None, "", False)` — an older artifact says nothing about its own
-    substance, and guessing would be worse than silence.
+    Returns `(reviews, produced, vacuous, empty_because)`. An unrecognised
+    format returns `(None, "", False, "")` — an older artifact says nothing
+    about its own substance, and guessing would be worse than silence.
     """
     try:
         text = pathlib.Path(path).read_text(encoding="utf-8", errors="replace")
     except OSError:
-        return None, "", False
+        return None, "", False, ""
     found = _WINDOW_RE.search(text)
     if not found:
-        return None, "", False
+        return None, "", False, ""
     reviews = int(found.group(1))
     if reviews == 0:
         # The loop ran and wrote a file, so every date-based check calls it
-        # fresh. It compounded nothing, because nothing reached it.
-        return 0, "read 0 reviews — nothing to compound", True
+        # fresh. It compounded nothing, because nothing reached it — and the
+        # two ways that happens want opposite responses from the reader, so
+        # the report has to tell them apart instead of saying "nothing".
+        stale = _EMPTY_WHY_RE.search(text)
+        if stale:
+            count, newest = int(stale.group(1)), stale.group(2)
+            age = (today - dt.date.fromisoformat(newest)).days
+            return 0, (
+                f"read 0 reviews — {count} on disk, newest {newest} "
+                f"({max(age, 0)}d old)"
+            ), True, "work_stopped"
+        if _NEVER_WRITTEN in text:
+            return 0, "read 0 reviews — none has ever been written here", \
+                True, "never_any"
+        return 0, "read 0 reviews — nothing to compound", True, ""
     verdict = ("no constraint met the bar" if _NO_CONSTRAINT in text
                else "constraint(s) proposed")
-    return reviews, f"read {reviews} review(s), {verdict}", False
+    return reviews, f"read {reviews} review(s), {verdict}", False, ""
 
 
 def _compound_status(repo_dir: pathlib.Path, today: dt.date) -> LoopStatus:
@@ -226,13 +256,14 @@ def _compound_status(repo_dir: pathlib.Path, today: dt.date) -> LoopStatus:
         repo_dir / ".mas" / "compound", "proposal-*.md"
     )
     state, age = _classify(last, today, WEEKLY)
-    produced, vacuous = "", False
+    produced, vacuous, because = "", False, ""
     if evidence:
-        _, produced, vacuous = _proposal_substance(evidence)
+        _, produced, vacuous, because = _proposal_substance(evidence, today)
     return LoopStatus(
         name="compound", last_run=last.isoformat() if last else "",
         age_days=age, state=state, evidence=evidence,
         command="avs compound", produced=produced, vacuous=vacuous,
+        empty_because=because,
     )
 
 

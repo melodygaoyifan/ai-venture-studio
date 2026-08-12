@@ -1485,10 +1485,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "What happened to each of the {n}",
     },
     "cls_res_fixed": {"zh": "已修好 / FIXED", "en": "FIXED"},
-    "cls_res_scr_raised": {
-        "zh": "已记为新需求 / RECORDED AS A NEW REQUIREMENT",
-        "en": "RECORDED AS A NEW REQUIREMENT",
-    },
     "cls_res_error": {
         "zh": "没能做成 / NOT DONE",
         "en": "NOT DONE",
