@@ -806,6 +806,13 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "This step calls the model and usually takes a few minutes. "
               "This page refreshes itself.",
     },
+    # The clock on the working page. A page that reloads every four seconds
+    # and says the identical thing each time is indistinguishable from a
+    # hung one, and this is the cheapest honest proof that it is not.
+    "working_elapsed_fmt": {
+        "zh": "已经等了 {clock}。",
+        "en": "Running for {clock}.",
+    },
     "working_fdr": {
         "zh": "正在读你的需求并生成计划。",
         "en": "Reading your requirements and making the plan.",
@@ -1492,6 +1499,62 @@ STRINGS: dict[str, dict[str, str]] = {
     "cls_res_change_planned": {
         "zh": "改动方案已拟好 / CHANGE DRAFTED",
         "en": "CHANGE DRAFTED",
+    },
+    # ── What actually happened, said to the founder rather than to the log.
+    # One per `correction.REASONS`. The rule for every one of them: say
+    # whether their PRODUCT changed, and what to do next — those are the two
+    # things they are reading the card for. `detail` still carries the
+    # attempt counts and file lists, one fold down, for whoever wants them.
+    "res_why_repaired": {
+        "zh": "已经改好并保存。可以再试一次；不满意可以撤销。",
+        "en": "Fixed and saved. Try it again — and you can undo it if it is "
+              "not what you wanted.",
+    },
+    "res_why_no_change": {
+        "zh": "产品没有任何改动 —— 这次改出来的东西和原来一模一样。"
+              "换个说法再讲一次，说说你期待看到什么。",
+        "en": "Nothing changed — the attempt produced exactly what was there "
+              "already. Say it again in different words, and say what you "
+              "expected to see.",
+    },
+    "res_why_tests_failed": {
+        "zh": "没能在不弄坏别处的前提下改好，所以什么都没动 ——"
+              "你的产品和刚才完全一样。可以说得更具体一点再试。",
+        "en": "It could not be changed without breaking something else, so "
+              "nothing was changed — your product is exactly as it was. Try "
+              "again with more detail about what is wrong.",
+    },
+    "res_why_planned": {
+        "zh": "这是新的需求，不是坏了。方案在下面，按下去才会开始做。",
+        "en": "This is a new requirement rather than something broken. The "
+              "plan is below; nothing is built until you press it.",
+    },
+    "res_why_unrouted": {
+        "zh": "没能确定你说的是哪个功能，所以没有动任何东西。"
+              "在对应功能上按「改这个」，就不用猜了。",
+        "en": "It was not clear which feature you meant, so nothing was "
+              "touched. Press “Change this” on the feature itself and there "
+              "is nothing left to guess.",
+    },
+    "res_why_unknown_spec": {
+        "zh": "指到了一个不存在的功能，所以没有动任何东西。"
+              "在对应功能上按「改这个」再说一次。",
+        "en": "It pointed at a feature that does not exist, so nothing was "
+              "touched. Say it again from the feature's own “Change this”.",
+    },
+    "res_why_many_issues": {
+        "zh": "这条里有好几件事，需要一件一件处理。分开再说一次。",
+        "en": "This holds several separate things and they have to be taken "
+              "one at a time. Send them separately.",
+    },
+    "res_why_crashed": {
+        "zh": "出错了，没有动你的产品。可以再试一次。",
+        "en": "Something went wrong. Your product was not touched, and you "
+              "can try again.",
+    },
+    "btn_res_detail": {
+        "zh": "技术细节 / Technical detail",
+        "en": "Technical detail",
     },
     "chg_assumptions": {
         "zh": "我替你做的判断 / What I assumed",

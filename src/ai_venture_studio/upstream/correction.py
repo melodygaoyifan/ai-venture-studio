@@ -117,12 +117,44 @@ class ChangePlan(BaseModel):
     words: str = ""
 
 
+#: Why a correction ended where it did — a CLOSED vocabulary, one member
+#: per way out of `run_correction`.
+#:
+#: `detail` is written for whoever reads a log: attempt counts, file lists,
+#: `router chose unknown spec 'cart'`. It was also the only thing the
+#: Studio had to put on the founder's result card, so the person this
+#: product is built for — assumed non-technical, on purpose — was handed
+#: the implementer's notes and left to work out whether their product had
+#: changed. A sentence cannot be translated after the fact; the reason can,
+#: which is what this is for. Every member must have a `res_why_<reason>`
+#: string in both languages — `tests/test_outcomes.py` enforces it.
+REASONS = (
+    "repaired",      # a real commit landed
+    "no_change",     # the model returned files that changed nothing
+    "tests_failed",  # every attempt broke the suite; workspace reverted
+    "planned",       # a scope change, drafted and awaiting the founder
+    "unrouted",      # the router would not commit, or nothing is built
+    "unknown_spec",  # it named a feature that does not exist
+    "many_issues",   # several issues reached the single-issue entry point
+    "crashed",       # an exception, caught so the other issues still run
+)
+
+
 class CorrectionResult(BaseModel):
     status: str  # fixed | change_planned | scr_raised | error
     spec_slug: str = ""
     kind: str = ""
     detail: str = ""
+    #: One of REASONS. Says the same thing as `detail` in a form a UI can
+    #: say in the founder's own language.
+    reason: str = ""
     commit: str | None = None
+    #: The checkpoint tag covering this repair, when there is one. Written
+    #: so the result card can offer to undo the change it is reporting:
+    #: until this existed a repair was an untagged commit, invisible to the
+    #: checkpoint log, and therefore the one kind of change to a founder's
+    #: product that could not be taken back from the Studio at all.
+    checkpoint: str = ""
     #: Present only on `change_planned` — the drafted change awaiting the
     #: founder's yes. Nothing has been written to the workspace yet.
     plan: ChangePlan | None = None
@@ -411,10 +443,11 @@ def run_correction(
                 criterion=criterion,
             )
         except CorrectionRouteError as exc:
-            return CorrectionResult(status="error", detail=str(exc))
+            return CorrectionResult(status="error", reason="unrouted",
+                                    detail=str(exc))
         if len(routes) > 1:
             return CorrectionResult(
-                status="error",
+                status="error", reason="many_issues",
                 detail=f"complaint holds {len(routes)} separate issues "
                 f"({', '.join(r.spec_slug for r in routes)}) — "
                 "use run_corrections so none is dropped",
@@ -430,7 +463,8 @@ def run_correction(
     complaint = route.words(complaint)
     if slug not in {s["slug"] for s in built_specs(root)}:
         return CorrectionResult(
-            status="error", detail=f"router chose unknown spec {slug!r}"
+            status="error", reason="unknown_spec",
+            detail=f"router chose unknown spec {slug!r}"
         )
 
     if kind == "scope_change":
@@ -450,7 +484,7 @@ def run_correction(
         )
         return CorrectionResult(
             status="change_planned", spec_slug=slug, kind=kind,
-            detail=plan.summary, plan=plan,
+            reason="planned", detail=plan.summary, plan=plan,
         )
 
     # Repair path: complaint + spec + implicated sources → smallest change.
@@ -516,12 +550,24 @@ def run_correction(
                 cwd=root, capture_output=True, text=True,
             )
             if committed.returncode != 0:
-                return CorrectionResult(status="error", spec_slug=slug, kind=kind,
-                                        detail="no effective change produced")
+                return CorrectionResult(
+                    status="error", spec_slug=slug, kind=kind,
+                    reason="no_change", detail="no effective change produced",
+                )
             sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=root,
                                  capture_output=True, timeout=60, text=True).stdout.strip()
+            # A repair is a change to the founder's product, so it gets the
+            # same checkpoint every other change gets. It did not, and the
+            # asymmetry was invisible: builds and feature additions were
+            # tagged, repairs were bare commits, so the one kind of change a
+            # founder makes when something is already wrong was the one kind
+            # the undo list could not see and the Studio could not offer to
+            # take back. Local import — autopilot is the layer above this.
+            from ai_venture_studio.upstream.autopilot import tag_checkpoint
+
             return CorrectionResult(
                 status="fixed", spec_slug=slug, kind=kind, commit=sha,
+                reason="repaired", checkpoint=tag_checkpoint(root),
                 detail=f"repaired in {iteration} attempt(s); files: {', '.join(written)}",
             )
         feedback = report.detail or report.summary
@@ -529,7 +575,7 @@ def run_correction(
     subprocess.run(["git", "clean", "-fdq", "--exclude=.mas", "--exclude=data"],
                    cwd=root, capture_output=True, timeout=60)
     return CorrectionResult(
-        status="error", spec_slug=slug, kind=kind,
+        status="error", spec_slug=slug, kind=kind, reason="tests_failed",
         detail=f"repair still broke the suite after {MAX_REPAIR_ITERATIONS} "
         f"attempt(s) ({feedback[:120]}); workspace reverted",
     )
@@ -559,7 +605,8 @@ def run_corrections(
                 criterion=criterion,
             )
         except CorrectionRouteError as exc:
-            return [CorrectionResult(status="error", detail=str(exc))]
+            return [CorrectionResult(status="error", reason="unrouted",
+                                     detail=str(exc))]
     results = []
     for route in routes:
         try:
@@ -570,6 +617,6 @@ def run_corrections(
         except Exception as exc:  # noqa: BLE001 — a result, never a lost issue
             results.append(CorrectionResult(
                 status="error", spec_slug=route.spec_slug, kind=route.kind,
-                detail=f"{type(exc).__name__}: {exc}",
+                reason="crashed", detail=f"{type(exc).__name__}: {exc}",
             ))
     return results

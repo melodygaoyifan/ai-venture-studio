@@ -489,6 +489,13 @@ def _render_markdown(text: str) -> str:
     return f"<div class=mdoc>{''.join(out)}</div>"
 
 
+def _hms(seconds: int) -> str:
+    """`mm:ss`, or `h:mm:ss` once there is an hour to show."""
+    minutes, secs = divmod(max(seconds, 0), 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes:02d}:{secs:02d}"
+
+
 def _elapsed_hms(root: Path) -> str:
     """Wall-clock since the build worker was spawned, from the pid marker's
     own mtime — a fact already on disk, read-only. Empty when unknowable:
@@ -501,9 +508,7 @@ def _elapsed_hms(root: Path) -> str:
         return ""
     if seconds < 0:
         return ""
-    minutes, secs = divmod(seconds, 60)
-    hours, minutes = divmod(minutes, 60)
-    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes:02d}:{secs:02d}"
+    return _hms(seconds)
 
 
 # Inline SVG favicon: kills the /favicon.ico 404 in every console (the
@@ -758,12 +763,44 @@ def create_studio_app(
     # two autopilots on one workspace race on git and on the same files. The
     # flag is in-process because the Studio is one localhost process.
     thinking: dict[str, str] = {}
+    #: When each in-flight step started, so the working page can show a
+    #: clock. Kept beside `thinking` rather than inside it because every
+    #: reader of `thinking` wants the label; only this page wants the time.
+    thinking_since: dict[str, float] = {}
 
-    def _thinking_page(request: Request, what: str) -> HTMLResponse:
+    def _start_thinking(key: str, what: str) -> None:
+        import time as _time
+
+        thinking[key] = what
+        thinking_since[key] = _time.monotonic()
+
+    def _end_thinking(key: str) -> None:
+        thinking.pop(key, None)
+        thinking_since.pop(key, None)
+
+    def _thinking_page(request: Request, what: str, key: str = "") -> HTMLResponse:
+        """The page a founder stares at for the minutes a model call takes.
+
+        It reloads every four seconds and said exactly the same thing every
+        time, so the only evidence that anything was happening was that the
+        page had not changed — which is also what a hung process looks like.
+        A clock is the cheapest possible proof of life, and it is a fact
+        already in hand rather than a progress bar invented to fill the
+        space: an omitted clock is honest, a made-up one is not (the rule
+        `_elapsed_hms` follows for builds).
+        """
+        import time as _time
+
+        started = thinking_since.get(key)
+        clock = (
+            f"<p class=muted>{_('working_elapsed_fmt').format(clock=_hms(int(_time.monotonic() - started)))}</p>"
+            if started is not None else ""
+        )
         return _render(
             request, _("title_working"),
             f"<div class=card><b class=warn>{_('working_lead')}</b>"
             f"<p>{html.escape(what)}</p>"
+            f"{clock}"
             f"<p class=muted>{_('working_hint')}</p></div>"
             # A POLL, not a bounce. This used to jump to / after 15 seconds
             # while the step was still running, and / had no idea anything
@@ -1297,6 +1334,44 @@ def create_studio_app(
             )
         return cards
 
+    def _undo_form(entry: dict) -> str:
+        """The offer to go back past ONE recorded change, with what that
+        costs on the button's own line.
+
+        Empty for the oldest checkpoint, which has nothing before it to
+        return to. One renderer rather than two, because the result card
+        offers the same thing about the change it has just reported and a
+        second copy would eventually stop saying `later_changes` out loud —
+        the sentence that keeps this button honest.
+        """
+        if not entry["previous"]:
+            return ""
+        later = entry["later_changes"]
+        note = (
+            _("undo_to_note_fmt") if later else _("undo_to_note_last_fmt")
+        ).format(later=later, commits=entry["undoes_commits"])
+        return (
+            "<form method=post action=/undo/to>"
+            f"<input type=hidden name=tag value='{html.escape(entry['tag'])}'>"
+            f"<button class=linkish>{_('btn_undo_to')}</button></form>"
+            f"<span class=tstep>{note}</span>"
+        )
+
+    def _undo_form_for(tag: str) -> str:
+        """The same offer, found by tag — the result card knows which
+        checkpoint covers the repair it is reporting, but not where that
+        sits in the log or how much undoing it would take with it."""
+        from ai_venture_studio.upstream.autopilot import checkpoint_log
+
+        try:
+            entries = checkpoint_log(root)
+        except Exception:  # noqa: BLE001 — no undo offer, never a broken page
+            return ""
+        for entry in entries:
+            if entry["tag"] == tag:
+                return _undo_form(entry)
+        return ""
+
     def _change_list() -> str:
         """The log, as the undo surface — with the truth about what going
         back costs.
@@ -1319,20 +1394,9 @@ def create_studio_app(
             return ""
         rows = ""
         for entry in entries:
-            if entry["previous"]:
-                later = entry["later_changes"]
-                note = (
-                    _("undo_to_note_fmt") if later
-                    else _("undo_to_note_last_fmt")
-                ).format(later=later, commits=entry["undoes_commits"])
-                action = (
-                    "<form method=post action=/undo/to>"
-                    f"<input type=hidden name=tag value='{html.escape(entry['tag'])}'>"
-                    f"<button class=linkish>{_('btn_undo_to')}</button></form>"
-                    f"<span class=tstep>{note}</span>"
-                )
-            else:
-                action = f"<span class=tstep>{_('undo_to_first')}</span>"
+            action = _undo_form(entry) or (
+                f"<span class=tstep>{_('undo_to_first')}</span>"
+            )
             rows += (
                 "<div class=trow><span class='chip q'>"
                 f"{html.escape(entry['tag'].removeprefix('ap-checkpoint-'))}"
@@ -1370,7 +1434,8 @@ def create_studio_app(
         # left as though nothing had happened — these steps run for minutes
         # and the thinking page reloads here on a timer.
         if thinking:
-            return _thinking_page(request, next(iter(thinking.values())))
+            key, what = next(iter(thinking.items()))
+            return _thinking_page(request, what, key)
         stale = _take_fresh_failure()
         if stale is not None:
             # Shown once, to whoever gets here first — usually the working
@@ -2204,7 +2269,7 @@ def create_studio_app(
     @app.get("/chat", response_class=HTMLResponse)
     def chat(request: Request):
         if "fdr" in thinking:
-            return _thinking_page(request, thinking["fdr"])
+            return _thinking_page(request, thinking["fdr"], "fdr")
         # Same gate as the home door: /chat is the describe state, and the
         # first message here is the first model call.
         if _needs_key():
@@ -2214,7 +2279,7 @@ def create_studio_app(
     @app.post("/chat")
     async def chat_answer(request: Request):
         if "fdr" in thinking:
-            return _thinking_page(request, thinking["fdr"])
+            return _thinking_page(request, thinking["fdr"], "fdr")
         form = await request.form()
         turns = studio_chat.load_thread(root)
         question = studio_chat.open_question(turns)
@@ -2232,7 +2297,7 @@ def create_studio_app(
             # second extraction over the same paragraph.
             from starlette.concurrency import run_in_threadpool
 
-            thinking["fdr"] = _("chat_reading")
+            _start_thinking("fdr", _("chat_reading"))
             try:
                 extraction = await run_in_threadpool(
                     studio_chat.extract_intake, answer, provider=provider
@@ -2242,7 +2307,7 @@ def create_studio_app(
                 # load simply falls back to asking the six.
                 return _failure_page(request, exc)
             finally:
-                thinking.pop("fdr", None)
+                _end_thinking("fdr")
             studio_chat.apply_extraction(
                 root, extraction,
                 {slot: _(f"chat_q_{slot}") for slot in studio_chat.INTAKE_SLOTS},
@@ -2265,7 +2330,7 @@ def create_studio_app(
         answering.
         """
         if "fdr" in thinking:
-            return _thinking_page(request, thinking["fdr"])
+            return _thinking_page(request, thinking["fdr"], "fdr")
         form = await request.form()
         turns = studio_chat.load_thread(root)
         guess = studio_chat.pending_guess(turns)
@@ -2293,7 +2358,7 @@ def create_studio_app(
         whether it is buildable. Bounded: after MAX_CLARIFY_ROUNDS the
         conversation stops asking and goes to the plan."""
         if "fdr" in thinking:
-            return _thinking_page(request, thinking["fdr"])
+            return _thinking_page(request, thinking["fdr"], "fdr")
         turns = studio_chat.load_thread(root)
         # Composed in memory, NOT written yet: FDR.md is only replaced at
         # handoff, and only after the existing one is preserved. Writing here
@@ -2305,13 +2370,13 @@ def create_studio_app(
 
         from ai_venture_studio.upstream.fdr import assess_fdr
 
-        thinking["fdr"] = _("chat_checking")
+        _start_thinking("fdr", _("chat_checking"))
         try:
             assessment = assess_fdr(composed, provider=provider)
         except Exception as exc:  # noqa: BLE001 — a founder gets a page, not a 500
             return _failure_page(request, exc)
         finally:
-            thinking.pop("fdr", None)
+            _end_thinking("fdr")
 
         if assessment.ready or not assessment.questions:
             return _chat_handoff(request)
@@ -2373,7 +2438,7 @@ def create_studio_app(
     @app.post("/fdr")
     async def save_fdr(request: Request):
         if "fdr" in thinking:
-            return _thinking_page(request, thinking["fdr"])
+            return _thinking_page(request, thinking["fdr"], "fdr")
         form = await request.form()
         submitted = str(form.get("fdr", ""))
         fdr_path = root / "FDR.md"
@@ -2399,7 +2464,7 @@ def create_studio_app(
 
         from ai_venture_studio.upstream.autopilot import run_autopilot
 
-        thinking["fdr"] = _("working_fdr")
+        _start_thinking("fdr", _("working_fdr"))
         try:
             # LLM calls block for minutes — off the event loop (sweep
             # finding), or the progress page can't even poll while the
@@ -2410,7 +2475,7 @@ def create_studio_app(
         except Exception as exc:  # noqa: BLE001 — a founder gets a page, not a 500
             return _failure_page(request, exc)
         finally:
-            thinking.pop("fdr", None)
+            _end_thinking("fdr")
         return RedirectResponse("/", status_code=303)
 
     @app.get("/verification", response_class=HTMLResponse)
@@ -2684,7 +2749,18 @@ def create_studio_app(
     ) -> HTMLResponse:
         """What each issue actually got. A redirect home was fine for one
         repair and a lie for three — it left the founder to infer from a
-        log file whether the second and third had happened."""
+        log file whether the second and third had happened.
+
+        Each card answers the two questions the founder is actually asking:
+        did my product change, and what do I do now. `detail` answers
+        neither — it is the implementer's note ("repaired in 2 attempt(s);
+        files: src/cart.py") and it was the only thing on the card, so the
+        person this product is built for was handed a log line and left to
+        work it out. The reason carries the sentence; the log line moves one
+        fold down rather than being deleted, because when a founder does ask
+        someone technical for help it is the thing they need.
+        """
+        from ai_venture_studio.upstream import correction as correction_mod
         # dot colour, label class, string key — one row per status the
         # correction path can end in, so an unrecognised one still renders
         # as a plain red row rather than a KeyError on the results page.
@@ -2697,6 +2773,33 @@ def create_studio_app(
         rows = ""
         for r in results:
             dot, klass, key = look.get(r.status, ("red", "warn", "cls_res_error"))
+            said = (
+                f"<p>{_('res_why_' + r.reason)}</p>"
+                if r.reason in correction_mod.REASONS else ""
+            )
+            # Unfolded when it is all there is: a result with no reason
+            # (an older record, a status this page has not met) must still
+            # say something, and the log line is better than a blank card.
+            detail = (
+                f"<details><summary class=muted>{_('btn_res_detail')}</summary>"
+                f"<p class=muted>{html.escape(r.detail)}</p></details>"
+                if said and r.detail
+                else f"<p class=muted>{html.escape(r.detail)}</p>"
+            ) if r.detail else ""
+            # The undo belongs HERE, beside the thing it undoes. It is also
+            # in the change list at the bottom of the home page, which is
+            # where a founder looks a week later — but the moment they want
+            # it is the moment they read what was done, and sending them off
+            # to hunt for the right row is how a reversible change stops
+            # being reversible in practice.
+            undo = _undo_form_for(r.checkpoint) if r.checkpoint else ""
+            # `detail` on a drafted change is the plan's own summary, which
+            # the change card states in full — printing it twice would read
+            # as two different things having happened.
+            rest = (
+                _change_card(r) if r.status == "change_planned"
+                else undo + detail
+            )
             rows += (
                 "<div class=card>"
                 "<div class=stateline style='margin-top:0'>"
@@ -2704,8 +2807,7 @@ def create_studio_app(
                 f"<span class='slabel {klass}'>{_(key)}</span></div>"
                 + (f"<p><code>{html.escape(r.spec_slug)}</code></p>"
                    if r.spec_slug else "")
-                + (_change_card(r) if r.status == "change_planned"
-                   else f"<p class=muted>{html.escape(r.detail)}</p>")
+                + said + rest
                 + "</div>"
             )
         return _render(
@@ -2763,7 +2865,7 @@ def create_studio_app(
         no longer a guess.
         """
         if "correct" in thinking:
-            return _thinking_page(request, thinking["correct"])
+            return _thinking_page(request, thinking["correct"], "correct")
         form = await request.form()
         complaint = str(form.get("complaint", "")).strip()
         criterion = str(form.get("criterion", "")).strip()
@@ -2781,7 +2883,7 @@ def create_studio_app(
 
         from ai_venture_studio.upstream import correction as correction_mod
 
-        thinking["correct"] = _("working_correct")
+        _start_thinking("correct", _("working_correct"))
         try:
             routes = await run_in_threadpool(
                 lambda: correction_mod.route_complaint(
@@ -2801,14 +2903,14 @@ def create_studio_app(
         except Exception as exc:  # noqa: BLE001 — a page, never a 500
             return _failure_page(request, exc)
         finally:
-            thinking.pop("correct", None)
+            _end_thinking("correct")
         return _classification_page(request, complaint, criterion, routes)
 
     @app.post("/correct/confirm")
     async def correct_confirm(request: Request):
         """Execute the classification the founder just read."""
         if "correct" in thinking:
-            return _thinking_page(request, thinking["correct"])
+            return _thinking_page(request, thinking["correct"], "correct")
         from ai_venture_studio.upstream.correction import (
             CorrectionRoute,
             run_corrections,
@@ -2859,7 +2961,7 @@ def create_studio_app(
             return RedirectResponse("/", status_code=303)
         from starlette.concurrency import run_in_threadpool
 
-        thinking["correct"] = _("working_correct")
+        _start_thinking("correct", _("working_correct"))
         try:
             results = await run_in_threadpool(
                 lambda: run_corrections(
@@ -2870,7 +2972,7 @@ def create_studio_app(
         except Exception as exc:  # noqa: BLE001 — a page, never a 500
             return _failure_page(request, exc)
         finally:
-            thinking.pop("correct", None)
+            _end_thinking("correct")
         for route, result in zip(routes, results):
             _log_correction(route.words(complaint), result)
         return _correction_result_page(request, results)
@@ -2969,7 +3071,7 @@ def create_studio_app(
     @app.post("/feature")
     async def feature(request: Request):
         if "feature" in thinking:
-            return _thinking_page(request, thinking["feature"])
+            return _thinking_page(request, thinking["feature"], "feature")
         form = await request.form()
         fdr_text = str(form.get("fdr", "")).strip()
         if fdr_text:
@@ -2979,7 +3081,7 @@ def create_studio_app(
 
             from ai_venture_studio.upstream.autopilot import run_feature
 
-            thinking["feature"] = _("working_feature")
+            _start_thinking("feature", _("working_feature"))
             try:
                 await run_in_threadpool(
                     run_feature, root, fdr_path, provider=provider, yes=False
@@ -2987,7 +3089,7 @@ def create_studio_app(
             except Exception as exc:  # noqa: BLE001 — a page, never a 500
                 return _failure_page(request, exc)
             finally:
-                thinking.pop("feature", None)
+                _end_thinking("feature")
         return RedirectResponse("/", status_code=303)
 
     @app.post("/feature/build")

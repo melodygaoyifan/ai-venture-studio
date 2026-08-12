@@ -4,6 +4,56 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.76.0 — what happened, said to the founder, and takeable back
+
+Minor. Three failures that all landed on the same screen: the card a
+founder reaches after asking for a change.
+
+**It was written for the wrong reader.** The card's only line was
+`CorrectionResult.detail` — `repaired in 2 attempt(s); files: src/cart.py`,
+or `repair still broke the suite after 3 attempt(s) (…); workspace
+reverted`. Those are notes for whoever reads the log. The person this
+product exists for is assumed non-technical on purpose, and they were
+handed the implementer's notes and left to work out the only two things
+they actually wanted to know: did my product change, and what do I do now.
+A sentence written for a log cannot be translated into founder language
+after the fact — so `CorrectionResult` now carries a `reason` from a closed
+vocabulary (`REASONS`), one member per way out of `run_correction`, and the
+Studio says it in the founder's own language. A test asserts every member
+has a string in both languages, and that every outcome which changed
+nothing says so out loud — "it failed" and "it failed and your product is
+untouched" are very different news to someone who cannot go and look.
+`detail` is not deleted: it moves one fold down, under **Technical
+detail**, because when a founder does ask someone technical for help it is
+exactly what that person needs.
+
+**A repair could not be undone.** Builds and feature additions were tagged
+as checkpoints. Repairs were bare commits — so the one kind of change a
+founder makes when something is *already* wrong, the change most likely to
+need reversing, was the only one the undo list could not see. A repair now
+tags a checkpoint like every other change, and the result card offers to go
+back beside the thing it is reporting, carrying the same honest note about
+how many later changes go with it. The change list at the bottom of the
+home page is where a founder looks a week later; the moment they want the
+undo is the moment they read what was done, and sending them off to hunt
+for the right row is how a reversible change stops being reversible in
+practice. One renderer serves both, so the sentence about the cost cannot
+quietly go missing from one of them.
+
+**The page you wait on looked exactly like a hung one.** It reloads every
+four seconds through the minutes a model call takes, and said the identical
+thing each time — the only evidence anything was happening was that nothing
+had changed, which is also what a dead worker looks like. It now shows how
+long it has been running. A fact, not a progress bar: an omitted clock is
+honest, an invented one is not, which is the rule `_elapsed_hms` already
+followed for builds.
+
+Contract surface: `CorrectionResult` gains `reason` and `checkpoint`, both
+defaulting to empty; `correction.REASONS` is new. All additive.
+
+Suite 1809 hermetic tests (as measured by CI at the tag; 1804 locally,
+where the five mutation-testing cases skip for want of `mutmut`).
+
 ## v0.75.0 — something to point at, instead of something to remember
 
 Minor. v0.74.0 made "actually, make it X" real. This is about everything a
