@@ -16,7 +16,12 @@ import json
 import pytest
 
 from ai_venture_studio import notify
-from ai_venture_studio.cadence import CadenceReport, LoopStatus, SchedulerBuild
+from ai_venture_studio.cadence import (
+    CadenceReport,
+    LoopStatus,
+    RunOutcome,
+    SchedulerBuild,
+)
 
 TODAY = dt.date(2026, 8, 12)
 
@@ -150,6 +155,123 @@ def test_a_message_too_long_for_discord_is_cut_and_says_it_was_cut():
 
     assert len(body) <= notify.MAX_CONTENT
     assert "cut to fit" in body
+
+
+# ── what actually broke this morning ────────────────────────────────────
+
+
+def _ran(loop: str, exit_code: int, detail: str) -> RunOutcome:
+    return RunOutcome(loop=loop, ran=True, exit_code=exit_code, detail=detail)
+
+
+def test_a_loop_that_crashed_reaches_the_channel_with_its_output():
+    """The whole point of the request: the scheduler already captured the
+    traceback and printed it into the log nobody opens."""
+    alert = notify.build_alert(
+        _report(_ok(), _ok("compound")),
+        outcomes=[_ran("compound", 1, "Traceback...\nKeyError: 'slug'")],
+    )
+    body = alert.render()
+
+    assert "compound" in body and "exit 1" in body
+    assert "KeyError: 'slug'" in body
+
+
+def test_a_failure_alone_is_enough_to_speak():
+    """Every loop is on schedule and one of them exploded — before this, that
+    combination produced silence in Discord and green in the table."""
+    assert notify.build_alert(_report(_ok()), outcomes=[_ran("sweep", 2, "boom")])
+
+
+def test_a_loop_that_could_not_start_says_so_differently_from_one_that_failed():
+    """Different fix: a missing binary is not a broken sweep."""
+    alert = notify.build_alert(
+        _report(_ok()),
+        outcomes=[RunOutcome(
+            loop="sweep", ran=False,
+            detail="could not run: [Errno 2] No such file or directory: 'avs'",
+        )],
+    )
+    body = alert.render()
+
+    assert "could not be started at all" in body
+    assert "No such file or directory" in body
+
+
+def test_a_loop_that_was_not_due_is_not_an_error():
+    outcomes = [RunOutcome(loop="sweep", ran=False, detail="not due (3d of 7d)")]
+
+    assert notify.build_alert(_report(_ok()), outcomes=outcomes) is None
+
+
+def test_a_successful_run_says_nothing_however_loud_it_was():
+    outcomes = [_ran("sweep", 0, "warning: 400 lines of chatter")]
+
+    assert notify.build_alert(_report(_ok()), outcomes=outcomes) is None
+
+
+def test_the_loop_that_needs_a_human_is_not_reported_as_broken():
+    """`attention` exits non-zero every single morning by design. Calling that
+    an error would have the channel cry wolf daily about the one loop behaving
+    exactly as specified — it is already reported, correctly, as overdue."""
+    alert = notify.build_alert(
+        _report(_overdue("attention", human=True)),
+        outcomes=[_ran("attention", 3, "needs your hours")],
+    )
+    body = alert.render()
+
+    assert "FAILED" not in body
+    assert "cannot log this one for you" in body
+
+
+def test_the_heading_leads_with_the_breakage_not_the_backlog():
+    """The heading is the phone preview. A loop that broke this morning
+    outranks a loop that is merely late."""
+    alert = notify.build_alert(
+        _report(_overdue("attention"), _ok("sweep")),
+        outcomes=[_ran("sweep", 1, "boom")],
+        workspace="avs-studio",
+    )
+
+    assert alert.heading == "**avs-studio** — 1 loop FAILED this run: sweep"
+
+
+def test_two_broken_loops_are_counted_and_both_named():
+    alert = notify.build_alert(
+        _report(_ok("sweep"), _ok("compound")),
+        outcomes=[_ran("sweep", 1, "a"), _ran("compound", 1, "b")],
+    )
+
+    assert "2 loops FAILED" in alert.heading
+    assert "sweep, compound" in alert.heading
+
+
+def test_a_flood_of_backlog_cannot_push_the_error_out_of_the_message():
+    """`render` truncates from the end, so failures are written first — an
+    error cut to fit is a silent one."""
+    body = notify.build_alert(
+        _report(_ok("sweep"), *[_overdue(f"loop{i}") for i in range(200)]),
+        outcomes=[_ran("sweep", 1, "KeyError: 'slug'")],
+    ).render()
+
+    assert len(body) <= notify.MAX_CONTENT
+    assert "KeyError: 'slug'" in body
+    assert "cut to fit" in body
+
+
+def test_a_long_traceback_is_cut_from_the_front_where_the_error_is_not():
+    detail = "\n".join(f"  File \"x{i}.py\", line {i}" for i in range(300))
+    tail = notify.error_tail(detail + "\nValueError: the actual problem")
+
+    assert "ValueError: the actual problem" in tail
+    assert len(tail) < len(detail)
+    assert tail.startswith("```") and tail.endswith("```")
+
+
+def test_a_failure_with_nothing_to_say_still_says_that():
+    """An empty detail rendering as an empty code fence reads like a display
+    bug; it is a real and reportable state."""
+    assert "said nothing" in notify.error_tail("   \n\n  ")
 
 
 # ── not the same thing every morning ────────────────────────────────────
@@ -446,6 +568,28 @@ def test_the_flag_sends_and_the_run_says_it_sent(tmp_path, monkeypatch):
     assert len(posts) == 1
     assert "alert sent" in result.output
     assert result.exit_code == 3, "notifying is not fixing — the gate still fails"
+
+
+def test_a_loop_that_fails_under_the_scheduler_is_what_gets_posted(
+    tmp_path, monkeypatch
+):
+    """End to end over the exact command the LaunchAgent runs: `run_due`
+    caught the exit code, and until now only the log ever saw it."""
+    from ai_venture_studio import cadence
+
+    posts = []
+    monkeypatch.setattr(cadence, "run_due", lambda *a, **k: [
+        RunOutcome(loop="compound", ran=True, exit_code=1,
+                   detail="Traceback...\nKeyError: 'slug'"),
+    ])
+    result = _cadence(
+        tmp_path, monkeypatch, "--run-due", "--notify",
+        sent=lambda url, content, **k: posts.append(content),
+    )
+
+    assert result.exit_code == 3, result.output
+    assert len(posts) == 1
+    assert "compound" in posts[0] and "KeyError: 'slug'" in posts[0]
 
 
 def test_setting_the_webhook_never_echoes_it(tmp_path, monkeypatch):

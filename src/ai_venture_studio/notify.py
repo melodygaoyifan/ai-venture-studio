@@ -10,7 +10,9 @@ So the alert goes out over a Discord webhook. Three rules shape it:
 
 - **Only when something needs a person.** A daily "all green" trains the
   reader to swipe the notification away, and then the one that mattered gets
-  swiped too.
+  swiped too. Two things qualify: a loop that is *late*, and a loop that
+  *broke* — `run_due` already captured the exit code and the tail of stderr,
+  and for one release the only place either landed was that same unread log.
 - **Not the same thing every morning.** An overdue weekly loop stays overdue
   until someone acts; repeating it at 09:00 for six days is how a channel
   becomes noise. The same alert re-sends at most every `REPEAT_DAYS`, and a
@@ -102,22 +104,54 @@ class Alert(BaseModel):
 
 _CUT_NOTE = "_(cut to fit one message — run `avs cadence` for the rest)_"
 
+#: How much of a failing loop's output to carry. The end, not the beginning:
+#: a traceback puts the exception on its last line and the call stack above
+#: it, so the front is the part you can afford to lose.
+ERROR_TAIL = 500
 
-def build_alert(report, build=None, *, workspace: str = "") -> Alert | None:
+
+def error_tail(text: str, limit: int = ERROR_TAIL) -> str:
+    """The last of a failed run's output, fenced for Discord.
+
+    Errors are the one part of an alert that must not be paraphrased — a
+    summarised traceback is a traceback you have to go and read anyway,
+    which puts the log back in the loop this exists to cut out.
+    """
+    body = "\n".join(
+        line.rstrip() for line in str(text).splitlines() if line.strip()
+    ).strip()
+    if not body:
+        return "```(the run failed and said nothing)```"
+    if len(body) > limit:
+        body = "…" + body[-limit:]
+    return f"```\n{body}\n```"
+
+
+def build_alert(
+    report, build=None, *, workspace: str = "", outcomes=None
+) -> Alert | None:
     """The alert for this cadence report, or None when nobody is needed.
 
-    `report` is a `cadence.CadenceReport`, `build` a `cadence.SchedulerBuild`.
-    Typed loosely on purpose: this module is downstream of cadence and importing
-    it back would close a cycle for two attribute reads.
+    `report` is a `cadence.CadenceReport`, `build` a `cadence.SchedulerBuild`,
+    `outcomes` the `RunOutcome`s from this morning's `--run-due` if there was
+    one. Typed loosely on purpose: this module is downstream of cadence and
+    importing it back would close a cycle for a handful of attribute reads.
     """
     where = workspace or pathlib.Path(str(getattr(report, "repo_dir", ""))).name
     stale = list(getattr(report, "stale", []))
     vacuous = list(getattr(report, "vacuous", []))
     behind = bool(build is not None and getattr(build, "behind", False))
-    if not (stale or vacuous or behind):
+    failed = _failures(report, outcomes)
+    if not (failed or stale or vacuous or behind):
         return None
 
     lines: list[str] = []
+    # Failures first, and not only for emphasis: `render` truncates from the
+    # end, so anything below this can be cut to fit and an error cannot.
+    for name, said in failed:
+        lines.append(f"**{name}** {said[0]}")
+        lines.append(said[1])
+
     for loop in stale:
         state = "has never run" if loop.state == "never_run" else "is overdue"
         lines.append(f"**{loop.name}** {state}.")
@@ -153,8 +187,51 @@ def build_alert(report, build=None, *, workspace: str = "") -> Alert | None:
             f"--upgrade ai-venture-studio`"
         )
 
-    heading = f"**{where or 'workspace'}** — {report.summary()}"
-    return Alert(heading=heading, lines=lines)
+    # The heading is the notification preview — the whole message, for
+    # anyone who does not open it. A loop that broke this morning outranks a
+    # loop that is merely late, so it takes that line when there is one.
+    if failed:
+        names = ", ".join(name for name, _ in failed)
+        noun = "loop" if len(failed) == 1 else "loops"
+        headline = f"{len(failed)} {noun} FAILED this run: {names}"
+    else:
+        headline = report.summary()
+    return Alert(heading=f"**{where or 'workspace'}** — {headline}", lines=lines)
+
+
+def _failures(report, outcomes) -> list[tuple[str, tuple[str, str]]]:
+    """The loops this run tried and did not get through.
+
+    Three things are deliberately not failures. A loop that was **not due**
+    did not run and that is the design. A loop needing a human exits non-zero
+    *by definition* — `attention` surfaces its ask that way every single day,
+    and calling that an error would make the channel cry wolf daily about the
+    one loop that is behaving exactly as specified; it is already reported as
+    overdue, which is the true statement. And a run that succeeded says
+    nothing here even if its output was noisy.
+    """
+    human = {
+        loop.name for loop in getattr(report, "loops", [])
+        if getattr(loop, "human_input_required", False)
+    }
+    found: list[tuple[str, tuple[str, str]]] = []
+    for outcome in outcomes or []:
+        if outcome.loop in human:
+            continue
+        if not outcome.ran:
+            if str(outcome.detail).startswith("not due"):
+                continue
+            # Could not be started at all: a missing binary, a bad path, a
+            # timeout. Distinct from failing, and a different fix.
+            found.append((outcome.loop, (
+                "could not be started at all.", error_tail(outcome.detail)
+            )))
+        elif outcome.exit_code:
+            found.append((outcome.loop, (
+                f"ran and failed (exit {outcome.exit_code}).",
+                error_tail(outcome.detail),
+            )))
+    return found
 
 
 def default_webhook_path() -> pathlib.Path:
@@ -322,6 +399,7 @@ def notify(
     opener=None,
     repeat_days: int = REPEAT_DAYS,
     force: bool = False,
+    outcomes=None,
 ) -> NotifyResult:
     """Send the alert if there is one, it is not a repeat, and a webhook exists.
 
@@ -330,7 +408,7 @@ def notify(
     those look identical from the outside.
     """
     day = today or dt.datetime.now().date()
-    alert = build_alert(report, build)
+    alert = build_alert(report, build, outcomes=outcomes)
     if alert is None:
         return NotifyResult(sent=False, reason="nothing needs a person")
     if not force and not is_worth_repeating(

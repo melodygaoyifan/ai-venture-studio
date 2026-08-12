@@ -191,6 +191,16 @@ alert at most once a week, and each line carrying the command to paste
 rather than the diagnosis to interpret. `--notify` does not change the exit
 code — telling someone is not fixing it.
 
+Two kinds of thing arrive. A loop that is **late** comes with the command
+that closes it. A loop that **broke this morning** comes with its exit code
+and the tail of its output, named first and in the heading, because that is
+the one worth interrupting a day for. A loop that was not due, or that
+succeeded loudly, says nothing; nor does `attention`, which exits non-zero
+by design every morning and is reported as overdue rather than as broken.
+What this cannot tell you is that `avs cadence` itself crashed before it
+got as far as sending — for that, and only that, the log is still the
+record.
+
 Then, weekly:
 
 1. `avs compound --pr` — review and merge (or close) the proposal.

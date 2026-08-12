@@ -3571,6 +3571,7 @@ def cadence_cmd(
     day = _dt.date.fromisoformat(today) if today else None
     report = cad.assess(repo_dir, today=day)
 
+    outcomes = None
     if run_due:
         outcomes = cad.run_due(repo_dir, today=day)
         for outcome in outcomes:
@@ -3646,16 +3647,17 @@ def cadence_cmd(
         # is worse than no notifier: the log nobody reads at least did not
         # claim to have told anyone.
         try:
-            outcome = notifier.notify(
-                repo_dir, report, build, today=day, force=force_notify
+            alerted = notifier.notify(
+                repo_dir, report, build, today=day, force=force_notify,
+                outcomes=outcomes,
             )
         except notifier.NotifyError as exc:
             console.print(f"[red]alert NOT sent: {exc}[/red]")
         else:
-            if outcome.sent:
+            if alerted.sent:
                 console.print("[green]alert sent to Discord[/green]")
             else:
-                console.print(f"[dim]no alert: {outcome.reason}[/dim]")
+                console.print(f"[dim]no alert: {alerted.reason}[/dim]")
 
     if report.stale or build.behind:
         raise typer.Exit(code=3)

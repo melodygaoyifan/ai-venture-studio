@@ -4,6 +4,50 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.80.0 — the alert carries the error, not just the backlog
+
+Minor. v0.79.0 sent the *lateness* to Discord: which loops are overdue,
+which kept their cadence over an empty window, whether the scheduler is
+behind. It did not send the thing most worth waking up for — a loop that
+**ran this morning and crashed**. `run_due` has captured each due loop's
+exit code and the last 2000 characters of its stderr since v0.72.0, printed
+them, and thrown them away; `build_alert` never saw them. So a workspace
+whose `compound` loop died on a traceback at 09:00 produced a green table,
+no alert, and a stack trace in the log nobody opens — the exact failure the
+previous release was written to end, one layer further in.
+
+`build_alert` now takes the run's `RunOutcome`s and reports:
+
+- **A loop that ran and failed** — `exit N` plus the tail of its output in a
+  code fence. The tail, not the head: the traceback's last line is the one
+  that names the error, and the first fifty are import frames.
+- **A loop that could not be started at all** — a missing binary, a bad
+  `--repo-dir`, a timeout. Said differently on purpose, because it is a
+  different fix.
+- **Nothing at all** for a loop that was *not due*, or that succeeded
+  noisily. Both are the design working.
+- **Nothing at all** for a loop that needs a human. `attention` exits
+  non-zero every single morning by definition; calling that an error would
+  have the channel cry wolf daily about the one loop behaving exactly as
+  specified. It is already reported, correctly, as overdue.
+
+Failures are written **first** in the message body and take over the
+heading (`2 loops FAILED this run: sweep, compound`). Both are load-bearing:
+`render` truncates from the end to fit Discord's 2000-character ceiling, so
+an error written after a long backlog is an error that can be silently cut;
+and the heading is the phone's notification preview — the whole message for
+anyone who does not open it. A loop that broke this morning outranks a loop
+that is merely late.
+
+Unchanged: the dedupe, the 7-day repeat window, the webhook handling. A
+failure whose output changes is new news and goes out immediately.
+
+**Known limitation.** This reports failures the scheduler *survived*. If
+`avs cadence` itself dies — a crash before the notify block — nothing is
+sent, and the log is still the only record. Guarding that means wrapping the
+whole command, which is a bigger change than the failure it has never yet
+had.
+
 ## v0.79.0 — the alert leaves the machine
 
 Minor. The daily LaunchAgent has been doing its job since v0.72.0: at 09:00
