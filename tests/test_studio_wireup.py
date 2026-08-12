@@ -327,6 +327,12 @@ _POST_BODIES: dict[str, list[dict[str, str]]] = {
         # …and the same complaint arriving from a Try-it row, carrying the
         # criterion that failed.
         {"complaint": "it never moved", "criterion": "Mark it done and see it move"},
+        # A feature card pre-scopes the complaint to the spec it sits on, so
+        # `spec_slug` is now a path segment arriving from a form: the
+        # traversal shape and the well-formed-but-absent shape both get
+        # pressed here, the same as every other identifier a form supplies.
+        {"complaint": "it should remember my last one", "spec_slug": "../../etc"},
+        {"complaint": "it should remember my last one", "spec_slug": "no-such-spec"},
     ],
     # A tick, an untick, and a row id that is not in the current list.
     "/try/tick": [{"row": "deadbeef0000"}, {"row": "deadbeef0000", "off": "1"}],

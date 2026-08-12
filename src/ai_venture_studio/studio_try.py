@@ -17,6 +17,10 @@ Three rules this surface keeps:
 - **A complaint carries its criterion.** "Wrong" sends the row text along
   with the founder's words, so the correction router sees which criterion
   failed instead of guessing which feature is meant.
+- **Marking a row wrong IS the complaint.** Pressing Wrong used to open an
+  empty box and wait for the founder to write out, in prose, the thing the
+  row already says. One tap now sends it. The box is still there for
+  anyone who wants to add words — as the second option, not the toll.
 """
 
 from __future__ import annotations
@@ -205,9 +209,20 @@ def try_body(
 
     # ── right: the criteria, one honest verb each.
     if rows:
+        from ai_venture_studio.upstream.correction import criterion_owners
+
+        try:
+            owners = criterion_owners(root)
+        except Exception:  # noqa: BLE001 — a malformed spec loses a pre-scope, not the page
+            owners = {}
         checked = sum(1 for row in rows if row.id in ticks)
-        row_html = "".join(_row_html(row, row.id in ticks, t_, correct_action)
-                           for row in rows)
+        row_html = "".join(
+            _row_html(
+                row, row.id in ticks, t_, correct_action,
+                slug=owners.get(" ".join(row.text.split()), ""),
+            )
+            for row in rows
+        )
         right = (
             f"<div class=colcard><div class=collab>{t_('try_right_head')}</div>"
             f"<p class=muted>{t_('try_ticks_fmt').format(done=checked, total=len(rows))}</p>"
@@ -228,7 +243,8 @@ def try_body(
 
 
 def _row_html(
-    row: Row, ticked: bool, t_: Callable[[str], str], correct_action: str
+    row: Row, ticked: bool, t_: Callable[[str], str], correct_action: str,
+    slug: str = "",
 ) -> str:
     # The automated mark belongs to the criterion, not to the founder's
     # tick, so it reads as a note under the text rather than as a second
@@ -246,15 +262,34 @@ def _row_html(
         )
         chip = f"<span class='chip g'>{t_('try_chip_fine')}</span>"
     else:
-        # Two real forms, no JavaScript: the tick, and the complaint that
-        # travels WITH this row so the router knows which criterion failed.
+        # Three real forms, no JavaScript: the tick, the one-tap complaint,
+        # and the same complaint with room to say more. All of them carry
+        # the criterion, so the router knows which one failed — and the
+        # pre-scoped slug when the row is a feature's criterion word for
+        # word, so it cannot be routed to a different feature at all.
+        scope = (
+            f"<input type=hidden name=spec_slug value='{html.escape(slug)}'>"
+            if slug else ""
+        )
+        # The complaint a tap means, written out, because that string is
+        # what gets recorded as the founder's words on the SCR. The bare
+        # row text would be recorded there as a requirement, not as the
+        # report of a failure it actually is.
+        said = t_("try_one_tap_complaint_fmt").format(row=row.text)
         actions = (
             "<form method=post action=/try/tick>"
             f"<input type=hidden name=row value='{html.escape(row.id)}'>"
             f"<button class=linkish>{t_('btn_try_fine')}</button></form>"
-            f"<details><summary class=muted>{t_('btn_try_wrong')}</summary>"
             f"<form method=post action={correct_action}>"
             f"<input type=hidden name=criterion value='{html.escape(row.text)}'>"
+            f"<input type=hidden name=complaint value='{html.escape(said)}'>"
+            f"{scope}"
+            f"<button class=linkish>{t_('btn_try_wrong')}</button>"
+            f"<span class=tstep>{t_('try_wrong_one_tap_hint')}</span></form>"
+            f"<details><summary class=muted>{t_('btn_try_wrong_more')}</summary>"
+            f"<form method=post action={correct_action}>"
+            f"<input type=hidden name=criterion value='{html.escape(row.text)}'>"
+            f"{scope}"
             f"<textarea name=complaint style='min-height:70px' "
             f"placeholder='{t_('try_wrong_placeholder')}'></textarea>"
             f"<p><button class=secondary>{t_('btn_try_send_wrong')}</button></p>"

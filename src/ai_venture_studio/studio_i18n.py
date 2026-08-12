@@ -94,6 +94,32 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Something wrong?",
     },
     "h_add_feature": {"zh": "添加新功能 / Add a feature", "en": "Add a feature"},
+    # ── Feature cards, and the composer's two real intents (v0.75) ───────
+    # The home page listed post-build additions only, as bare directory
+    # slugs, so the features the product was BUILT from were invisible —
+    # there was nothing on the page a founder could point at and say
+    # "this one". Pointing is the whole fix: recognition, not recall.
+    "h_recent_changes": {
+        "zh": "最近的改动 / Recent changes", "en": "Recent changes",
+    },
+    "spec_card_does": {
+        "zh": "现在会做的 / What it does today",
+        "en": "What it does today",
+    },
+    "btn_change_this": {"zh": "改这个 / Change this", "en": "Change this"},
+    "change_this_placeholder": {
+        "zh": "这个功能应该改成什么样？用你自己的话说。",
+        "en": "What should this do instead? Say it in your own words.",
+    },
+    "btn_change_this_go": {
+        "zh": "看看会改成什么样 / Show me what would change",
+        "en": "Show me what would change",
+    },
+    # Two tabs, not three. "Something wrong?" and "Is it broken?" posted to
+    # the same form and the router never saw the difference — a fork the
+    # founder had to resolve and the backend then ignored.
+    "tab_change": {"zh": "改点什么 / Change something", "en": "Change something"},
+    "tab_add": {"zh": "加点新东西 / Add something new", "en": "Add something new"},
     "link_acceptance": {
         "zh": "📋 验收清单 / Acceptance walkthrough",
         "en": "📋 Acceptance walkthrough",
@@ -1365,6 +1391,22 @@ STRINGS: dict[str, dict[str, str]] = {
     "try_wrong_placeholder": {
         "zh": "这一条哪里不对？用你自己的话说。",
         "en": "What is wrong with this one? Say it in your own words.",
+    },
+    # ── One-tap complaints (v0.75) ───────────────────────────────────────
+    # Marking a row wrong IS the complaint. It used to open an empty box and
+    # wait for the founder to type it out again in prose, which is the most
+    # expensive thing this page can ask for.
+    "try_one_tap_complaint_fmt": {
+        "zh": "这一条不对：{row}",
+        "en": "This one is not right: {row}",
+    },
+    "try_wrong_one_tap_hint": {
+        "zh": "直接报这一条，不用打字。",
+        "en": "Sends this row as it stands — no typing.",
+    },
+    "btn_try_wrong_more": {
+        "zh": "想多说两句 / Add a few words",
+        "en": "Add a few words",
     },
     "title_no_row": {
         "zh": "找不到这一条 / Row not found",

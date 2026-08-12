@@ -4,6 +4,73 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.75.0 — something to point at, instead of something to remember
+
+Minor. v0.74.0 made "actually, make it X" real. This is about everything a
+founder had to do *before* that sentence, all of which was recall.
+
+**The home page listed the wrong features.** Under `Features` it rendered
+`product/features/*` — the directories written by post-build *changes* — as
+bare directory slugs. Everything the product was actually built from
+appeared nowhere on the page. A founder who built six features and had
+changed none of them saw an empty section describing a product with six
+features, and then had to describe, from memory, a feature the Studio had
+never shown them a name for. There is now a card per built feature, read
+from `built_specs` — the correction router's own list, deliberately, because
+two independent readers of `specs/` would eventually disagree and the
+visible failure would be a card offering a change the router then refuses to
+route. Each card carries what that feature does, and a `Change this` box.
+The old list keeps its information under an honest heading, `Recent
+changes`.
+
+**A criterion is shown as a sentence.** EARS is a grammar for writing
+requirements that cannot be misread by the machine that builds against
+them; it is not a sentence anyone wants to read. `The system shall keep the
+cart after the browser is closed` renders as `Keep the cart after the
+browser is closed.`, and `When an order is placed, the system shall email a
+receipt` as `When an order is placed: Email a receipt.` Display only —
+`criteria` is inside `contract_hash` and is what the build is checked
+against, so a helper that rewrote it would be an unratified spec edit
+dressed as a stylesheet. A line that is not EARS at all is shown exactly as
+written rather than guessed at.
+
+**Pressing `Change this` scopes the complaint without deciding it.** The
+card sends `spec_slug`, and the router is constrained to that one feature
+instead of inferring one from the founder's words. It does *not* skip the
+router: which feature is a fact the founder pointed at, but whether the
+product is broken or the requirement moved is a judgment they did not
+express by pressing a button, and forcing a `kind` here would silently
+answer the one question nobody asked. A slug naming something unbuilt is
+refused loudly rather than falling back to the full list — falling back
+would turn the card's only guarantee back into a guess.
+
+**Marking an acceptance row wrong now needs no typing.** `Wrong` used to
+open an empty box and wait for the founder to write out, in prose, the thing
+the row already said. One tap now sends it, recorded as *this one is not
+right: <the row>* — a report of a failure, which is what the tap means,
+rather than the bare row text, which would be filed on the SCR as a
+requirement. The box is still there, second, for anyone who wants to add
+words. Where a row matches a feature's criterion word for word the tap also
+carries that feature's slug; where it matches nothing — the common case,
+since the acceptance walkthrough is written by a model in plain language —
+it carries none and the router decides as before. `criterion_owners` only
+ever returns exact, whitespace-normalised matches owned by exactly one
+feature, because a *wrong* pre-scope is worse than none: it skips the router
+precisely when the router was needed.
+
+**The composer offers two choices, because it has two forms.** It had three
+tabs. `Something wrong?` and `Is it broken?` posted to the same `/correct`
+form and the router reads the words, never the tab — so the founder made a
+distinction the backend threw away, and paid a decision for it.
+
+Contract surface: `/correct` accepts an optional `spec_slug` field (absent
+behaves exactly as before); `route_complaint` gains `only_slug`;
+`_built_specs` is now public `built_specs`, and `criterion_owners` is new.
+All additive.
+
+Suite 1791 hermetic tests (as measured by CI at the tag; 1786 locally,
+where the five mutation-testing cases skip for want of `mutmut`).
+
 ## v0.74.0 — "actually, make it X" is a button now, not a sentence
 
 Minor. A founder tells the Studio their requirement has changed. Until this

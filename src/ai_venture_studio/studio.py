@@ -569,6 +569,36 @@ _FAILURE_TTL_S = 120.0
 # segment, so anything else is a traversal attempt, not a typo.
 _REVIEW_ID = re.compile(r"\A[A-Za-z0-9_-]{1,64}\Z")
 
+#: EARS, split into its optional condition and its response. The grammar is
+#: `[When|While|If|Where <condition>, [then] ][the ]<subject> shall
+#: <response>` — see upstream/ears.py, which is what enforces it.
+_EARS_SPLIT = re.compile(
+    r"\A(?:(When|While|If|Where)\s+(.+?),\s*(?:then\s+)?)?"
+    r"(?:the\s+)?\S.*?\s+shall\s+(.+)\Z",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _plain_criterion(text: str) -> str:
+    """An EARS criterion as a sentence a founder reads, not one they parse.
+
+    "The system shall list items newest first." is the right thing to STORE
+    — it is testable, and the spec is a contract. It is the wrong thing to
+    show on the one page written for someone non-technical, where a column
+    of "The system shall" reads as machine output about someone else's
+    product. Only the preamble goes; the stored text is never touched, and
+    anything that is not EARS is shown exactly as written rather than
+    guessed at.
+    """
+    match = _EARS_SPLIT.match(" ".join(str(text).split()))
+    if not match:
+        return str(text).strip()
+    condition, clause, response = match.groups()
+    response = response.strip()
+    response = response[:1].upper() + response[1:]
+    return f"{condition} {clause}: {response}" if condition else response
+
+
 #: The four founder-flow stages, in order, keyed to their i18n labels.
 _STAGES = (
     ("describe", "rail_describe"), ("plan", "rail_plan"),
@@ -1223,6 +1253,50 @@ def create_studio_app(
         key_pasted["set"] = True
         return RedirectResponse("/", status_code=303)
 
+    def _spec_cards() -> str:
+        """One card per feature the product actually HAS, each with a way
+        to change it.
+
+        Rendered from `built_specs` — the correction router's own source of
+        truth — so a card can never offer to change something the router
+        would then refuse to route to. The alternative (listing
+        product/features/*) showed only what had been added AFTER the
+        build, as bare directory slugs, which is both the smaller half and
+        the less recognisable one.
+        """
+        from ai_venture_studio.upstream.correction import built_specs
+
+        try:
+            specs = built_specs(root)
+        except Exception:  # noqa: BLE001 — a malformed spec must not 500 the home page
+            specs = []
+        cards = ""
+        for spec in specs:
+            slug = str(spec["slug"])
+            does = "".join(
+                f"<div class=tstep>{html.escape(_plain_criterion(str(c)))}</div>"
+                for c in (spec.get("criteria") or [])
+            )
+            cards += (
+                "<div class=card>"
+                f"<b>{html.escape(str(spec.get('title') or slug))}</b>"
+                f"<span class='chip g'>{_('state_done')}</span>"
+                + (f"<div class=lbl>{_('spec_card_does')}</div>{does}" if does else "")
+                # <details>, so the box is in the HTML for the wireup gate
+                # and for anyone without JavaScript, and closed by default
+                # so twelve features do not become twelve open text areas.
+                + f"<details><summary class=linkish>{_('btn_change_this')}"
+                "</summary>"
+                "<form method=post action=/correct>"
+                f"<input type=hidden name=spec_slug value='{html.escape(slug)}'>"
+                "<textarea name=complaint "
+                f"placeholder='{_('change_this_placeholder')}'></textarea>"
+                f"<p><button class=secondary>{_('btn_change_this_go')}</button></p>"
+                "</form></details>"
+                "</div>"
+            )
+        return cards
+
     def _change_list() -> str:
         """The log, as the undo surface — with the truth about what going
         back costs.
@@ -1454,8 +1528,14 @@ def create_studio_app(
                 h1="",
             )
         if report.exists():
+            # Two different lists that used to be one. The features are what
+            # the product HAS; product/features/* is a log of what was added
+            # to it afterwards. Showing only the second under the heading
+            # "Features" left the originally-built ones with no representation
+            # anywhere on the page.
+            feature_cards = _spec_cards()
             features_dir = root / "product" / "features"
-            feature_cards = ""
+            added_rows = ""
             if features_dir.is_dir():
                 for d in sorted(features_dir.iterdir()):
                     state = (
@@ -1463,7 +1543,12 @@ def create_studio_app(
                         else (_("state_pending_confirm")
                               if (d / "CONFIRMATION.md").exists() else "…")
                     )
-                    feature_cards += f"<div class=card>{html.escape(d.name)} — {state}</div>"
+                    added_rows += (
+                        f"<div class=card>{html.escape(d.name)} — {state}</div>"
+                    )
+            added = (
+                f"<h2>{_('h_recent_changes')}</h2>{added_rows}" if added_rows else ""
+            )
             pending = _pending_feature(root)
             if pending:
                 raw_confirmation = (pending / "CONFIRMATION.md").read_text(
@@ -1619,12 +1704,16 @@ def create_studio_app(
 
             no_features = f"<p class=muted>{_('first_version')}</p>"
 
-            # ── ONE composer, three intents. "Something wrong?" and "Is it
-            # broken?" both feed /correct — the router already classifies —
-            # and "Add a feature" is its own small build via /feature. Two
-            # real forms, so both actions are in the HTML for the wireup
-            # gate and for anyone without JavaScript; the tabs only toggle
-            # visibility, they never hide a form from no-JS users.
+            # ── ONE composer, TWO intents — because there are two forms and
+            # there were three tabs. "Something wrong?" and "Is it broken?"
+            # posted to the same /correct form and the router, which reads
+            # the words and not the tab, could not tell them apart: a
+            # decision the founder had to make and the backend then threw
+            # away. What is genuinely two things is changing the product
+            # (/correct) and adding to it (/feature). Both are real forms,
+            # so both actions are in the HTML for the wireup gate and for
+            # anyone without JavaScript; the tabs only toggle visibility,
+            # they never hide a form from no-JS users.
             # The change list and the correction log are HISTORY: they sit
             # after the composer, not between its heading and its box.
             history = _change_list() + (
@@ -1640,11 +1729,9 @@ def create_studio_app(
                 f"<p class=muted>{_('correction_hint')}</p>"
                 "<div class=composerbox><div class=tabs id=fixtabs>"
                 f"<button type=button class='tab on' data-form=form-correct>"
-                f"{_('h_something_wrong')}</button>"
-                f"<button type=button class=tab data-form=form-correct>"
-                f"{_('h_broken')}</button>"
+                f"{_('tab_change')}</button>"
                 f"<button type=button class=tab data-form=form-feature>"
-                f"{_('h_add_feature')}</button>"
+                f"{_('tab_add')}</button>"
                 "</div>"
                 "<form method=post action=/correct id=form-correct>"
                 "<textarea name=complaint "
@@ -1686,6 +1773,7 @@ def create_studio_app(
                 + chiprow + gallery
                 + f"<h2>{_('h_features')}</h2>"
                 + (feature_cards or no_features)
+                + added
                 + composer + history + footer,
                 rail="product", h1="",
             )
@@ -2668,14 +2756,27 @@ def create_studio_app(
         learned that their bug report had been read as a scope change —
         their own SCR, approved in their name — only afterwards, from a log
         line.
+
+        `spec_slug` arrives when they pressed "Change this" on a feature
+        card instead of typing into the composer. It scopes the router to
+        that one feature — the founder pointed at it, so which feature is
+        no longer a guess.
         """
         if "correct" in thinking:
             return _thinking_page(request, thinking["correct"])
         form = await request.form()
         complaint = str(form.get("complaint", "")).strip()
         criterion = str(form.get("criterion", "")).strip()
+        slug = str(form.get("spec_slug", "")).strip()
         if not complaint:
             return RedirectResponse("/", status_code=303)
+        if slug:
+            # Same segment rule as everywhere else a form supplies a name
+            # that becomes a path under specs/.
+            if not _REVIEW_ID.match(slug):
+                return RedirectResponse("/", status_code=303)
+            if not (root / "specs" / slug / "spec.yaml").is_file():
+                return _no_such_page(request, "title_no_spec", slug)
         from starlette.concurrency import run_in_threadpool
 
         from ai_venture_studio.upstream import correction as correction_mod
@@ -2684,7 +2785,8 @@ def create_studio_app(
         try:
             routes = await run_in_threadpool(
                 lambda: correction_mod.route_complaint(
-                    root, complaint, provider=provider, criterion=criterion
+                    root, complaint, provider=provider, criterion=criterion,
+                    only_slug=slug,
                 )
             )
         except correction_mod.CorrectionRouteError as exc:

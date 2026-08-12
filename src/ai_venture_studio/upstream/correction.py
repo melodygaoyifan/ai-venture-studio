@@ -187,6 +187,7 @@ def route_complaint(
     provider: str = "anthropic",
     model: str = "claude-opus-4-8",
     criterion: str = "",
+    only_slug: str = "",
 ) -> list[CorrectionRoute]:
     """Split a plain-language complaint into its issues and route each one.
 
@@ -200,9 +201,21 @@ def route_complaint(
     the complaint came from the Try-it page. It is passed as context, never
     merged into the complaint: the founder's words stay theirs, verbatim,
     all the way to the SCR that records them.
+
+    `only_slug` is the feature the founder pointed AT — they pressed
+    "Change this" on one card, so which feature is meant is not a question
+    and the router is shown that one spec and nothing else. It cannot then
+    pick a different one, which is the whole reason the card exists. What
+    stays a judgment is repair-or-scope-change: pressing a button beside a
+    feature says which feature, never which kind, and forcing a kind here
+    would silently decide the one thing the founder did not say.
     """
     root = Path(repo_dir).resolve()
-    specs = _built_specs(root)
+    specs = built_specs(root)
+    if only_slug:
+        specs = [s for s in specs if s["slug"] == only_slug]
+        if not specs:
+            raise CorrectionRouteError(f"{only_slug!r} is not a built feature")
     if not specs:
         raise CorrectionRouteError("nothing built yet")
 
@@ -248,7 +261,14 @@ def route_complaint(
     return routes
 
 
-def _built_specs(root: Path) -> list[dict]:
+def built_specs(root: Path) -> list[dict]:
+    """Every feature this product actually has, as the router sees them.
+
+    Public because the Studio renders its feature cards from this exact
+    list: the cards and the routing targets are then the same objects by
+    construction, so a card cannot offer to change something the router
+    would refuse to route to.
+    """
     specs = []
     for spec_file in sorted(root.glob("specs/*/spec.yaml")):
         data = yaml.safe_load(spec_file.read_text(encoding="utf-8")) or {}
@@ -258,6 +278,31 @@ def _built_specs(root: Path) -> list[dict]:
                  "criteria": data.get("criteria", [])}
             )
     return specs
+
+
+def criterion_owners(root: Path) -> dict[str, str]:
+    """criterion text → the feature that owns it, for the ones that are a
+    FACT rather than a guess.
+
+    The Try-it rows come from ACCEPTANCE.md and VERIFICATION.md, and the
+    acceptance walkthrough is written by a model in plain language, so most
+    rows will match nothing here. That is the intended outcome: a row with
+    no entry is routed by the router, which is good at it. A WRONG
+    pre-scope would be worse than none, because it skips the router exactly
+    when it was needed — so a criterion claimed by two features is dropped
+    rather than assigned to the first one found.
+    """
+    owners: dict[str, str] = {}
+    for spec in built_specs(root):
+        slug = str(spec["slug"])
+        for criterion in spec.get("criteria") or []:
+            key = " ".join(str(criterion).split())
+            if not key:
+                continue
+            # "" marks a criterion two features both claim. Repeating it
+            # within ONE spec is not a conflict — that is still one owner.
+            owners[key] = slug if owners.get(key, slug) == slug else ""
+    return {text: slug for text, slug in owners.items() if slug}
 
 
 def draft_change(
@@ -383,7 +428,7 @@ def run_correction(
     # sources for makes changes nobody asked it for, and an SCR is a
     # record of one decision.
     complaint = route.words(complaint)
-    if slug not in {s["slug"] for s in _built_specs(root)}:
+    if slug not in {s["slug"] for s in built_specs(root)}:
         return CorrectionResult(
             status="error", detail=f"router chose unknown spec {slug!r}"
         )
