@@ -358,6 +358,17 @@ _POST_BODIES: dict[str, list[dict[str, str]]] = {
         {"plan": '{"spec_slug": "no-such-spec", "summary": "s", "criteria": ["c"]}'},
         {"plan": '{"spec_slug": "one", "summary": "s", "criteria": []}'},
     ],
+    # "Not that" on an assumption. The junk rows must not reach a model call
+    # or the filesystem; the last row has nothing to reject and no words, so
+    # it re-renders the card it came from without spending anything. The
+    # real tap→redraft path is pinned in tests/test_redraft.py.
+    "/correct/redraft": [
+        {"plan": "not json", "index": "0"},
+        {"plan": '{"spec_slug": "../../etc", "summary": "s"}', "index": "0"},
+        {"plan": '{"spec_slug": "no-such-spec", "summary": "s"}', "note": "x"},
+        {"plan": '{"spec_slug": "one", "summary": "s", "criteria": ["c"]}',
+         "index": "9"},
+    ],
     "/retry": [{"task_id": "t2"}],
     "/undo": [{}],
     # Same: a well-formed checkpoint name this workspace does not have, so

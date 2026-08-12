@@ -180,6 +180,10 @@ border-bottom:1px solid #efe9dd}}
 .tryacts{{display:flex;gap:14px;align-items:baseline;flex-wrap:wrap;
 margin-top:6px}}
 .tryacts form{{display:inline}}
+/* A "not that" button has to sit on the line of the assumption it
+   disagrees with — one line down and it reads as rejecting the list. */
+.inline{{display:inline;margin-left:10px}}
+.inline button{{padding:2px 10px;min-height:28px;font-size:13px}}
 .tryacts details{{width:100%}}
 .tstep{{display:block;font-size:14px;color:#575145;font-weight:400}}
 .bhead{{display:flex;align-items:flex-start;justify-content:space-between;
@@ -2719,20 +2723,52 @@ def create_studio_app(
         the decisions made on the founder's behalf, stated flat so a wrong
         one is visible before it is built rather than after.
         """
+        from ai_venture_studio.upstream.correction import MAX_REDRAFTS
+
         plan = result.plan
         if plan is None:  # pragma: no cover — status implies a plan
             return f"<p class=muted>{html.escape(result.detail)}</p>"
+        payload = json.dumps(plan.model_dump(), ensure_ascii=False)
+        carry = (
+            "<input type=hidden name=plan "
+            f"value=\"{html.escape(payload, quote=True)}\">"
+        )
+        # A wrong assumption used to cost the founder the whole complaint:
+        # nothing on this card disagreed with anything, so the only way out
+        # was to walk away and write the request again. One tap says which
+        # decision is wrong, and the redraft is the model's work — the
+        # founder is assumed to be neither able nor willing to specify it.
+        again = plan.redrafts < MAX_REDRAFTS
         assumptions = "".join(
-            f"<li>{html.escape(a)}</li>" for a in plan.assumptions
+            f"<li>{html.escape(a)}"
+            + ("<form method=post action='/correct/redraft' class=inline>"
+               + carry
+               + f"<input type=hidden name=index value='{i}'>"
+               f"<button class=secondary type=submit>"
+               f"{_('btn_chg_not_that')}</button></form>" if again else "")
+            + "</li>"
+            for i, a in enumerate(plan.assumptions)
         )
         criteria = "".join(
             f"<li>{html.escape(c)}</li>" for c in plan.criteria
         )
-        payload = json.dumps(plan.model_dump(), ensure_ascii=False)
+        # Words are the SECOND option and stay optional, the same order the
+        # complaint form uses: a tap is an answer, and asking for a sentence
+        # is the toll this path exists to remove.
+        words = (
+            "<form method=post action='/correct/redraft'>"
+            + carry
+            + f"<div class=lbl>{_('chg_redraft_words')}</div>"
+            "<textarea name=note></textarea>"
+            f"<p><button class=secondary type=submit>"
+            f"{_('btn_chg_redraft_words')}</button></p></form>"
+            if again else f"<p class=muted>{_('chg_redraft_done')}</p>"
+        )
         return (
             f"<p><b>{html.escape(plan.summary)}</b></p>"
             + (f"<div class=lbl>{_('chg_assumptions')}</div>"
-               f"<ul class=muted>{assumptions}</ul>" if assumptions else "")
+               + (f"<p class=muted>{_('chg_redraft_lead')}</p>" if again else "")
+               + f"<ul class=muted>{assumptions}</ul>" if assumptions else "")
             + (f"<div class=lbl>{_('chg_criteria')}</div>"
                f"<ul class=muted>{criteria}</ul>" if criteria else "")
             + "<form method=post action='/correct/change'>"
@@ -2742,6 +2778,9 @@ def create_studio_app(
             f"<input type=hidden name=plan value=\"{html.escape(payload, quote=True)}\">"
             f"<button class=primary type=submit>{_('btn_chg_go')}</button>"
             "</form>"
+            # "Build it" is on the card at every round, including after the
+            # cap: the limit ends the redrafting, never the change.
+            + words
         )
 
     def _correction_result_page(
@@ -3019,6 +3058,81 @@ def create_studio_app(
             )
         _spawn_add(apply_change(root, plan))
         return RedirectResponse("/", status_code=303)
+
+    @app.post("/correct/redraft")
+    async def correct_redraft(request: Request):
+        """"Not that" — one tap on an assumption, and the model tries again.
+
+        A draft used to be take-it-or-leave-it: the assumptions were listed
+        so a wrong one was visible, and then the only control on the card
+        built all of them anyway. Disagreeing meant going back and writing
+        the whole complaint again, which is the exact cost this path exists
+        to remove — the founder is assumed to be as lazy and as
+        non-technical as possible, so the refinement is the model's job and
+        theirs is a tap.
+
+        The plan travels back in the form, like `/correct/change`: the
+        rejections are the only new fact, and the complaint is NOT re-routed
+        (a second router call could classify it differently and redraft a
+        change nobody asked for). Nothing is written here either — a
+        redrafted plan is still just a page.
+        """
+        from pydantic import ValidationError
+
+        from ai_venture_studio.upstream.correction import (
+            MAX_REDRAFTS,
+            ChangePlan,
+            CorrectionResult,
+            CorrectionRoute,
+            draft_change,
+        )
+
+        form = await request.form()
+        try:
+            plan = ChangePlan.model_validate(json.loads(str(form.get("plan", ""))))
+        except (ValueError, ValidationError):
+            return RedirectResponse("/", status_code=303)
+        if not _REVIEW_ID.match(plan.spec_slug):
+            return RedirectResponse("/", status_code=303)
+        if not (root / "specs" / plan.spec_slug / "spec.yaml").is_file():
+            return _no_such_page(request, "title_no_spec", plan.spec_slug)
+        rejected, notes = list(plan.rejected), list(plan.notes)
+        raw = str(form.get("index", "")).strip()
+        if raw.isdigit() and int(raw) < len(plan.assumptions):
+            rejected.append(plan.assumptions[int(raw)])
+        note = " ".join(str(form.get("note", "")).split())[:2000]
+        if note:
+            notes.append(note)
+        # Nothing said and nothing rejected, or the cap already reached: show
+        # the card again rather than spending a call. Re-rendering keeps the
+        # draft on screen, which redirecting home would throw away.
+        again = CorrectionResult(
+            status="change_planned", spec_slug=plan.spec_slug,
+            kind="scope_change", reason="planned", plan=plan,
+        )
+        if (len(rejected) + len(notes) == plan.redrafts
+                or plan.redrafts >= MAX_REDRAFTS):
+            return _correction_result_page(request, [again])
+        from starlette.concurrency import run_in_threadpool
+
+        route = CorrectionRoute(
+            quote=plan.words, spec_slug=plan.spec_slug, kind="scope_change",
+            instruction=plan.instruction or plan.words or plan.summary,
+        )
+        _start_thinking("redraft", _("working_redraft"))
+        try:
+            fresh = await run_in_threadpool(
+                lambda: draft_change(
+                    root, route, plan.words, provider=provider,
+                    rejected=rejected, notes=notes,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — a page, never a 500
+            return _failure_page(request, exc)
+        finally:
+            _end_thinking("redraft")
+        again.plan = fresh
+        return _correction_result_page(request, [again])
 
     def _no_such_page(request: Request, title_key: str, what: str) -> HTMLResponse:
         """A named thing the workspace does not have. Redirecting home would

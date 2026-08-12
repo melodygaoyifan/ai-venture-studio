@@ -83,6 +83,13 @@ confirmation first"), never a question. Empty when they truly left nothing
 open. Never invent scope: an assumption narrows what they asked for, it does
 not add a feature next to it.
 
+You may be given `rejected_assumptions`: decisions this founder has already
+turned down. Never propose any of them again, in any wording. Decide that
+question DIFFERENTLY and carry the new decision through `criteria` and
+`fdr` — a redraft that keeps the same behaviour under a new sentence is a
+wrong answer. `founder_notes`, when present, are their own words about what
+was wrong; they outrank anything you assumed.
+
 Respond with ONLY YAML:
 summary: one plain sentence
 criteria:
@@ -115,6 +122,35 @@ class ChangePlan(BaseModel):
     #: the human authorization; a paraphrase filed as the authorization is
     #: a record of a decision nobody made.
     words: str = ""
+    #: Assumptions the founder has already rejected, in the order they
+    #: rejected them. Carried on the plan because the plan is the only
+    #: thing that survives between one request and the next — the draft is
+    #: never written down — so without this a redraft would be free to
+    #: propose the same assumption again, forever.
+    rejected: list[str] = []
+    #: What they said when rejecting, when they said anything. Optional by
+    #: design: the tap alone is the answer, and asking for a reason is the
+    #: toll this whole path exists to remove.
+    notes: list[str] = []
+    #: The router's sentence for the implementer, carried so a redraft can
+    #: be given exactly the input the first draft had. Without it the only
+    #: way to redraft is to re-route the complaint, and a second router call
+    #: is free to classify it differently — the founder would then be shown
+    #: a redraft of a change they never asked for.
+    instruction: str = ""
+
+    @property
+    def redrafts(self) -> int:
+        """How many times the founder has sent this draft back."""
+        return len(self.rejected) + len(self.notes)
+
+
+#: How many times a founder may send a draft back before the Studio stops
+#: offering. Two, the same bound `MAX_CLARIFY_ROUNDS` puts on intake: a
+#: third round is not a conversation, it is a loop — and this one spends a
+#: model call each time. "Build it" is on the card at every round, so the
+#: cap ends the redrafting, never the change.
+MAX_REDRAFTS = 2
 
 
 #: Why a correction ended where it did — a CLOSED vocabulary, one member
@@ -344,15 +380,27 @@ def draft_change(
     *,
     provider: str = "anthropic",
     model: str = "claude-opus-4-8",
+    rejected: list[str] | None = None,
+    notes: list[str] | None = None,
 ) -> ChangePlan:
     """Turn "make the cart remember things" into something buildable.
 
     Pure: reads the spec, calls the model, returns. Nothing is written and
     no SCR is raised, so a founder who reads the draft and closes the tab
     leaves the workspace exactly as they found it.
+
+    `rejected` are assumptions the founder has already turned down. They go
+    to the model as decisions it may not make again, and the redraft is the
+    whole point: the founder is assumed to be neither able nor willing to
+    specify a change, so the refinement has to be the model's work and the
+    founder's job has to be a tap. `notes` are what they said while turning
+    one down, when they said anything — usually nothing, and that has to
+    remain a complete answer.
     """
     root = Path(repo_dir).resolve()
     spec = load_spec(root, route.spec_slug)
+    turned_down = [a for a in (rejected or []) if str(a).strip()]
+    said = [n for n in (notes or []) if str(n).strip()]
     raw = get_provider(provider).complete(
         model=model,
         system=_CHANGE_SYSTEM,
@@ -361,7 +409,13 @@ def draft_change(
             sort_keys=False, allow_unicode=True,
         )
         + f"\n<founder_words>\n{route.words(complaint)}\n</founder_words>"
-        + f"\n<instruction>\n{route.instruction}\n</instruction>",
+        + f"\n<instruction>\n{route.instruction}\n</instruction>"
+        + ("\n<rejected_assumptions>\n"
+           + "\n".join(f"- {a}" for a in turned_down)
+           + "\n</rejected_assumptions>" if turned_down else "")
+        + ("\n<founder_notes>\n"
+           + "\n".join(f"- {n}" for n in said)
+           + "\n</founder_notes>" if said else ""),
         max_tokens=4096,
     )
     try:
@@ -384,6 +438,9 @@ def draft_change(
         fdr=str(data.get("fdr", "")).strip()
         or f"# {spec.title}\n\n{route.words(complaint)}\n\n{route.instruction}\n",
         words=route.words(complaint),
+        rejected=turned_down,
+        notes=said,
+        instruction=route.instruction,
     )
 
 

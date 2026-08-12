@@ -1566,6 +1566,32 @@ STRINGS: dict[str, dict[str, str]] = {
     },
     "btn_chg_go": {"zh": "就这么改，开始做 / Make this change",
                    "en": "Make this change"},
+    # Each assumption is a decision made FOR the founder, and until now the
+    # only way to disagree with one was to walk away and rewrite the whole
+    # complaint. These four strings are the cheaper answer: one tap says
+    # "not that", and the AI does the rewriting.
+    "chg_redraft_lead": {
+        "zh": "有哪条不对？点一下，我重新想一遍，你不用打字。"
+              " / Anything wrong? Tap it and I will think again — no typing.",
+        "en": "Anything wrong? Tap it and I will think again — no typing.",
+    },
+    "btn_chg_not_that": {"zh": "不是这样 / Not that", "en": "Not that"},
+    "chg_redraft_words": {
+        "zh": "也可以说两句哪里不对（不说也行）。"
+              " / Or say a few words about what is wrong (optional).",
+        "en": "Or say a few words about what is wrong (optional).",
+    },
+    "btn_chg_redraft_words": {"zh": "照这个再想一遍 / Think again with this",
+                              "en": "Think again with this"},
+    "chg_redraft_done": {
+        "zh": "已经重想过两次了。要么就这么做，要么回去把想要的重说一遍。"
+              " / I have thought this over twice. Build it, or go back and"
+              " say what you want differently.",
+        "en": "I have thought this over twice. Build it, or go back and say"
+              " what you want differently.",
+    },
+    "working_redraft": {"zh": "正在重新想这次改动…… / Thinking again…",
+                        "en": "Thinking about this change again…"},
     "title_chg": {"zh": "改需求 / Change a requirement",
                   "en": "Change a requirement"},
     "chg_busy": {

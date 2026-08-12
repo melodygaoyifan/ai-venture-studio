@@ -159,11 +159,29 @@ class MockProvider(Provider):
             current = re.findall(
                 r"^- (.+)$", user.split("<founder_words>")[0], re.MULTILINE
             )
+            # A redraft has to come back DIFFERENT. The founder rejected a
+            # decision; the same decision under a new sentence is the answer
+            # the real prompt forbids, and a mock that repeats itself would
+            # let that ship. The round number is the cheapest way to make a
+            # redraft distinguishable from a re-render without a model.
+            sent_back = sum(
+                len(re.findall(r"^- ", block.group(1), re.MULTILINE))
+                for block in (
+                    re.search(pattern, user, re.DOTALL) for pattern in (
+                        r"<rejected_assumptions>\n(.*?)\n</rejected_assumptions>",
+                        r"<founder_notes>\n(.*?)\n</founder_notes>",
+                    )
+                ) if block
+            )
+            assumed = (
+                f"mock assumption about {asked}" if not sent_back
+                else f"mock assumption {sent_back + 1} about {asked}"
+            )
             return yaml.safe_dump(
                 {
                     "summary": f"mock change: {asked}"[:120],
                     "criteria": current + [f"The system shall {asked}"],
-                    "assumptions": [f"mock assumption about {asked}"[:80]],
+                    "assumptions": [assumed[:80]],
                     "fdr": f"# mock change\n\n{asked}\n",
                 },
                 allow_unicode=True,

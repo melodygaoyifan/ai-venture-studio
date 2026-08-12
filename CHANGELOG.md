@@ -4,6 +4,58 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.77.0 — "not that", said with one tap
+
+Minor. A requirement change comes back as a draft: what will be different,
+the acceptance criteria it would leave behind, and the assumptions — the
+decisions the model had to make because the founder did not say. Those
+assumptions were put on the card deliberately, so a wrong one would be
+visible *before* it was built.
+
+Then the only control under them built all of them anyway. Seeing that an
+assumption is wrong and being able to say so are different things, and the
+founder's entire vocabulary was one button meaning yes and a browser back
+button meaning "start the complaint over from nothing". For the reader this
+product is written for — assumed as lazy and as non-technical as it is
+possible to be — that is not a choice, it is a dead end with a list of
+reasons in it. The refinement is the part they cannot do; it is also the
+part a model is good at.
+
+So every assumption now carries **Not that**. One tap rejects that decision
+and the draft is written again, with the rejection sent to the model as a
+question it must answer *differently* — a redraft that keeps the same
+behaviour under a new sentence is a wrong answer, and the prompt says so.
+Words stay available and stay second: a tap is already a complete answer,
+and asking for a sentence is the toll this whole path exists to remove.
+
+The rejections travel on the plan, in the same hidden field the plan
+already used, because the draft is never written down and the plan is the
+only memory between one request and the next — without it a second redraft
+could propose the assumption the founder just turned down. The complaint is
+*not* re-routed: a second router call is free to classify the same words as
+a repair or against another feature, and the founder would be shown a
+redraft of a change they never asked for. `ChangePlan` therefore also
+carries the router's `instruction`, so a redraft gets exactly the input the
+first draft had, and the rejection is the only thing that differs.
+
+Two rounds, the same bound intake puts on clarifying questions — a third is
+not a conversation, it is a loop that spends a model call each time round.
+The cap is enforced on the route as well as the page, so a form left open
+in another tab cannot spend a call the card has stopped offering. **Make
+this change** is on the card at every round including after the cap: the
+limit ends the redrafting, never the change. A redraft still writes nothing
+— same promise the first draft makes, so pressing "not that" can never be
+the thing that commits the founder.
+
+Contract surface: `ChangePlan` gains `rejected`, `notes`, and
+`instruction`, all defaulting to empty, plus a `redrafts` count;
+`draft_change` gains keyword-only `rejected` and `notes`;
+`correction.MAX_REDRAFTS` and `POST /correct/redraft` are new. All
+additive.
+
+Suite 1829 hermetic tests (as measured by CI at the tag; 1824 locally,
+where the five mutation-testing cases skip for want of `mutmut`).
+
 ## v0.76.0 — what happened, said to the founder, and takeable back
 
 Minor. Three failures that all landed on the same screen: the card a
