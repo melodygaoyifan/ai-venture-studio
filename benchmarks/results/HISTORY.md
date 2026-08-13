@@ -22,6 +22,7 @@ for the headline numbers.
 | 10 | result-2026-07-27-0129.yaml | a0a4469 | 75% | 75% | 43% | best composite; fixture visibility ended case-04 decomposition deaths; SSRF scoping moved clean reviews off 0% |
 | 11 | result-2026-07-27-0449.yaml | f246a4c | 74% | 75% | 38% | scoreboard HOLDS (same code as run 10, repeat within noise); case 02 perfect for the first time — intensive run phase ended per the stopping rule |
 | 12 | result-2026-08-13-0347.yaml | ddad6f2 | 75% | 65% | 48% | **first run ever driven by the scheduler** (v0.82.0 bench cadence loop, 16 days after the series stopped). Cases 01/02/03 ALL completed, 11/11 tasks built — the first three-case sweep; clean reviews 48%, the best recorded. Case 03 is **measured again after five runs unmeasured** (the 4a77fd3 probegen fallback works: 5 probes generated, 3 passed) and both its failures read `no error field: {}` — **which was the harness, not the product** (see the correction below). Case 04 did not run: `pytest -q` timed out at 300s and the case errored, scoring **0/0 → counted as 0.0** in all three aggregates, so the headline understates the three cases that ran (11/11 built = 100%) and the probe drop 75%→65% is that zero, not a capability regression |
+| 13 | result-2026-08-13-0837.yaml | c3aa2e3 | **94%** | **92%** | **75%** | **best composite by a wide margin, and the first run where all four cases were measured** (`cases_measured: 4` of 4). The two v0.83.0 fixes were judged in anger: case 03 went **5/5 on probes**, up from 3/5 — both of its old failures were the `{}` error-body pair, now readable; case 04 **completed 6/6 with no timeout at all**, so `_run_and_classify` never fired and run 12's hang remains unexplained rather than fixed. Case 02 is the one real failure: the build gate never went green on *database-backed short-link store with atomic CLI* (first attempt an `ImportError` loading conftest, auto-retry `test_create_returns_201_with_code`), nothing committed, workspace reset — the system refusing to ship broken work. Case 04's single probe failure was `URLError: Connection refused` — **the harness again, fixed below** |
 
 > **Run 12, recomputed reading (ADR-035).** The numbers above stand as
 > recorded — this table is a record, not a document — but two of them were
@@ -38,6 +39,23 @@ for the headline numbers.
 >   Run 7 showed the identical failures and the response then (`2bb4808`)
 >   was to tighten the *product* prompt — a fix one layer too low, which
 >   could never have worked while the probe could not see the field.
+
+> **Run 13, the one probe failure that was not the product's.** Case 04's
+> `score-validation-and-evidence-downgrade` failed with `URLError:
+> Connection refused`, which means the probe never reached the product —
+> nothing was measured about its behaviour, and it still cost the case a
+> probe (3/3 → 2/3). The cause was the frame's own: every probe is a
+> separate process that boots its own server, and the port was the
+> **constant 8646**, so a probe could boot onto the port the previous
+> probe's server had not finished releasing. Readiness made it worse by
+> being a bare TCP connect, which succeeds against a socket that is already
+> closing — the check said "up" about a server that was on its way out.
+> Fixed in v0.84.0: an ephemeral port per probe, readiness that requires an
+> HTTP answer (404 counts, a transport error does not), one retry before
+> believing a refusal, and `proc.wait()` after `terminate()` so the port is
+> actually back before the probe process exits. This is the same shape as
+> run 12's `{}` failures and run 7's before it: **the harness charging the
+> product for the harness's own miss.**
 
 > **Comparability break after run 12:** ADR-035 changes the denominators.
 > A case that produced no denominator is dropped from the rate rather than
