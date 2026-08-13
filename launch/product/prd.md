@@ -1,3 +1,7 @@
+<!-- SUPERSEDED SNAPSHOT — recorded by the Gate PL2/PL3 run and left as
+recorded. The live PRD narrative is launch/prd.md; the maintenance-attention
+kill criterion below was withdrawn on 2026-08-12 (ADR-033). -->
+
 # Launch PRD — the platform, launched by itself
 
 Who: solo founders who can build but cannot afford dishonest distribution,

@@ -1,6 +1,5 @@
-"""The loops' watchdog. What these pin, in one line each: a loop that never
-ran must never read as fresh, and a loop needing a human number must never be
-answered by the machine."""
+"""The loops' watchdog. What it pins, in one line: a loop that never ran must
+never read as fresh — the only way a watchdog can actually lie."""
 
 import datetime as dt
 import plistlib
@@ -23,14 +22,6 @@ def _sweep_digest(root, date: str):
     (directory / f"digest-{date}.yaml").write_text("at: x\n", encoding="utf-8")
 
 
-def _attention_log(root, rows):
-    directory = root / "metrics"
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / "attention-log.yaml").write_text(
-        yaml.safe_dump({"log": rows}, sort_keys=False), encoding="utf-8"
-    )
-
-
 def _loop(report, name):
     return next(loop for loop in report.loops if loop.name == name)
 
@@ -45,22 +36,16 @@ def test_empty_workspace_is_never_run_not_fresh(tmp_path):
     assert {loop.state for loop in report.loops} == {"never_run"}
     assert all(loop.age_days is None for loop in report.loops)
     assert all(loop.last_run == "" for loop in report.loops)
-    assert len(report.stale) == 3
+    assert len(report.stale) == 2
 
 
 def test_fresh_loops_are_ok(tmp_path):
     _compound_proposal(tmp_path, "2026-08-03")
     _sweep_digest(tmp_path, "2026-08-01")
-    _attention_log(tmp_path, [
-        {"week": "2026-W31", "window": "w", "hours": 2.0, "status": "logged",
-         "decided_by": "melody"},
-    ])
     report = cadence.assess(tmp_path, today=TODAY)
     assert _loop(report, "compound").state == "ok"
     assert _loop(report, "compound").age_days == 2
     assert _loop(report, "sweep").state == "ok"
-    # 2026-W31 closes Sunday 2026-08-02; three days before "today".
-    assert _loop(report, "attention").state == "ok"
     assert report.stale == []
 
 
@@ -98,43 +83,10 @@ def test_future_dated_artifact_clamps_to_zero(tmp_path):
     assert loop.state == "ok"
 
 
-def test_not_tracked_attention_week_is_not_a_run(tmp_path):
-    """The live log's only row is `not_tracked`. Counting it would let the
-    series the kill criterion depends on look maintained while measuring
-    nothing."""
-    _attention_log(tmp_path, [
-        {"week": "2026-W30", "window": "w", "hours": None,
-         "status": "not_tracked", "decided_by": "melody"},
-    ])
-    loop = _loop(cadence.assess(tmp_path, today=TODAY), "attention")
-    assert loop.state == "never_run"
-    assert loop.human_input_required is True
-
-
-def test_unreadable_attention_log_is_not_fresh(tmp_path):
-    (tmp_path / "metrics").mkdir()
-    (tmp_path / "metrics" / "attention-log.yaml").write_text(
-        "log: [ this is not: valid: yaml", encoding="utf-8"
-    )
-    loop = _loop(cadence.assess(tmp_path, today=TODAY), "attention")
-    assert loop.state == "never_run"
-    assert "unreadable" in loop.evidence
-
-
-def test_iso_week_end_is_the_sunday():
-    assert cadence._iso_week_end("2026-W31") == dt.date(2026, 8, 2)
-    assert cadence._iso_week_end("nonsense") is None
-    assert cadence._iso_week_end("") is None
-
-
 def test_run_due_skips_fresh_loops(tmp_path, monkeypatch):
     """What makes a daily trigger safe against weekly work."""
     _compound_proposal(tmp_path, "2026-08-04")
     _sweep_digest(tmp_path, "2026-08-04")
-    _attention_log(tmp_path, [
-        {"week": "2026-W31", "window": "w", "hours": 1.0, "status": "logged",
-         "decided_by": "melody"},
-    ])
     calls = []
     monkeypatch.setattr(
         cadence.subprocess, "run",
@@ -156,23 +108,24 @@ def test_run_due_runs_only_what_is_due(tmp_path, monkeypatch):
     )
     outcomes = cadence.run_due(tmp_path, today=TODAY, executable="/usr/local/bin/avs")
     ran = {o.loop for o in outcomes if o.ran}
-    assert ran == {"sweep", "attention"}
-    # Each command spells its workspace option the way that command spells it.
+    assert ran == {"sweep"}
+    # The command spells its workspace option the way that command spells it.
     by_name = {argv[1]: argv for argv in calls}
     assert by_name["sweep"][2] == "--workspace"
-    assert by_name["attention"][2] == "--repo-dir"
 
 
-def test_attention_is_surfaced_never_answered(tmp_path, monkeypatch):
-    """`avs attention` logs a row only with --confirm-hours, and the machine
-    must never supply one: the number is the operator's."""
+def test_every_loop_the_scheduler_drives_can_close_itself(tmp_path, monkeypatch):
+    """The shape a scheduler should have. Until v0.81.0 one loop (`attention`)
+    could only be closed by a person typing a number, so it exited non-zero
+    every morning by design and had to be exempted from the error channel.
+    Nothing here is exempt now, and this pins that no such loop creeps back."""
     monkeypatch.setattr(
         cadence.subprocess, "run", lambda argv, **kw: _completed(argv=argv)
     )
     outcomes = cadence.run_due(tmp_path, today=TODAY, executable="/usr/local/bin/avs")
-    attention = next(o for o in outcomes if o.loop == "attention")
-    assert "--confirm-hours" not in " ".join(attention.detail.split())
-    assert "surfaced for your decision" in attention.detail
+    assert outcomes, "an empty workspace has every loop due"
+    assert all(o.ran for o in outcomes)
+    assert all(o.exit_code == 0 for o in outcomes)
 
 
 def test_interpreter_fallback_is_a_module_that_exists(tmp_path, monkeypatch):
@@ -297,10 +250,6 @@ def test_a_proposed_constraint_is_reported_as_such(tmp_path):
 def test_summary_will_not_call_an_empty_window_simply_fine(tmp_path):
     _proposal_text(tmp_path, "2026-08-04", reviews=0)
     _sweep_digest(tmp_path, "2026-08-04")
-    _attention_log(tmp_path, [
-        {"week": "2026-W31", "window": "w", "hours": 1.0, "status": "logged",
-         "decided_by": "melody"},
-    ])
     report = cadence.assess(tmp_path, today=TODAY)
     assert report.stale == []
     assert [loop.name for loop in report.vacuous] == ["compound"]
@@ -477,10 +426,6 @@ def test_a_saved_webhook_counts_as_configured(tmp_path, monkeypatch):
 def test_summary_names_the_overdue_loops(tmp_path):
     _compound_proposal(tmp_path, "2026-08-04")
     _sweep_digest(tmp_path, "2026-01-01")
-    _attention_log(tmp_path, [
-        {"week": "2026-W31", "window": "w", "hours": 1.0, "status": "logged",
-         "decided_by": "melody"},
-    ])
     report = cadence.assess(tmp_path, today=TODAY)
     assert report.summary() == "1 loop overdue: sweep"
 
@@ -600,10 +545,6 @@ def test_a_plist_pointing_at_a_missing_binary_says_so(tmp_path):
 def _healthy_workspace(tmp_path):
     _compound_proposal(tmp_path, "2026-08-05")
     _sweep_digest(tmp_path, "2026-08-05")
-    _attention_log(tmp_path, [
-        {"week": "2026-W31", "window": "w", "hours": 1.0, "status": "logged",
-         "decided_by": "melody"},
-    ])
     return tmp_path
 
 

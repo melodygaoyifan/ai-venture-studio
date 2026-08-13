@@ -15,16 +15,18 @@ metric:
 
 ## Why this is a kill-criterion axis
 
-The attention axis (`weekly_maintenance_attention.md`) asks whether the
-framework is affordable to keep. This one asks the prior question: **does it
+This axis asks the question that comes before affordability: **does it
 still work?** A build rate that collapses means the product loop is
-generating things that do not run, and no amount of attention discipline
-makes that worth continuing.
+generating things that do not run, and no discipline elsewhere makes that
+worth continuing.
 
-Its practical advantage as a second axis is that **the series already
-exists**. `benchmarks/results/HISTORY.md` carries runs 4–11 with a result
-YAML per run, and the cadence is now weekly. The attention axis cannot fire
-until four consecutive weeks are logged; this one can fire on the next run.
+Its practical advantage — and since v0.81.0 the reason it is the *only*
+axis — is that **the series already exists**. `benchmarks/results/HISTORY.md`
+carries runs 4–11 with a result YAML per run, and the cadence is weekly, so
+this criterion can fire on the next run without anyone being asked anything.
+The other axis measured weekly maintenance hours a person had to type in;
+after three weeks it had collected none, and it was withdrawn with the loop
+that collected it (ADR-033).
 
 ## The observed distribution (what makes the floors real)
 

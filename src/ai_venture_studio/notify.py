@@ -141,7 +141,7 @@ def build_alert(
     stale = list(getattr(report, "stale", []))
     vacuous = list(getattr(report, "vacuous", []))
     behind = bool(build is not None and getattr(build, "behind", False))
-    failed = _failures(report, outcomes)
+    failed = _failures(outcomes)
     if not (failed or stale or vacuous or behind):
         return None
 
@@ -155,12 +155,6 @@ def build_alert(
     for loop in stale:
         state = "has never run" if loop.state == "never_run" else "is overdue"
         lines.append(f"**{loop.name}** {state}.")
-        if loop.human_input_required:
-            # The distinction worth making on a phone: this one will not fix
-            # itself tonight, because no machine can answer it.
-            lines.append(
-                "  Needs your number — the scheduler cannot log this one for you."
-            )
         lines.append(f"  `{loop.command}`")
 
     for loop in vacuous:
@@ -199,25 +193,22 @@ def build_alert(
     return Alert(heading=f"**{where or 'workspace'}** — {headline}", lines=lines)
 
 
-def _failures(report, outcomes) -> list[tuple[str, tuple[str, str]]]:
+def _failures(outcomes) -> list[tuple[str, tuple[str, str]]]:
     """The loops this run tried and did not get through.
 
-    Three things are deliberately not failures. A loop that was **not due**
-    did not run and that is the design. A loop needing a human exits non-zero
-    *by definition* — `attention` surfaces its ask that way every single day,
-    and calling that an error would make the channel cry wolf daily about the
-    one loop that is behaving exactly as specified; it is already reported as
-    overdue, which is the true statement. And a run that succeeded says
+    Two things are deliberately not failures. A loop that was **not due**
+    did not run and that is the design. And a run that succeeded says
     nothing here even if its output was noisy.
+
+    Nothing here is exempt any more. Until v0.81.0 the `attention` loop was:
+    it exited non-zero every morning by definition, so reporting it as an
+    error would have made the channel cry wolf daily about the one loop
+    behaving exactly as specified. That loop is gone (ADR-033), and with it
+    the whole category of a scheduled run whose non-zero exit means nothing.
+    A non-zero exit is now a failure, full stop.
     """
-    human = {
-        loop.name for loop in getattr(report, "loops", [])
-        if getattr(loop, "human_input_required", False)
-    }
     found: list[tuple[str, tuple[str, str]]] = []
     for outcome in outcomes or []:
-        if outcome.loop in human:
-            continue
         if not outcome.ran:
             if str(outcome.detail).startswith("not due"):
                 continue

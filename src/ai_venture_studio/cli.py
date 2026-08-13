@@ -1572,7 +1572,7 @@ def reconcile(
                 "recorded built but has no commit — not repaired, look at it"
             )
     if findings and not apply:
-        raise typer.Exit(code=3)  # a finding, not a failure: same shape as `attention`
+        raise typer.Exit(code=3)  # a finding, not a failure — the exit code says "look"
 
 
 @app.command()
@@ -3138,75 +3138,6 @@ def bench_criterion_cmd(
         raise typer.Exit(code=3)
 
 
-@app.command("attention")
-def attention_cmd(
-    week: str = typer.Option(None, help="ISO year-week (default: last week)"),
-    repo_dir: str = typer.Option(".", help="Repository holding metrics/attention-log.yaml"),
-    confirm_hours: float = typer.Option(
-        None, help="YOUR number for the week — logs the row (the machine never "
-                   "sets this; the measured floor is only a floor)"
-    ),
-    by: str = typer.Option("", help="Who is confirming (required with --confirm-hours)"),
-    note: str = typer.Option("", help="Anything the number needs said about it"),
-):
-    """Weekly maintenance attention: measure the observable floor from the
-    ledgers, then log YOUR hours. This is the series the launch PRD's kill
-    criterion is falsifiable by (doc 25 §76.4)."""
-    import datetime as _dt
-
-    from ai_venture_studio.attention import (
-        AttentionError,
-        LogRow,
-        append_row,
-        collect_floor,
-        iso_week,
-        streak_state,
-    )
-
-    target = week or iso_week(_dt.date.today() - _dt.timedelta(days=7))
-    try:
-        floor = collect_floor(repo_dir, target)
-        state = streak_state(repo_dir)
-    except AttentionError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(code=2) from exc
-
-    console.print(f"\n[bold]{floor.week}[/bold]  ({floor.window})")
-    console.print(f"  {floor.summary()}")
-    for item in floor.evidence[:10]:
-        console.print(f"    [dim]{item.kind}: {item.locator} "
-                      f"({item.seconds / 60:.0f}m)[/dim]")
-    if len(floor.evidence) > 10:
-        console.print(f"    [dim]… {len(floor.evidence) - 10} more[/dim]")
-    console.print("\n[dim]The floor counts only timestamped acts. Reading a "
-                  "review without touching a gate, thinking, and answering "
-                  "questions all count toward attention and leave no "
-                  "timestamp — so the logged number is yours, not this.[/dim]")
-
-    if confirm_hours is None:
-        console.print(f"\nkill criterion: {state.detail}")
-        console.print(
-            f"\nTo log it: [bold]avs attention --week {floor.week} "
-            f"--confirm-hours <yours> --by <you>[/bold]"
-        )
-        return
-
-    if not by.strip():
-        console.print("[red]--by is required when logging: a number in this "
-                      "series has an author[/red]")
-        raise typer.Exit(code=2)
-    row = LogRow(
-        week=floor.week, window=floor.window, hours=float(confirm_hours),
-        status="logged", decided_by=by.strip(), note=note.strip(),
-        measured_floor_hours=floor.measured_floor_hours,
-        evidence_count=len(floor.evidence),
-    )
-    try:
-        path = append_row(repo_dir, row)
-    except AttentionError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(code=2) from exc
-    console.print(f"[green]logged {row.hours}h for {row.week}[/green] → {path}")
     state = streak_state(repo_dir)
     color = "red" if state.fires else "yellow"
     console.print(f"[{color}]kill criterion: {state.detail}[/{color}]")
@@ -3503,7 +3434,7 @@ def cadence_cmd(
     ),
 ):
     """Which recurring loop is overdue, and the trigger that keeps them from
-    lapsing. Reads the artifacts compound/sweep/attention already write; a
+    lapsing. Reads the artifacts compound and sweep already write; a
     loop that never ran is reported as never run, not as fresh.
 
     Exits 3 when a loop is overdue, so it can gate a script."""
@@ -3623,9 +3554,7 @@ def cadence_cmd(
         )
 
     for loop in report.stale:
-        hint = "  (needs YOUR number — the machine cannot log it)" \
-            if loop.human_input_required else ""
-        console.print(f"  [dim]{loop.command}{hint}[/dim]")
+        console.print(f"  [dim]{loop.command}[/dim]")
 
     build = cad.scheduler_build()
     if build.installed:

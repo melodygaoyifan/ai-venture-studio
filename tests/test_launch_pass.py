@@ -59,8 +59,10 @@ def test_launch_prd_stays_clean():
         ledger_claim_ids={c["id"] for c in _platform_ledger()["claims"]},
     )
     assert issues == [], [i.model_dump() for i in issues]
-    assert [t.event for t in tasks] == ["maintenance.attention_logged"]
-    assert "4 consecutive weeks" in prd.kill_criteria[0]  # the verbatim criterion
+    # Nothing is left to instrument: the one outcome whose event did not yet
+    # exist was withdrawn in v0.81.0 (ADR-033).
+    assert tasks == []
+    assert "2 consecutive weekly runs" in prd.kill_criteria[0]  # verbatim
 
 
 def test_launch_post_survives_the_backstops():

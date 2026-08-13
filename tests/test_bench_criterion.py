@@ -1,8 +1,9 @@
 """v0.51.0 — the second kill-criterion axis (PRD O-L2), added by a recorded
 human choice on 2026-07-27.
 
-Its reason for existing is that its series ALREADY EXISTS, so unlike the
-attention axis it can fire on the next run. The assertions below are mostly
+Its reason for existing is that its series ALREADY EXISTS, so it can fire on
+the next run without asking anyone anything — which is why it is the only axis
+left after v0.81.0 withdrew the other (ADR-033). The assertions below are mostly
 about not over-firing: one bad run is noise at n=4 cases, and a criterion
 that cries wolf gets ignored, which is worse than not having it.
 """
@@ -129,10 +130,11 @@ def test_the_floors_match_what_the_prd_states():
     assert CONSECUTIVE_RUNS_TO_FIRE == 2
 
 
-def test_the_prd_now_carries_two_axes_and_the_second_names_its_series():
+def test_the_prd_carries_one_axis_and_it_names_its_series():
     prd = yaml.safe_load((REPO / "launch" / "prd.yaml").read_text(encoding="utf-8"))["prd"]
-    assert len(prd["kill_criteria"]) == 2, "the second axis should be recorded"
-    assert {o["id"] for o in prd["outcomes"]} == {"O-L1", "O-L2"}
+    # One, not two: O-L1 went out with the loop that fed it (v0.81.0, ADR-033).
+    assert len(prd["kill_criteria"]) == 1
+    assert {o["id"] for o in prd["outcomes"]} == {"O-L2"}
     capability = next(o for o in prd["outcomes"] if o["id"] == "O-L2")
     # Its instrumentation EXISTS — that is why this axis can fire now.
     assert capability["instrumentation"]["exists"] is True
@@ -140,12 +142,11 @@ def test_the_prd_now_carries_two_axes_and_the_second_names_its_series():
     assert pathlib.Path(REPO / capability["definition_ref"]).exists()
 
 
-def test_loop_reports_the_capability_axis_beside_the_attention_one():
+def test_the_loop_reports_the_capability_axis():
     from ai_venture_studio.product.cycle import read_cycle
 
     state = read_cycle(REPO / "launch")
     assert state.capability is not None and state.capability.tracked
     assert state.capability.fires is False
     v3_3 = next(c for c in state.criteria if c.id == "V3-3")
-    assert "below the floors" in v3_3.detail  # both axes in one report
-    assert "consecutive logged weeks" in v3_3.detail
+    assert "below the floors" in v3_3.detail

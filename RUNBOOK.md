@@ -136,8 +136,8 @@ the scanners are already installed.
 ## Weekly rhythm
 
 Start with `avs cadence --repo-dir <workspace>`. It reads the artifacts the
-loops already write and reports which of `compound`, `sweep` and `attention`
-is overdue. Exit 3 means something needs doing, so it can gate a script.
+loops already write and reports which of `compound` and `sweep` is overdue.
+Exit 3 means something needs doing, so it can gate a script.
 
 ```bash
 avs cadence --repo-dir ~/work/my-product          # what is overdue
@@ -146,7 +146,7 @@ avs cadence --repo-dir ~/work/my-product --install --arm  # daily, 09:00
 ```
 
 Point it at the **workspace**, not this repo — `.mas/` is where the loops'
-state accumulates, and a scheduler aimed at a checkout reports three loops
+state accumulates, and a scheduler aimed at a checkout reports loops
 that have never run, correctly and uselessly.
 
 What it refuses to do quietly:
@@ -154,8 +154,6 @@ What it refuses to do quietly:
 - A loop that never ran reads as **never run**, not as fresh.
 - A loop that ran on time over an empty window is reported as *ok, empty* —
   keeping a cadence over nothing is not the same as doing the work.
-- `attention` needs a number only you have. `--run-due` surfaces it and
-  never answers it.
 - A scheduler running an **older build than the one you released** is a
   finding, with the exact `pip install --upgrade` line for that install. A
   green publish moves PyPI and moves nothing on your machine; the plist
@@ -195,8 +193,9 @@ Two kinds of thing arrive. A loop that is **late** comes with the command
 that closes it. A loop that **broke this morning** comes with its exit code
 and the tail of its output, named first and in the heading, because that is
 the one worth interrupting a day for. A loop that was not due, or that
-succeeded loudly, says nothing; nor does `attention`, which exits non-zero
-by design every morning and is reported as overdue rather than as broken.
+succeeded loudly, says nothing. Every loop here can close itself, so a
+non-zero exit is a failure with no exceptions — the one loop that used to
+exit non-zero by design was withdrawn in v0.81.0 (ADR-033).
 What this cannot tell you is that `avs cadence` itself crashed before it
 got as far as sending — for that, and only that, the log is still the
 record.

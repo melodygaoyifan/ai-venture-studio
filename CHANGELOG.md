@@ -4,6 +4,60 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.81.0 — the weekly attention axis is withdrawn
+
+Minor. The launch PRD's first kill criterion said: if the framework's own
+weekly maintenance attention exceeds 4.0 hours for 4 consecutive weeks, cut
+scope at Gate PL5. Its only instrument was **a number the operator had to
+type in every week**. Three weeks after launch the log held one `not_tracked`
+row and zero logged hours. The criterion could not fire, and — as the Gate
+PL5 record said plainly at the time — could not be declared safe either.
+What the series actually measured was willingness to answer a weekly prompt.
+
+The machinery around it was careful and the care did not help: `avs
+attention` refused to invent a number, logged `not_tracked` rather than
+estimate, and the watchdog was built so the machine could never answer on
+the operator's behalf. Against a founder for whom typing is the most
+expensive thing the product can ask, a weekly typed number was never going
+to hold.
+
+It also cost something concrete. The `attention` loop was due every 7 days
+and **exited non-zero every single morning by design**, because "not yet
+answered" is its normal state. That forced a permanent exemption in the
+alert path shipped one release earlier: the one loop guaranteed to fail
+daily had to be excluded from the error channel, or the channel would cry
+wolf every morning. A scheduled job whose non-zero exit means nothing is a
+hole in the error reporting, and it existed solely to carry this axis.
+
+Removed (ADR-033):
+
+- `attention.py`, `tests/test_attention.py`, `metrics/attention-log.yaml`,
+  `metrics/weekly_maintenance_attention.md`, and the `avs attention` command.
+- The `attention` cadence loop, `LoopStatus.human_input_required`, and the
+  alert's "no machine can answer this" branch.
+- The cycle report's attention axis (`read_attention`, `CycleState.attention`).
+- **The exemption in `notify._failures`.** A non-zero exit from any scheduled
+  loop is now a failure, full stop, and reaches Discord.
+
+Amended, not quietly trimmed:
+
+- `launch/prd.yaml` drops outcome **O-L1** and its kill criterion, with the
+  withdrawal recorded in place; the id is not reused. The capability axis
+  (**O-L2**) stands — its series `benchmarks/results/*.yaml` is written by
+  the weekly run itself, so it can fire without asking anyone anything.
+- `launch/gate-pl5-evaluation.yaml` is **not rewritten**. Its 2026-07-26
+  reading stands verbatim with a `superseded_by` block appended, because the
+  criterion was *withdrawn, not satisfied*, and the record has to say which.
+- The pre-registered launch experiment and the published launch post are
+  left exactly as recorded, for the same reason — the pre-registration hash
+  guard refused the edit, which is the guard working.
+
+Honest cost, stated rather than papered over: the framework no longer
+measures its own maintenance burden at all. That is the correct trade only
+because the measurement it replaced was not happening. A future burden
+signal has to come from something already timestamped — commits, gate
+decisions, loop runs — and not from a prompt.
+
 ## v0.80.0 — the alert carries the error, not just the backlog
 
 Minor. v0.79.0 sent the *lateness* to Discord: which loops are overdue,

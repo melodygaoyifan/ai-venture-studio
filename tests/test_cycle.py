@@ -63,7 +63,7 @@ def test_continue_decision_does_not_close_the_gate(tmp_path):
         tmp_path,
         files=("signals.yaml", "market.yaml", "prd.yaml", "post.md",
                "evidence-report.yaml"),
-        evaluation={"fired": ["attention over budget"],
+        evaluation={"fired": ["build rate below floor"],
                     "requires_human_decision": True,
                     "human_decision": "continue"},
     )
@@ -79,7 +79,7 @@ def test_recorded_kill_or_pivot_closes_the_gate(tmp_path, decision):
         tmp_path,
         files=("signals.yaml", "market.yaml", "prd.yaml", "post.md",
                "evidence-report.yaml"),
-        evaluation={"fired": ["attention over budget"],
+        evaluation={"fired": ["build rate below floor"],
                     "requires_human_decision": True,
                     "human_decision": decision},
     )
@@ -93,7 +93,7 @@ def test_fired_criterion_without_a_decision_demands_one(tmp_path):
         tmp_path,
         files=("signals.yaml", "market.yaml", "prd.yaml", "post.md",
                "evidence-report.yaml"),
-        evaluation={"fired": ["attention over budget"],
+        evaluation={"fired": ["build rate below floor"],
                     "requires_human_decision": True},
     )
     assert state.pl5_requires_human_decision is True
@@ -146,20 +146,16 @@ def test_the_runbook_documents_the_human_only_criterion():
     assert "human_decision" in text  # the exact field to record
 
 
-# --- loop joined to the attention streak (v0.50.0) ----------------------------
+# --- the withdrawn axis (v0.81.0, ADR-033) -----------------------------------
 
 
-def _attention(root: pathlib.Path, rows: list[dict]) -> None:
-    path = root / "metrics" / "attention-log.yaml"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump({"log": rows}), encoding="utf-8")
-
-
-def _cycle_dir(root: pathlib.Path) -> pathlib.Path:
-    """A cycle directory whose stages are all present, so V3-3 is the only
-    criterion still open — the shape this repo's launch cycle is in."""
-    cycle = root / "launch"
-    cycle.mkdir(parents=True, exist_ok=True)
+def test_the_cycle_no_longer_reads_an_attention_log(tmp_path):
+    """Pinned as firmly as the presence was. The weekly-hours series was one
+    of two kill-criterion axes and is withdrawn; a stray reader would revive
+    a number nothing collects — and would report progress toward a criterion
+    that can no longer fire."""
+    cycle = tmp_path / "launch"
+    cycle.mkdir(parents=True)
     for name in ("signals.yaml", "market.yaml", "prd.yaml", "post.md",
                  "evidence-report.yaml"):
         (cycle / name).write_text("x: 1\n", encoding="utf-8")
@@ -168,75 +164,21 @@ def _cycle_dir(root: pathlib.Path) -> pathlib.Path:
                                        "requires_human_decision": False}}),
         encoding="utf-8",
     )
-    return cycle
-
-
-def test_loop_reports_the_real_distance_to_the_gate(tmp_path):
-    """Before v0.50 `loop` said 'the criteria need data that does not exist
-    yet' while `attention` knew exactly how far off the streak was. An
-    operator should not have to join two reports by hand."""
-    cycle = _cycle_dir(tmp_path)
-    _attention(tmp_path, [
-        {"week": "2026-W28", "window": "a..b", "hours": 6.0, "status": "logged",
-         "decided_by": "melody"},
-        {"week": "2026-W29", "window": "a..b", "hours": 6.0, "status": "logged",
-         "decided_by": "melody"},
-    ])
-    state = read_cycle(cycle)
-    assert state.attention is not None and state.attention.tracked
-    assert state.attention.streak == 2 and state.attention.needed == 4
-    v3_3 = next(c for c in state.criteria if c.id == "V3-3")
-    assert "2/4 consecutive logged weeks" in v3_3.detail
-    # And the next action names the week to log, not "wait".
-    assert "avs attention --week" in state.next_action
-    assert "2 more would fire" in state.next_action
-
-
-def test_a_recorded_untracked_week_is_reported_as_itself(tmp_path):
-    """not_tracked is a recorded decision, not a gap — saying 'logged' would
-    be wrong, and saying 'log it' would ask for a rewrite of the record."""
-    import datetime
-
-    from ai_venture_studio.attention import iso_week
-
-    cycle = _cycle_dir(tmp_path)
-    last_week = iso_week(datetime.date.today() - datetime.timedelta(days=7))
-    _attention(tmp_path, [
-        {"week": last_week, "window": "a..b", "hours": None,
-         "status": "not_tracked"},
-    ])
-    state = read_cycle(cycle)
-    assert state.attention.last_week_untracked is True
-    assert state.attention.next_week == ""
-    assert "RECORDED as not tracked" in state.next_action
-    assert "starts from the next week you log" in state.next_action
-
-
-def test_a_fired_criterion_turns_the_next_action_into_the_decision(tmp_path):
-    cycle = _cycle_dir(tmp_path)
-    _attention(tmp_path, [
+    log = tmp_path / "metrics" / "attention-log.yaml"
+    log.parent.mkdir(parents=True)
+    log.write_text(yaml.safe_dump({"log": [
         {"week": f"2026-W{26 + i}", "window": "a..b", "hours": 9.0,
          "status": "logged", "decided_by": "melody"} for i in range(4)
-    ])
+    ]}), encoding="utf-8")
+
     state = read_cycle(cycle)
-    assert state.attention.fires is True
-    assert "HAS FIRED" in state.next_action
-    assert "invariant 14.20" in state.next_action
-    # It still does not mark the gate met: only a recorded decision does.
-    assert state.design_gate_met is False
+
+    # Four over-budget weeks: this used to fire the criterion outright.
+    assert not hasattr(state, "attention")
+    assert "attention" not in state.next_action
+    assert "HAS FIRED" not in state.next_action
 
 
-def test_no_attention_log_falls_back_to_the_static_wording(tmp_path):
-    cycle = _cycle_dir(tmp_path)
-    state = read_cycle(cycle)
-    assert state.attention is None
-    assert "data that does not exist yet" in state.next_action
-
-
-def test_an_unreadable_log_says_so_rather_than_reporting_a_streak(tmp_path):
-    cycle = _cycle_dir(tmp_path)
-    path = tmp_path / "metrics" / "attention-log.yaml"
-    path.parent.mkdir(parents=True)
-    path.write_text("log: [unclosed", encoding="utf-8")
-    state = read_cycle(cycle)
-    assert state.attention is None  # not tracked, so not reported as progress
+def test_the_reader_module_is_gone(tmp_path):
+    with pytest.raises(ModuleNotFoundError):
+        import ai_venture_studio.attention  # noqa: F401

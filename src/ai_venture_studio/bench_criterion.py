@@ -1,10 +1,11 @@
 """The capability kill criterion (launch PRD O-L2, doc 25 §76.4).
 
-The second axis, added 2026-07-27 by a recorded human choice. Its whole point
-is that its series ALREADY EXISTS: `benchmarks/results/*.yaml` carries a
-build / probe / clean rate per weekly run, so this criterion can fire on the
-next run, while the attention axis cannot fire until four consecutive weeks
-are logged.
+Added 2026-07-27 by a recorded human choice as the second of two axes, and
+since v0.81.0 the only one — the other measured weekly maintenance hours a
+person had to type in, and was withdrawn with them (ADR-033). Its whole point
+was always that its series ALREADY EXISTS: `benchmarks/results/*.yaml` carries
+a build / probe / clean rate per weekly run, so this criterion can fire on the
+next run without anyone being asked anything.
 
     build rate < 60% OR probe pass rate < 50%, for 2 consecutive runs
         → the capability claim is not holding → Gate PL5
@@ -16,7 +17,7 @@ at 8–33% build, runs 6–9 climbed 42–72%, runs 10–11 hold 74–75%. Cross
 Two runs, not one, because at n=4 real-product cases a single run is noise.
 
 This module states; it never decides. A fired criterion demands a recorded
-human decision at Gate PL5 (invariant 14.20), exactly like the attention one.
+human decision at Gate PL5 (invariant 14.20).
 """
 
 from __future__ import annotations

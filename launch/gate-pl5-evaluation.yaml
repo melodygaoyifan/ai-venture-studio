@@ -24,6 +24,19 @@ evaluation:
     no decision due. 'continue' stays legal because nothing fired —
     NOT because anyone chose it. Next evaluation: after four logged
     weeks (earliest 2026-08-24) or at loop 3, whichever first.
+  # Appended 2026-08-12, v0.81.0. The reading above is left exactly as it was
+  # recorded — an evidence snapshot is not edited after the fact. What changed
+  # is downstream of it: the criterion it evaluates no longer exists.
+  superseded_by:
+    at: "2026-08-12"
+    ref: docs/adr/033-withdraw-weekly-attention-axis.md
+    note: >-
+      The maintenance-attention criterion was WITHDRAWN, not satisfied. The
+      four weeks this record was waiting for never accrued, which is itself
+      the finding: an axis whose only instrument is a person typing a number
+      each week measures willingness to answer a prompt. It was removed from
+      launch/prd.yaml along with outcome O-L1 and the `avs attention` loop.
+      The capability axis (O-L2) is unaffected and stands.
   demand_hypotheses:
     - id: H-L1
       verdict: unresolved

@@ -1,6 +1,6 @@
-"""The live operator-side records (P20 remainder): the attention log,
-the first Gate PL5 evaluation, and the launch experiment's power verdict —
-each mechanically consistent with the machinery it claims to have run.
+"""The live operator-side records (P20 remainder): the first Gate PL5
+evaluation and the launch experiment's power verdict — each mechanically
+consistent with the machinery it claims to have run.
 """
 
 from __future__ import annotations
@@ -52,30 +52,25 @@ def test_experiment_run_evidence_is_typed():
     assert fallback["asked"] == len(fallback["answers"])  # n recorded, not inferred
 
 
-def test_attention_log_rows_are_honest():
-    rows = _load("metrics/attention-log.yaml")["log"]
-    assert rows, "the log exists to be written"
-    for row in rows:
-        assert row["status"] in {"logged", "not_tracked"}
-        if row["status"] == "not_tracked":
-            # A week that was not tracked carries no number — logged,
-            # never estimated (metrics/weekly_maintenance_attention.md).
-            assert row["hours"] is None
-        else:
-            assert isinstance(row["hours"], (int, float)) and row["hours"] >= 0
-        assert str(row.get("week", "")).strip()
-
-
-def test_pl5_evaluation_is_consistent_with_the_log():
+def test_pl5_evaluation_stays_internally_consistent():
     evaluation = _load("launch/gate-pl5-evaluation.yaml")["evaluation"]
-    rows = _load("metrics/attention-log.yaml")["log"]
-    breaches = [r for r in rows
-                if r["status"] == "logged" and (r["hours"] or 0) > 4.0]
-    # The recorded fired-list must match what the log can support: with
-    # fewer than 4 consecutive logged breaches, nothing may claim to fire.
-    if len(breaches) < 4:
-        assert evaluation["fired"] == []
     assert evaluation["requires_human_decision"] == bool(
         evaluation["fired"] or evaluation["loop_budget_exhausted"]
     )
     assert evaluation["loop_index"] <= evaluation["max_loops"]
+
+
+def test_a_withdrawn_criterion_is_superseded_never_erased():
+    """The attention axis this record evaluated was withdrawn in v0.81.0
+    (ADR-033). The reading it recorded on 2026-07-26 must survive verbatim —
+    an evidence snapshot is not edited after the fact — with the withdrawal
+    appended beside it, pointing at the decision."""
+    evaluation = _load("launch/gate-pl5-evaluation.yaml")["evaluation"]
+    recorded = evaluation["criteria"][0]
+    assert "weekly maintenance attention" in recorded["text"]
+    assert recorded["fired"] is False
+    assert "0 of the 4 required consecutive weeks exist" in recorded["reading"]
+
+    superseded = evaluation["superseded_by"]
+    assert (REPO / superseded["ref"]).exists()
+    assert "WITHDRAWN, not satisfied" in superseded["note"]

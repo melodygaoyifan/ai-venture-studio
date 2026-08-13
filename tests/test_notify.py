@@ -50,11 +50,8 @@ def _ok(name: str = "sweep") -> LoopStatus:
     )
 
 
-def _overdue(name: str = "attention", *, human: bool = True) -> LoopStatus:
-    return LoopStatus(
-        name=name, state="never_run", command=f"avs {name}",
-        human_input_required=human,
-    )
+def _overdue(name: str = "compound") -> LoopStatus:
+    return LoopStatus(name=name, state="never_run", command=f"avs {name}")
 
 
 def _empty(because: str = "work_stopped") -> LoopStatus:
@@ -100,23 +97,18 @@ def test_an_overdue_loop_names_itself_and_carries_its_command():
     alert = notify.build_alert(_report(_ok(), _overdue()), workspace="avs-studio")
     body = alert.render()
 
-    assert "attention" in body
-    assert "`avs attention`" in body
+    assert "compound" in body
+    assert "`avs compound`" in body
     assert "avs-studio" in body
 
 
-def test_a_loop_only_a_human_can_close_says_so():
-    """The one distinction that matters on a phone: this will not fix itself
-    overnight, because no machine can answer it."""
-    alert = notify.build_alert(_report(_overdue("attention", human=True)))
+def test_no_loop_claims_a_person_has_to_close_it():
+    """Until v0.81.0 one loop could only be closed by someone typing a number,
+    and the alert said so. That loop is gone (ADR-033): every loop here is one
+    the machine will retry by itself, and none may claim otherwise."""
+    body = notify.build_alert(_report(_overdue("compound"), _overdue("sweep"))).render()
 
-    assert "cannot log this one for you" in alert.render()
-
-
-def test_a_loop_the_machine_will_retry_makes_no_such_claim():
-    alert = notify.build_alert(_report(_overdue("compound", human=False)))
-
-    assert "cannot log this one" not in alert.render()
+    assert "cannot log this one" not in body
 
 
 @pytest.mark.parametrize(
@@ -210,25 +202,26 @@ def test_a_successful_run_says_nothing_however_loud_it_was():
     assert notify.build_alert(_report(_ok()), outcomes=outcomes) is None
 
 
-def test_the_loop_that_needs_a_human_is_not_reported_as_broken():
-    """`attention` exits non-zero every single morning by design. Calling that
-    an error would have the channel cry wolf daily about the one loop behaving
-    exactly as specified — it is already reported, correctly, as overdue."""
+def test_a_non_zero_exit_is_a_failure_with_no_exceptions():
+    """Until v0.81.0 the `attention` loop exited non-zero every morning by
+    design, so it had to be exempted here or the channel would cry wolf daily.
+    With that loop withdrawn (ADR-033) the exemption is gone too: any loop the
+    scheduler runs and that exits non-zero is broken, full stop."""
     alert = notify.build_alert(
-        _report(_overdue("attention", human=True)),
-        outcomes=[_ran("attention", 3, "needs your hours")],
+        _report(_overdue("compound")),
+        outcomes=[_ran("compound", 3, "boom")],
     )
     body = alert.render()
 
-    assert "FAILED" not in body
-    assert "cannot log this one for you" in body
+    assert "1 loop FAILED this run: compound" in alert.heading
+    assert "exit 3" in body
 
 
 def test_the_heading_leads_with_the_breakage_not_the_backlog():
     """The heading is the phone preview. A loop that broke this morning
     outranks a loop that is merely late."""
     alert = notify.build_alert(
-        _report(_overdue("attention"), _ok("sweep")),
+        _report(_overdue("compound"), _ok("sweep")),
         outcomes=[_ran("sweep", 1, "boom")],
         workspace="avs-studio",
     )

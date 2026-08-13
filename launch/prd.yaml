@@ -9,13 +9,11 @@ prd:
     - "No paid acquisition of any kind, ever (ADR-U20)."
     - "No cross-framework comparison marketing — our benchmark is runnable, theirs was not run (§74.1)."
     - "No email channel at launch: a fresh domain has none of the §21.58.3 telemetry."
+  # O-L1 (weekly_maintenance_attention_hours) was WITHDRAWN in v0.81.0 —
+  # ADR-033. Its instrumentation never existed and could not: the number had
+  # to be typed by the founder every week, so the axis measured willingness to
+  # answer a prompt, not maintenance load. The id is not reused.
   outcomes:
-    - id: O-L1
-      metric: weekly_maintenance_attention_hours
-      definition_ref: metrics/weekly_maintenance_attention.md
-      baseline: {value: 0, source: "first measurement starts at launch; structural zero"}
-      target: {value: 4.0, by: "2026-10-31"}
-      instrumentation: {event: maintenance.attention_logged, exists: false}
     - id: O-L2
       metric: product_bench_build_rate
       definition_ref: metrics/product_bench_capability.md
@@ -28,6 +26,8 @@ prd:
       falsifier: "fewer than half of the first 10 key-configured adopters report trying replay --demo first (asked directly, n recorded)"
       check: {stage: P4, method: qualitative, window_days: 30}
   scope_tier: thin
+  # The maintenance-attention criterion that stood first here was withdrawn
+  # with O-L1 (v0.81.0, ADR-033). One axis remains, and it is the one whose
+  # series is actually collected.
   kill_criteria:
-    - "If the framework's own weekly maintenance attention exceeds its budget (4.0 hours) for 4 consecutive weeks, scope is cut per Gate PL5 (doc 25 §76.4, verbatim)."
-    - "If the product-bench build rate falls below 60% OR the probe pass rate below 50% for 2 consecutive weekly runs, the capability claim is not holding and scope is cut per Gate PL5. The 60/50 floors read the observed pre-fix era (42-54% build) against the current 74-75% — a real floor, not a chosen number; the series is benchmarks/results/HISTORY.md, already collected weekly, so unlike the attention axis this can fire on the next run."
+    - "If the product-bench build rate falls below 60% OR the probe pass rate below 50% for 2 consecutive weekly runs, the capability claim is not holding and scope is cut per Gate PL5. The 60/50 floors read the observed pre-fix era (42-54% build) against the current 74-75% — a real floor, not a chosen number; the series is benchmarks/results/HISTORY.md, already collected weekly, so this can fire on the next run."

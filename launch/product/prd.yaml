@@ -1,3 +1,6 @@
+# SUPERSEDED SNAPSHOT — recorded by the Gate PL2/PL3 run (commit e26666e) and
+# left as recorded. The live PRD is launch/prd.yaml; outcome O-L1 and its
+# kill criterion below were withdrawn on 2026-08-12 (ADR-033).
 # The platform's own launch PRD (doc 25 §76.4) — P20 executed through the
 # machinery it ships. Gate PL2 approval and the publish button are human.
 prd:

@@ -42,35 +42,30 @@ skip is recorded with its reason rather than left as a silent gap; P0/P1
 are in scope for cycle 2, whose candidates come from this cycle's PL5
 routing.
 
-V3-1 and V3-2 are met. V3-3 is not. Since v0.51 the PRD carries **two**
-axes: the capability criterion (product-bench below its floors for two
-consecutive runs) can fire on the next weekly run, and the attention
-criterion needs four consecutive weeks of logged
-maintenance attention, and the attention log holds one untracked week. A
-criterion cannot fire on data that was never collected — and it cannot be
-declared safe on it either (`launch/gate-pl5-evaluation.yaml` says exactly
-this).
+V3-1 and V3-2 are met. V3-3 is not. The PRD carries **one** axis: the
+capability criterion — product-bench build rate below 60% or probe pass
+rate below 50% for two consecutive weekly runs — which can fire on the next
+weekly run, because `benchmarks/results/*.yaml` is written by the run itself.
 
-## Closing it, when the data exists
+A second axis stood beside it from v0.51 until v0.81.0: four consecutive
+weeks of over-budget maintenance attention. It was **withdrawn**, not
+satisfied ([ADR-033](adr/033-withdraw-weekly-attention-axis.md)). Three
+weeks after launch its log held one untracked week and zero logged hours,
+because its only instrument was a number someone had to type in weekly — so
+what it actually measured was willingness to answer a prompt. The Gate PL5
+record of 2026-07-26 stands verbatim with the withdrawal appended beside it;
+`launch/gate-pl5-evaluation.yaml` still says what it said at the time, which
+is that a criterion cannot fire on data that was never collected, and cannot
+be declared safe on it either.
 
-1. Log maintenance attention weekly, once per week, with:
+## Closing it, when the criterion fires
 
-   ```
-   avs attention                      # last week's floor + streak state
-   avs attention --confirm-hours 5.5 --by <you>
-   ```
-
-   The first form measures only what left a timestamp (gate dwell, recorded
-   decisions) and states that floor; the second logs *your* number beside it.
-   The machine never authors the hours, and the log is append-only. Repeat
-   until four consecutive logged weeks exist, or you reach loop 3 —
-   whichever comes first. When the criterion fires, the command exits 3 and
-   points here.
-2. `avs loop --root launch` reports the streak inline — how many
-   consecutive over-budget weeks exist, how many remain, and which week to
-   log next. Re-run the evaluation mechanically against
-   `launch/prd.yaml`'s criteria when it says the criterion has fired.
-3. If a criterion fires, `loop` exits **3** and says a decision is due.
+1. Run the weekly benchmark. `avs loop --root launch` reads
+   `benchmarks/results/` and reports the capability axis inline — the last
+   runs' build and probe rates against the floors, and how many consecutive
+   runs below them exist. Nothing here needs typing: the series is a
+   by-product of the run.
+2. If a criterion fires, `loop` exits **3** and says a decision is due.
    Record it in `launch/gate-pl5-evaluation.yaml`:
 
    ```yaml
@@ -81,21 +76,21 @@ this).
      rationale: >-
        Why, in your own words. This is the artifact the gate is about.
    ```
-4. `kill` or `pivot` closes V3-3 and the v3.0.0 gate. `continue` is a
+3. `kill` or `pivot` closes V3-3 and the v3.0.0 gate. `continue` is a
    legitimate decision but explicitly does **not** close it — the gate is
    about the loop's ability to stop, and a continue proves the opposite.
 
 ## What a kill actually looks like here
 
-If the attention criterion fires, the PRD's own remedy is scope cut, not
+If the capability criterion fires, the PRD's own remedy is scope cut, not
 project death (doc 25 §76.4). The honest options at that gate:
 
-- **kill** a scope area — e.g. stop maintaining a lane whose upkeep is
-  eating the attention budget, and record which one.
+- **kill** a scope area — e.g. stop maintaining a lane the benchmark shows
+  the loop can no longer build for, and record which one.
 - **pivot** the loop's target — e.g. move from broad adoption to a single
   edition, with the other doors frozen.
-- **continue** and accept the budget overrun, which the ledger will keep
-  reporting.
+- **continue** and accept a capability claim the benchmark no longer
+  supports, which every subsequent run will keep reporting.
 
 Each is a real decision with a real cost. Picking one is the work the gate
 exists to force, and it is yours.

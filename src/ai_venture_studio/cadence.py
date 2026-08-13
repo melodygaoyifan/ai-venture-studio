@@ -1,28 +1,25 @@
 """Loop cadence — the recurring loops' own watchdog.
 
-Three loops in this system are designed to *recur*: the compounding loop
-(§09.8), the Sweep role (doc 29), and weekly attention collection (doc 25
-§76.4). Each writes a dated artifact when it runs. None of them had a
-trigger — "weekly" was a habit, and a habit that lapses is invisible.
-
-`attention.py` already records what that costs, in its own words: a missed
-week does not merely lose a week, it *resets the streak* the kill criterion
-depends on. A loop whose recurrence is unenforced degrades silently and
+Two loops in this system are designed to *recur*: the compounding loop
+(§09.8) and the Sweep role (doc 29). Each writes a dated artifact when it
+runs. Neither had a trigger — "weekly" was a habit, and a habit that lapses
+is invisible. A loop whose recurrence is unenforced degrades silently and
 reports nothing, which is the "looks done" failure exactly.
 
+(There were three until v0.81.0. Weekly attention collection asked the
+operator to type a number every week and was withdrawn with the kill
+criterion it fed — ADR-033. Every loop here now runs itself, which is the
+shape a scheduler should have had from the start: nothing it reports is
+waiting on a human to answer a prompt.)
+
 This module reads the artifacts the loops already write and answers one
-question mechanically: **which loop is overdue?** Three rules keep it
-honest:
+question mechanically: **which loop is overdue?** Two rules keep it honest:
 
 1. **It states; it does not decide.** Staleness is arithmetic on file
    dates. Nothing here judges whether a loop's output was any good.
 2. **A loop that never ran is `never_run`, not zero days old.** Absence of
    evidence is reported as absence, never rendered as a fresh pass — the
    one way a watchdog can lie.
-3. **Loops needing a human number are never run for them.** `avs
-   attention` without `--confirm-hours` is read-only by design ("the
-   machine never sets this"). The scheduler surfaces the ask; the human
-   answers it. Mechanical recurrence is the machine's job; judgment is not.
 
 **Why this is machine-local and not CI.** Every artifact read here lives
 under `.mas/`, which is gitignored. A CI runner checks out an empty `.mas/`
@@ -77,7 +74,6 @@ class LoopStatus(BaseModel):
     state: str = "ok"  # ok | due | overdue | never_run
     evidence: str = ""
     command: str = ""
-    human_input_required: bool = False
     produced: str = ""  # what the last run actually yielded, in its own words
     #: The loop ran on schedule but had no input to read. Not stale — the loop
     #: is healthy — but reporting it as a plain "ok" would let a loop that
@@ -299,49 +295,6 @@ def _digest_note(path: str) -> str:
     return str(data.get("note", "")).strip()
 
 
-def _attention_status(repo_dir: pathlib.Path, today: dt.date) -> LoopStatus:
-    """Attention's marker is a logged row, not a file.
-
-    Only `status: logged` rows count. A `not_tracked` row records that the
-    week was *considered* and left unmeasured — treating it as a run would
-    let the series look maintained while measuring nothing, and this is the
-    one series the launch kill criterion is falsifiable by.
-    """
-    from ai_venture_studio import attention
-
-    evidence = str(pathlib.Path(repo_dir) / attention.ATTENTION_LOG)
-    try:
-        rows = attention.load_log(repo_dir)
-    except Exception as exc:  # noqa: BLE001 — an unreadable log is not "fresh"
-        return LoopStatus(
-            name="attention", state="never_run", human_input_required=True,
-            evidence=f"{evidence} (unreadable: {exc})",
-            command="avs attention",
-        )
-    logged = [row for row in rows if row.status == "logged" and row.week]
-    last: dt.date | None = None
-    for row in logged:
-        week_end = _iso_week_end(row.week)
-        if week_end and (last is None or week_end > last):
-            last, evidence = week_end, f"{evidence} ({row.week})"
-    state, age = _classify(last, today, WEEKLY)
-    return LoopStatus(
-        name="attention", last_run=last.isoformat() if last else "",
-        age_days=age, state=state, evidence=evidence,
-        command="avs attention", human_input_required=True,
-    )
-
-
-def _iso_week_end(week: str) -> dt.date | None:
-    """`YYYY-Www` → the Sunday that closes it, the earliest date by which
-    that week could have been logged. Unparseable input is None, not today."""
-    try:
-        year, _, number = week.partition("-W")
-        return dt.date.fromisocalendar(int(year), int(number), 7)
-    except (ValueError, TypeError):
-        return None
-
-
 def assess(
     repo_dir: str | pathlib.Path = ".", *, today: dt.date | None = None
 ) -> CadenceReport:
@@ -354,7 +307,6 @@ def assess(
         loops=[
             _compound_status(root, day),
             _sweep_status(root, day),
-            _attention_status(root, day),
         ],
     )
 
@@ -381,8 +333,6 @@ def run_due(
     fresh and does nothing, which is what lets the scheduler fire daily
     against weekly work.
 
-    Loops marked `human_input_required` are run in their read-only form —
-    they surface the ask into the scheduler's log without answering it.
     """
     report = assess(repo_dir, today=today)
     binary = executable or shutil.which("avs") or sys.executable
@@ -404,9 +354,6 @@ def run_due(
             ))
             continue
         detail = (completed.stderr or completed.stdout or "").strip()
-        if loop.human_input_required:
-            detail = f"surfaced for your decision — {detail}" if detail else \
-                "surfaced for your decision"
         outcomes.append(RunOutcome(
             loop=loop.name, ran=True, exit_code=completed.returncode,
             detail=detail[-2000:],
@@ -417,7 +364,7 @@ def run_due(
 def _argv_for(
     loop: LoopStatus, binary: str, repo_dir: pathlib.Path
 ) -> list[str]:
-    """The command for one loop. The three commands spell their workspace
+    """The command for one loop. The two commands spell their workspace
     option differently (`--repo-dir` vs `--workspace`), so it is looked up
     rather than assumed.
 
