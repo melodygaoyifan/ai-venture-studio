@@ -4,6 +4,52 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.84.1 — the release check that could not tell a failed install from a good one
+
+Three releases running — 0.82.0, 0.83.0, 0.84.0 — the post-publish
+verification installed the new version from PyPI, reported success, and
+produced no `avs` binary. Three times it was recorded as a PyPI index
+propagation hiccup that `--force-reinstall` cleared. Both halves were
+fiction.
+
+The install had failed, and the command doing the verifying was
+`pip install --quiet ... 2>&1 | tail -3`. `--quiet` suppresses the
+`Successfully installed` line; `tail -3` discards the `ERROR:` lines. What
+survives either outcome is the two pip-upgrade notices, so a failed install
+and a successful one are byte-for-byte identical on screen. pip had printed
+exactly what was wrong every time and it was thrown away before anyone read
+it. The retry a minute later is what fixed it; `--force-reinstall` took the
+credit — which is why the same "hiccup" recurred at the next release, and
+the one after that. The diagnosis was never wrong so much as never made.
+
+That is the shape v0.84.0 fixed one directory over: a check that reports on
+something it did not observe. There it was a probe calling a product it
+never reached; here it is a verification step reading output it had already
+discarded.
+
+`scripts/verify-release.sh` replaces the pipeline typed from memory at each
+release. It never silences or truncates pip. It retries **only** while the
+index is genuinely behind — the one retryable case — and fails on the first
+attempt for anything else, with the whole log, because spinning for ten
+minutes on an error that will never clear is how a real defect gets filed as
+a propagation delay. It treats `Successfully installed` as no evidence at
+all: the console script must exist on disk and `avs --version` must print
+the version being verified, since pip reporting success says a wheel was
+unpacked and nothing about whether the thing the founder types arrived. It
+then runs `init` and `replay --demo` with every provider key unset, so a
+wheel that only works because the verifying shell happened to hold
+credentials does not pass. `--deploy` upgrades whichever interpreter owns
+the `avs` on `PATH` and re-checks the version, because published is not
+deployed — a step that has been manual, and forgotten, before.
+
+`tests/test_version_consistency.py` — which exists because `__version__`
+drifted from `pyproject.toml` for two releases under a checklist — now also
+guards this script's invariants: a pip line carrying `-q`/`--quiet`, or
+piped through `head`/`tail`, fails the suite, as does dropping the
+console-script assertion. The checklist step is a program, and the program
+has a test. `publish.yml`'s header points at it as the last step of the
+release.
+
 ## v0.84.0 — a probe that never reached the product measured nothing
 
 Patch-shaped, released as a minor because the probe frame is contract
