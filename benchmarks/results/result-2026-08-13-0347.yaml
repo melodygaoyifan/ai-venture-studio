@@ -1,0 +1,152 @@
+cases:
+- name: 01-groupbuy-api
+  autopilot_status: completed
+  tasks_total: 4
+  tasks_built: 4
+  clean_reviews: 3
+  outcomes:
+  - task_id: t1
+    title: 持久化存储与团购创建
+    status: built
+    review: REQUEST_CHANGES
+    detail: ''
+    test_summary: 28 passed in 20.56s
+    iterations: 2
+  - task_id: t2
+    title: 团购查询端点
+    status: built
+    review: APPROVE
+    detail: ''
+    test_summary: 31 passed in 20.87s
+    iterations: 1
+  - task_id: t3
+    title: 订单创建端点
+    status: built
+    review: APPROVE_WITH_NOTES
+    detail: ''
+    test_summary: 43 passed in 31.38s
+    iterations: 1
+  - task_id: t4
+    title: 团购汇总端点
+    status: built
+    review: APPROVE
+    detail: ''
+    test_summary: 45 passed in 32.34s
+    iterations: 1
+  preserved_workspace: ''
+  probes:
+  - name: create-and-read
+    passed: true
+    detail: create/read ok
+  - name: order-summary-math
+    passed: true
+    detail: summary math ok
+  - name: unknown-id-is-client-error
+    passed: true
+    detail: 404 ok
+  duration_s: 2063.9
+- name: 02-shortener-api
+  autopilot_status: completed
+  tasks_total: 3
+  tasks_built: 3
+  clean_reviews: 2
+  outcomes:
+  - task_id: t1
+    title: Create short link endpoint
+    status: built
+    review: REQUEST_CHANGES
+    detail: (recovered on auto-retry)
+    test_summary: 26 passed in 0.69s
+    iterations: 2
+  - task_id: t2
+    title: Redirect endpoint with click counting
+    status: built
+    review: APPROVE
+    detail: ''
+    test_summary: 11 passed in 0.09s
+    iterations: 1
+  - task_id: t3
+    title: Link stats endpoint
+    status: built
+    review: APPROVE
+    detail: ''
+    test_summary: 15 passed in 0.67s
+    iterations: 1
+  preserved_workspace: ''
+  probes:
+  - name: shorten-and-redirect
+    passed: true
+    detail: redirect ok
+  - name: click-counting
+    passed: true
+    detail: click count ok
+  duration_s: 1930.6
+- name: 03-groupbuy-auto
+  autopilot_status: completed
+  tasks_total: 4
+  tasks_built: 4
+  clean_reviews: 2
+  outcomes:
+  - task_id: t1
+    title: 创建团购端点
+    status: built
+    review: REQUEST_CHANGES
+    detail: ''
+    test_summary: 14 passed in 0.08s
+    iterations: 2
+  - task_id: t2
+    title: 查看单个团购端点
+    status: built
+    review: APPROVE_WITH_NOTES
+    detail: ''
+    test_summary: 17 passed in 0.09s
+    iterations: 1
+  - task_id: t3
+    title: 对某团购下单端点
+    status: built
+    review: APPROVE
+    detail: ''
+    test_summary: 44 passed in 0.16s
+    iterations: 1
+  - task_id: t4
+    title: 团购汇总端点
+    status: built
+    review: REQUEST_CHANGES
+    detail: ''
+    test_summary: 49 passed in 0.17s
+    iterations: 1
+  preserved_workspace: .mas/product-bench/workspaces/03-groupbuy-auto
+  probes:
+  - name: create-groupbuy-and-read-back
+    passed: true
+    detail: ''
+  - name: create-validation-rejects-bad-input
+    passed: false
+    detail: 'AssertionError: no error field: {}'
+  - name: order-and-summary-math
+    passed: true
+    detail: ''
+  - name: empty-summary-is-zero
+    passed: true
+    detail: ''
+  - name: not-found-and-bad-id
+    passed: false
+    detail: 'AssertionError: no error field: {}'
+  duration_s: 2207.7
+- name: 04-direction-workbench
+  autopilot_status: 'error: TimeoutExpired: Command ''[''/Users/yifangao/miniconda3/bin/python'',
+    ''-m'', ''pytest'', ''-q'']'' timed out after 300 seconds'
+  tasks_total: 0
+  tasks_built: 0
+  clean_reviews: 0
+  outcomes: []
+  preserved_workspace: ''
+  probes: []
+  duration_s: 1967.5
+build_rate: 0.75
+probe_pass_rate: 0.65
+clean_review_rate: 0.47916666666666663
+rates:
+  build_rate: 0.75
+  probe_pass_rate: 0.65
+  clean_review_rate: 0.479
