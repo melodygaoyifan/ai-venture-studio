@@ -3401,15 +3401,23 @@ def cadence_cmd(
     repo_dir: str = typer.Option(".", help="Workspace the recurring loops run in"),
     today: str = typer.Option(None, help="ISO date override (default: today)"),
     run_due: bool = typer.Option(
-        False, "--run-due",
-        help="Run each loop that is due (loops needing your number are only "
-             "surfaced, never answered)",
+        False, "--run-due", help="Run each loop that is due",
+    ),
+    only: str = typer.Option(
+        None, "--only", metavar="LOOP[,LOOP]",
+        help="Restrict to these loops (compound, sweep, bench) — for a "
+             "scheduler that owns one loop in one directory",
     ),
     install: bool = typer.Option(
         False, "--install", help="Install the daily LaunchAgent that fires --run-due"
     ),
     uninstall: bool = typer.Option(
         False, "--uninstall", help="Remove the LaunchAgent"
+    ),
+    label: str = typer.Option(
+        None, "--label",
+        help="LaunchAgent label for --install/--uninstall. A second workspace "
+             "needs its own, or installing retargets the first one",
     ),
     at: str = typer.Option("09:00", help="Schedule for --install, as HH:MM"),
     arm: bool = typer.Option(
@@ -3434,13 +3442,16 @@ def cadence_cmd(
     ),
 ):
     """Which recurring loop is overdue, and the trigger that keeps them from
-    lapsing. Reads the artifacts compound and sweep already write; a
-    loop that never ran is reported as never run, not as fresh.
+    lapsing. Reads the artifacts compound, sweep and the product-bench
+    already write; a loop that never ran is reported as never run, not as
+    fresh.
 
     Exits 3 when a loop is overdue, so it can gate a script."""
     import datetime as _dt
 
     from ai_venture_studio import cadence as cad
+
+    loops = [part.strip() for part in only.split(",")] if only else None
 
     if set_webhook:
         from ai_venture_studio import notify as notifier
@@ -3460,7 +3471,11 @@ def cadence_cmd(
         return
 
     if uninstall:
-        removed = cad.uninstall_agent()
+        try:
+            removed = cad.uninstall_agent(label=label)
+        except cad.CadenceError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(code=2) from exc
         console.print(
             f"[green]removed[/green] {removed['plist']}" if removed["removed"]
             else f"[dim]nothing to remove at {removed['plist']}[/dim]"
@@ -3472,7 +3487,7 @@ def cadence_cmd(
             hour, _, minute = at.partition(":")
             done = cad.install_agent(
                 repo_dir, hour=int(hour), minute=int(minute or 0), load=arm,
-                notify=notify,
+                notify=notify, only=loops, label=label,
             )
         except (ValueError, cad.CadenceError) as exc:
             console.print(f"[red]{exc}[/red]")
@@ -3480,6 +3495,7 @@ def cadence_cmd(
         console.print(f"[green]wrote[/green] {done['plist']}")
         console.print(
             f"  {done['schedule']} → avs cadence --run-due"
+            + (f" --only {','.join(done['loops'])}" if done.get("loops") else "")
             + (" --notify" if done.get("notify") else "")
         )
         console.print(f"  workspace: {done['workspace']}")
@@ -3500,11 +3516,15 @@ def cadence_cmd(
         return
 
     day = _dt.date.fromisoformat(today) if today else None
-    report = cad.assess(repo_dir, today=day)
+    try:
+        report = cad.assess(repo_dir, today=day, only=loops)
+    except cad.CadenceError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=2) from exc
 
     outcomes = None
     if run_due:
-        outcomes = cad.run_due(repo_dir, today=day)
+        outcomes = cad.run_due(repo_dir, today=day, only=loops)
         for outcome in outcomes:
             if not outcome.ran:
                 console.print(f"[dim]{outcome.loop}: {outcome.detail}[/dim]")
@@ -3513,7 +3533,7 @@ def cadence_cmd(
             console.print(f"[{color}]{outcome.loop}: ran (exit {outcome.exit_code})[/{color}]")
             if outcome.detail:
                 console.print(f"  [dim]{outcome.detail}[/dim]")
-        report = cad.assess(repo_dir, today=day)
+        report = cad.assess(repo_dir, today=day, only=loops)
 
     table = Table(show_lines=False)
     table.add_column("loop")
@@ -3556,7 +3576,7 @@ def cadence_cmd(
     for loop in report.stale:
         console.print(f"  [dim]{loop.command}[/dim]")
 
-    build = cad.scheduler_build()
+    build = cad.scheduler_build(label=label)
     if build.installed:
         console.print(f"[dim]scheduler: {build.describe()}[/dim]")
     if build.behind:

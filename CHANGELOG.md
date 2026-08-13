@@ -4,6 +4,64 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.82.0 — the kill criterion's series is watched, and its schedule leaves cron
+
+Minor. v0.81.0 left the product-bench capability axis as the launch PRD's
+**only** kill criterion, on the strength that its series is collected
+mechanically and can fire without asking anyone anything. The series had
+stopped. Newest result: run 11, `result-2026-07-27-0449.yaml` — sixteen days
+and three scheduled Mondays earlier, with no complaint from anything.
+
+Two independent defects, either sufficient. The Monday crontab entry never
+fired: cron *skips* a job whose minute passed while the Mac was asleep
+rather than deferring it, and the bench log holds exactly one entry ever,
+the preflight of the day it was installed. And it could not have
+authenticated if it had: the script grepped `^export ANTHROPIC_API_KEY=`
+out of `.zshrc`, which the v0.71.1 LaunchAgent hardening had since converted
+to the `ANTHROPIC_API_KEY_FILE` form.
+
+Neither is the structural fault. `avs cadence` watched `compound` and
+`sweep` and did **not** watch the one series a kill criterion reads. A
+criterion whose series has silently stopped reports "not fired" forever, and
+reads exactly like a criterion being satisfied — the same absence-as-clean-pass
+failure ADR-033 removed, one directory over.
+
+Added (ADR-034):
+
+- **`bench`, a third cadence loop.** Seven-day cadence, read from the newest
+  ISO date in `benchmarks/results/result-*.yaml`, carrying the build and
+  probe rates that run recorded. Overdue and `never_run` are findings and
+  reach Discord.
+- **Tracked only where its cases live.** No `benchmarks/products-real/`, no
+  bench loop — the bench measures the framework, not a product, and a
+  standing false alarm in every product workspace would train the reader to
+  swipe the channel away.
+- **It runs itself**, invoking `avs product-bench --cases-dir
+  benchmarks/products-real` — the cases directory named explicitly, because
+  the command's default is the synthetic set and the criterion is defined
+  over the real one. ADR-033's rule holds: a paid hour-long run is still a
+  run, not a question.
+- **Per-loop timeouts** (`LoopStatus.timeout_s`). Run 11 took 74 minutes; one
+  shared hour would have killed it at the three-quarter mark and reported the
+  timeout as a capability failure.
+- **`--only` and `--label`**, so a second workspace gets its own schedule.
+  `--only` is validated against the loop names the module knows rather than
+  against what is present, and naming an absent loop is an error, not an
+  empty report: a filter that quietly selects nothing is a scheduler that
+  watches nothing and reports all clear every morning.
+
+Changed outside the package: the crontab entry is removed in favour of a
+launchd agent (launchd runs a missed job on wake), and
+`weekly-product-bench.sh` keeps its credential fix but says at the top that
+it is no longer scheduled.
+
+Honest cost: the scheduled run no longer commits and pushes the result. The
+criterion reads the working tree either way, but the series survives losing
+the machine only if someone commits the file — now a line in the weekly
+rhythm rather than something automatic. The trade is a runner that is
+versioned, tested and watched instead of a script in `~/.local/bin` that
+nothing pinned and nothing checked.
+
 ## v0.81.0 — the weekly attention axis is withdrawn
 
 Minor. The launch PRD's first kill criterion said: if the framework's own

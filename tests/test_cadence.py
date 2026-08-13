@@ -182,7 +182,7 @@ def test_install_refuses_a_workspace_with_no_state(tmp_path):
 def test_install_writes_the_plist_but_arms_nothing(tmp_path, monkeypatch):
     (tmp_path / ".mas").mkdir()
     monkeypatch.setattr(
-        cadence, "agent_log_path", lambda: tmp_path / "logs" / "loops.log"
+        cadence, "agent_log_path", lambda label=None: tmp_path / "logs" / "loops.log"
     )
     target = tmp_path / "agent.plist"
     done = cadence.install_agent(
@@ -324,7 +324,7 @@ def test_no_credential_at_all_is_a_warning_not_a_silent_install(tmp_path):
 def test_install_reports_what_it_carried(tmp_path, monkeypatch):
     (tmp_path / ".mas").mkdir()
     monkeypatch.setattr(
-        cadence, "agent_log_path", lambda: tmp_path / "logs" / "loops.log"
+        cadence, "agent_log_path", lambda label=None: tmp_path / "logs" / "loops.log"
     )
     # The real shell may export any of these; the assertion is about what the
     # installer carries, not about this machine.
@@ -383,7 +383,7 @@ def test_installing_alerts_with_nowhere_to_send_them_warns(tmp_path, monkeypatch
 
     (tmp_path / ".mas").mkdir()
     monkeypatch.setattr(
-        cadence, "agent_log_path", lambda: tmp_path / "logs" / "loops.log"
+        cadence, "agent_log_path", lambda label=None: tmp_path / "logs" / "loops.log"
     )
     monkeypatch.setattr(
         notifier, "DEFAULT_WEBHOOK_PATH", str(tmp_path / "cfg" / "hook")
@@ -407,7 +407,7 @@ def test_a_saved_webhook_counts_as_configured(tmp_path, monkeypatch):
 
     (tmp_path / ".mas").mkdir()
     monkeypatch.setattr(
-        cadence, "agent_log_path", lambda: tmp_path / "logs" / "loops.log"
+        cadence, "agent_log_path", lambda label=None: tmp_path / "logs" / "loops.log"
     )
     monkeypatch.setattr(
         notifier, "DEFAULT_WEBHOOK_PATH", str(tmp_path / "cfg" / "hook")
@@ -657,3 +657,199 @@ def test_a_future_dated_review_is_not_reported_as_negative_days(tmp_path):
     loop = _loop(cadence.assess(tmp_path, today=dt.date(2026, 8, 4)), "compound")
 
     assert "0d old" in loop.produced
+
+
+# --- the bench: the only kill criterion left, and nobody was watching it ----
+#
+# v0.81.0 withdrew the maintenance-attention axis (ADR-033), leaving the
+# product-bench series as the launch PRD's sole kill criterion. That series
+# was collected by a cron job that had not fired since 2026-07-27 — sixteen
+# days, three scheduled Mondays, no result and no complaint. `avs cadence`
+# watched compound and sweep and did not watch the one series a criterion
+# actually reads. These pin the loop that closes that gap.
+
+
+def _bench_cases(root):
+    (root / "benchmarks" / "products-real").mkdir(parents=True, exist_ok=True)
+
+
+def _bench_result(root, date: str, *, build=0.74, probes=0.75):
+    directory = root / "benchmarks" / "results"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"result-{date}-0449.yaml").write_text(
+        yaml.safe_dump({"build_rate": build, "probe_pass_rate": probes}),
+        encoding="utf-8",
+    )
+
+
+def test_a_workspace_without_the_cases_is_not_told_it_owes_a_bench(tmp_path):
+    """The bench measures the *framework*, not a product. Reporting it as
+    never_run in every workspace that cannot run it would put a standing
+    false alarm in the one channel that must not cry wolf."""
+    report = cadence.assess(tmp_path, today=TODAY)
+    assert [loop.name for loop in report.loops] == ["compound", "sweep"]
+
+
+def test_the_bench_series_going_quiet_is_now_a_finding(tmp_path):
+    """The actual 2026 incident, as a test: cases present, last result 16
+    days old, and until v0.82.0 nothing said a word."""
+    _bench_cases(tmp_path)
+    _bench_result(tmp_path, "2026-07-27")
+    loop = _loop(cadence.assess(tmp_path, today=dt.date(2026, 8, 12)), "bench")
+
+    assert loop.state == "overdue"
+    assert loop.age_days == 16
+    assert loop.is_stale is True
+    assert loop in cadence.assess(tmp_path, today=dt.date(2026, 8, 12)).stale
+
+
+def test_a_bench_that_never_ran_is_never_run_not_fresh(tmp_path):
+    _bench_cases(tmp_path)
+    loop = _loop(cadence.assess(tmp_path, today=TODAY), "bench")
+    assert loop.state == "never_run"
+    assert loop.last_run == ""
+
+
+def test_the_bench_carries_the_rates_it_read_without_judging_them(tmp_path):
+    """Rule 1: it states, it does not decide. Whether 40% fires the criterion
+    is `bench_criterion.evaluate`'s call, and it is not made here."""
+    _bench_cases(tmp_path)
+    _bench_result(tmp_path, "2026-08-04", build=0.40, probes=0.30)
+    loop = _loop(cadence.assess(tmp_path, today=TODAY), "bench")
+
+    assert loop.produced == "build 40%, probes 30%"
+    assert loop.state == "ok"
+    assert loop.vacuous is False
+
+
+def test_the_bench_runs_the_real_cases_not_the_synthetic_default(tmp_path, monkeypatch):
+    """`product-bench` defaults to benchmarks/products. The criterion is
+    defined over benchmarks/products-real, so a scheduled run that took the
+    default would keep the series alive with the wrong series."""
+    _bench_cases(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        cadence.subprocess, "run",
+        lambda argv, **kw: calls.append((argv, kw)) or _completed(),
+    )
+    outcomes = cadence.run_due(tmp_path, today=TODAY, executable="/usr/local/bin/avs")
+
+    assert {o.loop for o in outcomes if o.ran} >= {"bench"}
+    argv = next(a for a, _ in calls if a[1] == "product-bench")
+    assert argv[2] == "--cases-dir"
+    assert argv[3].endswith("benchmarks/products-real")
+
+
+def test_the_bench_is_given_the_hours_it_actually_takes(tmp_path, monkeypatch):
+    """Run 11 took 74 minutes of wall clock. A one-hour ceiling would have
+    killed it at the three-quarter mark and reported the timeout as a
+    capability failure — a lie in the direction that costs the most."""
+    _bench_cases(tmp_path)
+    _compound_proposal(tmp_path, "2026-06-01")
+    calls = []
+    monkeypatch.setattr(
+        cadence.subprocess, "run",
+        lambda argv, **kw: calls.append((argv, kw)) or _completed(),
+    )
+    cadence.run_due(tmp_path, today=TODAY, executable="/usr/local/bin/avs")
+
+    timeouts = {a[1]: kw["timeout"] for a, kw in calls}
+    assert timeouts["product-bench"] == cadence.BENCH_TIMEOUT_S
+    assert timeouts["product-bench"] > 3600
+    assert timeouts["compound"] == cadence.DEFAULT_TIMEOUT_S
+
+
+def test_the_bench_closes_itself_like_every_other_loop(tmp_path, monkeypatch):
+    """ADR-033's rule, applied to the loop added after it: the bench is a
+    paid hour-long run, but it is a run, not a question. Nothing the
+    scheduler drives may need a person to type something."""
+    _bench_cases(tmp_path)
+    monkeypatch.setattr(
+        cadence.subprocess, "run", lambda argv, **kw: _completed(argv=argv)
+    )
+    outcomes = cadence.run_due(tmp_path, today=TODAY, executable="/usr/local/bin/avs")
+
+    assert {o.loop for o in outcomes} == {"compound", "sweep", "bench"}
+    assert all(o.ran and o.exit_code == 0 for o in outcomes)
+
+
+# --- one scheduler per workspace, and a filter that refuses to select nothing
+
+
+def test_only_restricts_the_report_to_the_named_loop(tmp_path):
+    _bench_cases(tmp_path)
+    report = cadence.assess(tmp_path, today=TODAY, only=["bench"])
+    assert [loop.name for loop in report.loops] == ["bench"]
+
+
+def test_a_misspelled_loop_is_refused_not_silently_ignored(tmp_path):
+    """A filter that matches nothing gives a scheduler that watches nothing
+    and reports all clear every morning — the exact lie this module exists
+    to prevent, arrived at through a typo."""
+    _bench_cases(tmp_path)
+    with pytest.raises(cadence.CadenceError) as caught:
+        cadence.assess(tmp_path, today=TODAY, only=["bnech"])
+    assert "bnech" in str(caught.value)
+    assert "compound, sweep, bench" in str(caught.value)
+
+
+def test_asking_for_a_loop_this_workspace_lacks_is_an_error(tmp_path):
+    """Not an empty report. A product workspace cannot run the bench, and a
+    scheduler installed there pointing at it must fail loudly on the first
+    morning rather than report a clean sheet forever."""
+    with pytest.raises(cadence.CadenceError) as caught:
+        cadence.assess(tmp_path, today=TODAY, only=["bench"])
+    assert "not tracked" in str(caught.value)
+    assert "products-real" in str(caught.value)
+
+
+def test_a_filtered_run_only_runs_the_loop_it_was_given(tmp_path, monkeypatch):
+    _bench_cases(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        cadence.subprocess, "run",
+        lambda argv, **kw: calls.append(argv) or _completed(),
+    )
+    outcomes = cadence.run_due(
+        tmp_path, today=TODAY, executable="/usr/local/bin/avs", only=["bench"]
+    )
+    assert [o.loop for o in outcomes] == ["bench"]
+    assert [argv[1] for argv in calls] == ["product-bench"]
+
+
+def test_a_second_workspace_gets_its_own_label_and_log(tmp_path):
+    """One label is one scheduled job. Installing a second workspace under
+    the shared label would silently retarget the first, and the loss would
+    surface only as nothing running."""
+    body = plistlib.loads(cadence.render_plist(
+        tmp_path, executable="/usr/local/bin/avs", hour=9, minute=7,
+        only=["bench"], label="ai.venture.studio.bench", env={},
+    ))
+    assert body["Label"] == "ai.venture.studio.bench"
+    assert body["ProgramArguments"][-2:] == ["--only", "bench"]
+    assert cadence.agent_plist_path("ai.venture.studio.bench").name == (
+        "ai.venture.studio.bench.plist"
+    )
+    assert cadence.agent_log_path("ai.venture.studio.bench").name == "bench.log"
+
+
+def test_the_default_agent_keeps_the_name_already_installed(tmp_path):
+    """`loops.log` and the unsuffixed label are named in a plist already on
+    the operator's machine; renaming them here would point the running job
+    at a file nothing refers to."""
+    assert cadence.agent_plist_path().name == f"{cadence.LAUNCH_AGENT_LABEL}.plist"
+    assert cadence.agent_log_path().name == "loops.log"
+    body = plistlib.loads(cadence.render_plist(
+        tmp_path, executable="/usr/local/bin/avs", env={}
+    ))
+    assert "--only" not in body["ProgramArguments"]
+
+
+def test_a_label_that_could_escape_its_directory_is_refused():
+    """The label becomes a filename under ~/Library/LaunchAgents and a
+    launchd service name, so it is checked rather than trusted."""
+    for bad in ("../../etc/cron", "two words", "/absolute", ".leading-dot"):
+        with pytest.raises(cadence.CadenceError):
+            cadence.agent_plist_path(bad)
+    # Blank is not an attack, it is "unspecified" — it takes the default.
+    assert cadence.agent_plist_path("   ") == cadence.agent_plist_path()

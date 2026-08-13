@@ -195,7 +195,7 @@ is in [claims/platform.yaml](claims/platform.yaml).
 - **Perf-lane calibration**: 5 of 5 seeded defects caught (catch rate 100%)
   at the 3x relative-detection factor, loopback low-parity environment,
   2026-07-26 ([manifest](benchmarks/perf_seeded/calibration.yaml)).
-- **1870 hermetic tests** (`uv run pytest`, no network, no keys); every PR
+- **1885 hermetic tests** (`uv run pytest`, no network, no keys); every PR
   in this repo was reviewed by avs itself, and five of those reviews caught
   real bugs.
 - **A hermetic suite is not enough, and this repo says so.** Twelve real
@@ -265,7 +265,7 @@ Claude-written code. Setup, env vars, and operations: [RUNBOOK.md](RUNBOOK.md).
 | `bench` · `product-bench` · `voter-gate` · `compound --pr` | the benchmarks, voter registration gates, and the weekly compounding loop |
 | `automerge` · `deploy-execute` | exist but stay disarmed until a human writes an attributed, expiring policy ([ADR-031](docs/adr/031-policy-armed-automation.md)) |
 | `readiness` · `attest` · `cab-package` · `sweep` | the enterprise adoption surface: substrate ladder, attestation ledger, change control, the janitor |
-| `cadence [--install --arm] [--notify]` | the recurring loops' watchdog and trigger. Reports which of `compound`/`sweep` is overdue, and `--install` writes a daily macOS LaunchAgent that runs the due ones. Exits 3 when something needs doing, so it can gate a script. A loop that never ran reads as *never run*, never as fresh; a loop that ran on time over an empty window is reported as such rather than counted green; and a scheduler still running an older build than the one you released is a finding with the exact upgrade line, because publishing does not reach the machine. `--notify` posts the alert to a Discord webhook instead of leaving it in a log nobody opens: only when a person is actually needed, at most once per week for the same unchanged alert, and carrying the command to paste rather than the diagnosis. `--set-webhook <url>` is the whole setup — stored `0600`, found by the daily run with no environment at all (the URL is a credential, so it is never echoed and never written into the world-readable plist) |
+| `cadence [--install --arm] [--notify] [--only L] [--label X]` | the recurring loops' watchdog and trigger. Reports which of `compound`/`sweep`/`bench` is overdue, and `--install` writes a daily macOS LaunchAgent that runs the due ones. Exits 3 when something needs doing, so it can gate a script. A loop that never ran reads as *never run*, never as fresh; a loop that ran on time over an empty window is reported as such rather than counted green; and a scheduler still running an older build than the one you released is a finding with the exact upgrade line, because publishing does not reach the machine. `--notify` posts the alert to a Discord webhook instead of leaving it in a log nobody opens: only when a person is actually needed, at most once per week for the same unchanged alert, and carrying the command to paste rather than the diagnosis. `--set-webhook <url>` is the whole setup — stored `0600`, found by the daily run with no environment at all (the URL is a credential, so it is never echoed and never written into the world-readable plist). `bench` watches the series the launch PRD's only kill criterion reads, and is tracked only in a checkout that has the cases to run it; `--only`/`--label` give that checkout its own agent without retargeting the product workspace's |
 | `mp-runtime` | opens a built 小程序 in WeChat DevTools, visits every registered page and screenshots it — the blank-page check the static gate cannot make ([pipeline guide](docs/miniprogram-pipeline.md)) |
 | `reconcile [--scan DIR] [--apply]` | one-time repair for workspaces built before v0.70: restores `built` flags lost to a rollback, so a resumed run does not rebuild and re-bill committed modules. Reports by default; repairs only where outcomes.yaml and the commit log agree, and leaves a superseded spec from a re-plan alone |
 
@@ -375,9 +375,13 @@ consecutive weeks of hand-logged maintenance hours, was **withdrawn** in
 v0.81.0 ([ADR-033](docs/adr/033-withdraw-weekly-attention-axis.md)): three
 weeks after launch its log held zero logged hours, so what it measured was
 willingness to answer a weekly prompt. The axis that remains reads a series
-the weekly run already writes, and can fire without asking anyone anything.
-`avs cadence` keeps that clock honest, and every loop it drives can now
-close itself.
+the weekly run already writes, and can fire without asking anyone anything —
+provided the run keeps happening. It had stopped for sixteen days without a
+word, so in v0.82.0 that series became a watched loop of its own
+([ADR-034](docs/adr/034-the-bench-is-a-watched-loop.md)). `avs cadence`
+keeps that clock honest, every loop it drives can close itself, and a
+criterion reading a dead series is now a Discord message rather than a
+standing "not fired".
 
 ---
 

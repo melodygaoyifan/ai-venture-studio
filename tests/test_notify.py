@@ -631,3 +631,21 @@ def test_a_webhook_that_fails_is_reported_and_does_not_mask_the_gate(
     assert "alert NOT sent" in result.output
     assert "401" in result.output
     assert result.exit_code == 3
+
+
+def test_a_stalled_bench_reaches_the_channel_with_its_command():
+    """The v0.82.0 gap, at the far end of the wire. The bench series is the
+    only kill criterion the launch PRD has left; it stopped on 2026-07-27 and
+    for sixteen days nothing told anyone, because the loop was not watched.
+    Watching it is worth nothing unless the alert carries the paste-able
+    line — the reader is on a phone."""
+    bench = LoopStatus(
+        name="bench", last_run="2026-07-27", age_days=16, state="overdue",
+        command="avs product-bench --cases-dir benchmarks/products-real",
+    )
+    alert = notify.build_alert(_report(bench, _ok()), workspace="autoproduct")
+
+    assert alert is not None
+    assert "**bench** is overdue." in alert.lines
+    assert "  `avs product-bench --cases-dir benchmarks/products-real`" in alert.lines
+    assert "1 loop overdue: bench" in alert.heading

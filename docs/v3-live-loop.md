@@ -58,6 +58,14 @@ record of 2026-07-26 stands verbatim with the withdrawal appended beside it;
 is that a criterion cannot fire on data that was never collected, and cannot
 be declared safe on it either.
 
+That sentence turned out to describe the surviving axis too. The series
+stopped on 2026-07-27 and ran dry for sixteen days without a word, because
+the Monday cron entry that fed it never fired and nothing watched it. Since
+v0.82.0 the series is a cadence loop of its own — overdue is a finding and a
+Discord message ([ADR-034](adr/034-the-bench-is-a-watched-loop.md)). A kill
+criterion is only as live as the collection behind it, and "the run writes
+it automatically" is a claim about a scheduler, not a guarantee.
+
 ## Closing it, when the criterion fires
 
 1. Run the weekly benchmark. `avs loop --root launch` reads

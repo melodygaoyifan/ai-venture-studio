@@ -136,8 +136,8 @@ the scanners are already installed.
 ## Weekly rhythm
 
 Start with `avs cadence --repo-dir <workspace>`. It reads the artifacts the
-loops already write and reports which of `compound` and `sweep` is overdue.
-Exit 3 means something needs doing, so it can gate a script.
+loops already write and reports which of `compound`, `sweep` and `bench` is
+overdue. Exit 3 means something needs doing, so it can gate a script.
 
 ```bash
 avs cadence --repo-dir ~/work/my-product          # what is overdue
@@ -148,6 +148,22 @@ avs cadence --repo-dir ~/work/my-product --install --arm  # daily, 09:00
 Point it at the **workspace**, not this repo — `.mas/` is where the loops'
 state accumulates, and a scheduler aimed at a checkout reports loops
 that have never run, correctly and uselessly.
+
+`bench` is the exception, and it appears only in a checkout of this
+framework: it watches `benchmarks/results/*.yaml`, the series the launch
+PRD's only remaining kill criterion reads (O-L2, `avs bench-criterion`). A
+workspace with no `benchmarks/products-real/` is not told it owes a bench.
+That checkout therefore wants its **own** agent, filtered to that one loop
+and labelled so it does not overwrite the product workspace's:
+
+```bash
+avs cadence --repo-dir ~/src/ai-venture-studio --only bench \
+  --label ai.venture.studio.bench --install --notify --arm --at 09:07
+```
+
+One label is one scheduled job. Installing a second workspace under the
+shared label silently retargets the first, and you would find out only by
+noticing that nothing had run.
 
 What it refuses to do quietly:
 
@@ -166,9 +182,15 @@ are **refused by name**, because `~/Library/LaunchAgents` is readable and a
 key written there turns the scheduler into a credential leak. Convert the
 variable to its `_FILE` form. Installing never starts a run — `--arm` loads
 it, and it fires on its own schedule after that. Logs:
-`~/Library/Logs/ai-venture-studio/loops.log`. On Linux, run
-`avs cadence --run-due` from cron or a systemd timer; the check is portable
-and only the LaunchAgent is macOS-only.
+`~/Library/Logs/ai-venture-studio/loops.log`, or `<label-suffix>.log` for a
+labelled agent. On Linux, run `avs cadence --run-due` from a systemd timer;
+the check is portable and only the LaunchAgent is macOS-only.
+
+**Not cron, on macOS.** cron *skips* a job whose minute passed while the
+machine was asleep; launchd *runs* it on wake. The bench was on a Monday
+09:07 crontab entry from 2026-07-27 and fired zero times in sixteen days,
+which is how the only kill criterion left came to be reading a dead series
+(ADR-034).
 
 **Do not plan to read that log.** Nobody does, and a machine that notices
 correctly and tells nothing that listens has failed in the same way the
@@ -209,6 +231,10 @@ Then, weekly:
    is a prompt/tool problem, not noise.
 4. Approve or delete any `status: proposed` files in
    `.mas/learned-skills/`.
+5. In this repo only: commit the week's `benchmarks/results/result-*.yaml`.
+   The bench agent runs the bench and writes the file; it does not push. The
+   criterion reads your working tree either way — committing is what makes
+   the series survive losing the machine, which it has done once before.
 
 ## When a review escalates (Gate 3)
 
