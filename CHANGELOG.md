@@ -4,6 +4,59 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.85.0 — a hang must describe itself, and must not outlive its own timeout
+
+Bench run 12's case 04 died on `pytest -q` exceeding 300s. v0.83.0 turned
+that into a blocked gate instead of a dead run and left the cause for the
+next run to reveal. The next run never could have revealed it: the harness
+destroyed the evidence four separate ways, all of them upstream of the
+product under test.
+
+`TimeoutExpired` carries `output` and `stderr`. It was holding everything
+the suite printed the whole time, and the report threw it away and said
+300s had elapsed. Nothing had asked pytest where it was stuck, though pytest
+will name the hung test and the line it is blocked on if
+`faulthandler_timeout` is set. The kill signalled the direct child only, so
+a product whose tests boot a server left that server running, holding its
+port against the next case and holding the stdout pipe it had inherited.
+And the crashed case was the only one whose workspace was deleted —
+preservation ran after the autopilot call, so the exception jumped straight
+over it into the `finally` that removes the temp directory. `run_case`
+preserved the workspace of every failure except the failures that needed
+one.
+
+So run 12's own product cannot be root-caused. It is gone, and this entry
+says so rather than implying otherwise. What can be established is the shape
+of failure that satisfies every gate the framework had and still hangs
+forever: a module-level `uvicorn.run(app)`. The web profile's boot contract
+says the entry point must serve when run directly, and a top-level serve
+call satisfies it on the first try — the boot gate boots the entry, sees a
+listening socket, and passes. But `import main` is what every test does, and
+that line never returns. pytest collects, blocks inside the import, prints
+nothing, and five minutes later is killed with no output, which is exactly
+what run 12's row recorded. Two gates that each pass, whose conjunction is a
+permanent hang.
+
+Now: a timeout report carries what the process printed, clipped from both
+ends — a faulthandler dump prints most-recent-call-first, so a tail-only
+clip keeps the plumbing and drops the answer. Every test command runs with
+`faulthandler_timeout=120`, under the 300s kill; it only prints, so a merely
+slow suite is unaffected and a stuck one names itself while still alive to
+write it. Every runner that boots a product — the test gate, the docker
+sandbox, the probe runner, the boot gate, the screenshot server and the
+generated probe frame — starts its child in its own session and signals the
+whole group. The case that crashed keeps its workspace, and the error row
+points at it.
+
+And a module that serves on import is rejected before the suite runs.
+`_blocks_on_import` is a parse, not an execution: it fails the build with
+feedback naming the file, the line and the fix. Static, because the dynamic
+form of this check is the bug it is checking for.
+
+Minor rather than patch: nothing in the enumerated contract surface moves,
+but a build that previously passed can now be refused, and a new refusal is
+not patch behavior.
+
 ## v0.84.1 — the release check that could not tell a failed install from a good one
 
 Three releases running — 0.82.0, 0.83.0, 0.84.0 — the post-publish
