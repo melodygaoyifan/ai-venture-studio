@@ -117,7 +117,7 @@ def test_a_probe_can_read_the_error_body_the_product_sent():
             BOOT_FRAME.index("class NoRedirect"):BOOT_FRAME.index("\nwait()")
         ]
         frame_src = (
-            "import json, urllib.request, urllib.error\n"
+            "import json, time, urllib.request, urllib.error\n"
             f'BASE = "http://127.0.0.1:{server.server_address[1]}"\n' + helpers
         )
         namespace: dict = {}
@@ -128,3 +128,91 @@ def test_a_probe_can_read_the_error_body_the_product_sent():
 
     assert status == 400
     assert data == {"error": "id must be an integer"}, data
+
+
+def _frame_helpers(base: str) -> dict:
+    """The frame's own helper definitions, bound to an arbitrary BASE.
+
+    Takes them verbatim, minus the boot block, so these tests exercise the
+    code the probes actually run rather than a copy of it.
+    """
+    from ai_venture_studio.upstream.probegen import BOOT_FRAME
+
+    helpers = BOOT_FRAME[
+        BOOT_FRAME.index("class NoRedirect"):BOOT_FRAME.index("\nwait()")
+    ]
+    src = (
+        "import json, time, urllib.request, urllib.error\n"
+        f'BASE = "{base}"\n' + helpers
+    )
+    namespace: dict = {}
+    exec(compile(src, "<frame>", "exec"), namespace)  # noqa: S102
+    return namespace
+
+
+def test_two_probes_running_back_to_back_do_not_fight_over_one_port():
+    """Run 13, case 04: the port was a constant, so the next probe booted
+    onto the port the previous probe's server had not finished releasing,
+    and the first call came back "connection refused" — scored against the
+    product, which had answered nothing at all."""
+    import socket
+
+    from ai_venture_studio.upstream.probegen import BOOT_FRAME
+
+    prelude = BOOT_FRAME[: BOOT_FRAME.index("entry =")]
+    first: dict = {}
+    exec(compile(prelude, "<prelude>", "exec"), first)  # noqa: S102
+
+    # Hold it the way a server that has not finished shutting down does.
+    holder = socket.socket()
+    holder.bind(("127.0.0.1", first["PORT"]))
+    holder.listen(1)
+    try:
+        second: dict = {}
+        exec(compile(prelude, "<prelude>", "exec"), second)  # noqa: S102
+        assert second["PORT"] != first["PORT"]
+    finally:
+        holder.close()
+
+
+def test_a_socket_that_accepts_and_dies_is_not_a_ready_server():
+    """The old readiness check was a bare TCP connect, which succeeds
+    against a server that is already closing. Readiness is an answer."""
+    import socket
+    import threading
+
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+
+    def accept_and_hang_up():
+        while True:
+            try:
+                conn, _ = listener.accept()
+            except OSError:
+                return
+            conn.close()
+
+    threading.Thread(target=accept_and_hang_up, daemon=True).start()
+    try:
+        frame = _frame_helpers(f"http://127.0.0.1:{port}")
+        assert frame["_answers"]() is False
+    finally:
+        listener.close()
+
+
+def test_a_probe_says_in_words_when_the_product_never_answered():
+    """A bare URLError traceback in the results reads as a product defect.
+    The last time one did, it was the harness."""
+    import socket
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()  # nothing is listening here now
+
+    frame = _frame_helpers(f"http://127.0.0.1:{port}")
+    with pytest.raises(AssertionError) as excinfo:
+        frame["call"]("GET", "/anything")
+    assert "did not answer" in str(excinfo.value)

@@ -55,7 +55,10 @@ for the headline numbers.
 > believing a refusal, and `proc.wait()` after `terminate()` so the port is
 > actually back before the probe process exits. This is the same shape as
 > run 12's `{}` failures and run 7's before it: **the harness charging the
-> product for the harness's own miss.**
+> product for the harness's own miss.** The metric's *definition* does not
+> change, so the baseline is not reset; but runs ≥ 14 no longer carry this
+> source of false probe failures, and a probe rate that ticks up across
+> that line has one more reason to do so than product quality.
 
 > **Comparability break after run 12:** ADR-035 changes the denominators.
 > A case that produced no denominator is dropped from the rate rather than

@@ -195,7 +195,7 @@ is in [claims/platform.yaml](claims/platform.yaml).
 - **Perf-lane calibration**: 5 of 5 seeded defects caught (catch rate 100%)
   at the 3x relative-detection factor, loopback low-parity environment,
   2026-07-26 ([manifest](benchmarks/perf_seeded/calibration.yaml)).
-- **1898 hermetic tests** (`uv run pytest`, no network, no keys); every PR
+- **1901 hermetic tests** (`uv run pytest`, no network, no keys); every PR
   in this repo was reviewed by avs itself, and five of those reviews caught
   real bugs.
 - **A hermetic suite is not enough, and this repo says so.** Twelve real
@@ -387,7 +387,14 @@ rates as `0.0`, so an infrastructure crash was two bad weeks from firing a
 *capability* verdict. Since v0.83.0 a rate averages only over cases that
 produced its denominator, the denominator travels with the number, and a
 run that could not measure a case exits 3
-([ADR-035](docs/adr/035-an-unmeasured-case-is-not-a-zero.md)).
+([ADR-035](docs/adr/035-an-unmeasured-case-is-not-a-zero.md)). Run 13, the
+first run under those rules, scored **build 94% · probes 92% · clean 75%**
+with all four cases measured — and turned up the same defect one level
+smaller: a probe that got `Connection refused` had reached nothing at all,
+and was scored against the product anyway. v0.84.0 gives every probe its
+own port and makes readiness require an answer rather than an open socket.
+Three times now the harness has been charged to the product, and all three
+times it was first read as a product defect.
 
 ---
 

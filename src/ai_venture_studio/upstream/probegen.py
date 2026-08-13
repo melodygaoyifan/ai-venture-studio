@@ -27,7 +27,20 @@ PROBEGEN_MARKER = "acceptance probe generator for built products"
 
 BOOT_FRAME = '''import json, os, socket, subprocess, sys, time, urllib.request, urllib.error
 
-PORT = 8646
+def _free_port():
+    # Every probe is its own process and boots its own server, so a fixed
+    # port made each one collide with the one before it: the previous
+    # probe's server was still holding 8646 when the next booted, and the
+    # first real call came back "connection refused" — the harness charging
+    # the product for the harness's own race (run 13, case 04).
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    return port
+
+
+PORT = _free_port()
 BASE = f"http://127.0.0.1:{PORT}"
 entry = next((e for e in ("app/main.py", "main.py", "app.py") if os.path.exists(e)), None)
 assert entry, "no runnable entry point"
@@ -41,14 +54,29 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def _answers():
+    # An HTTP answer, not a bare TCP connect. A socket that accepts and
+    # then dies reads as "up" to connect() and as "refused" to the very
+    # next request, which is how a dying server passed for a ready one.
+    # Any status is an answer here — 404 included; only a transport
+    # failure means nobody is home.
+    try:
+        urllib.request.urlopen(BASE + "/", timeout=2)
+        return True
+    except urllib.error.HTTPError:
+        return True
+    except Exception:
+        return False
+
+
 def wait():
     for _ in range(60):
-        try:
-            socket.create_connection(("127.0.0.1", PORT), 1).close()
+        if proc.poll() is not None:
+            raise SystemExit(f"server exited before it answered (code {proc.returncode})")
+        if _answers():
             return
-        except OSError:
-            time.sleep(0.5)
-    raise SystemExit("server never listened")
+        time.sleep(0.5)
+    raise SystemExit("server never answered")
 
 
 def _decode(raw):
@@ -67,15 +95,26 @@ def call(method, path, body=None, expect_redirect=False):
         headers={"Content-Type": "application/json"})
     opener = (urllib.request.build_opener(NoRedirect())
               if expect_redirect else urllib.request.build_opener())
-    try:
-        resp = opener.open(req, timeout=10)
-        return resp.status, _decode(resp.read()), dict(resp.headers)
-    except urllib.error.HTTPError as e:
-        # urllib raises on every 4xx/5xx, and the body is on the exception.
-        # Reading it is the whole point of an error probe: returning {} here
-        # failed a product that answered exactly as its contract said, and
-        # the framework once "fixed" the product prompt in response.
-        return e.code, _decode(e.read()), dict(e.headers)
+    for attempt in (1, 2):
+        try:
+            resp = opener.open(req, timeout=10)
+            return resp.status, _decode(resp.read()), dict(resp.headers)
+        except urllib.error.HTTPError as e:
+            # urllib raises on every 4xx/5xx, and the body is on the
+            # exception. Reading it is the whole point of an error probe:
+            # returning {} here failed a product that answered exactly as
+            # its contract said, and the framework once "fixed" the product
+            # prompt in response.
+            return e.code, _decode(e.read()), dict(e.headers)
+        except urllib.error.URLError as e:
+            # No answer at all — nothing was measured about the product.
+            # Tried twice before believing it, and then said so in words:
+            # a raw traceback here reads as a product defect, and the last
+            # time one did, it was the harness.
+            if attempt == 2:
+                raise AssertionError(
+                    f"product did not answer {method} {path}: {e.reason}")
+            time.sleep(0.5)
 
 
 wait()
@@ -83,6 +122,11 @@ try:
 {body}
 finally:
     proc.terminate()
+    try:
+        # Wait for the port to actually come back: terminate() only asks.
+        proc.wait(5)
+    except Exception:
+        proc.kill()
 '''
 
 _SYSTEM = f"""You are the {PROBEGEN_MARKER}. Write behavioral probes for

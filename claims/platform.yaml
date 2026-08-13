@@ -3,10 +3,10 @@
 # the hermetic suite enforces it (tests/test_editions_platform.py).
 claims:
   - id: PC-1
-    text: "1898 hermetic tests pass via uv run pytest at the current tag"
+    text: "1901 hermetic tests pass via uv run pytest at the current tag"
     kind: demand
     source_type: primary_measured
-    n: 1898
+    n: 1901
     evidence:
       - {method: pytest_run, locator: "repo://tests (uv run pytest)",
          retrieved_at: "2026-08-11T00:00:00Z"}
@@ -119,3 +119,12 @@ claims:
       - {method: changelog_entries, locator: "repo://CHANGELOG.md (v0.62.0, v0.63.0, v0.64.0 — each defect named with the run that produced it)",
          retrieved_at: "2026-08-01T21:30:00Z"}
     falsifier: "fewer than twelve distinct defects traceable to those entries, or none of them at the provider/SDK boundary"
+  - id: PC-14
+    text: "product benchmark, real cases run 13 (2026-08-13, n=4 cases, all four measured): build 94%, probe pass 92%, clean review 75%"
+    kind: demand
+    source_type: primary_measured
+    n: 4
+    evidence:
+      - {method: product_bench_run, locator: "repo://benchmarks/results/result-2026-08-13-0837.yaml (cases_measured 4 of 4)",
+         retrieved_at: "2026-08-13T08:37:00Z"}
+    falsifier: "the preserved run-13 result containing different rates, or a cases_measured below its cases_total"

@@ -4,6 +4,37 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.84.0 — a probe that never reached the product measured nothing
+
+Patch-shaped, released as a minor because the probe frame is contract
+surface. Bench run 13 scored **build 94% · probes 92% · clean 75%**, the
+best composite the series has produced, with all four cases measured for
+the first time. One of its three probe failures was not the product's.
+
+Case 04's `score-validation-and-evidence-downgrade` failed with
+`URLError: Connection refused`. The probe never reached the product, so
+nothing was learned about its behaviour — and it still cost the case a
+probe (3/3 → 2/3). The cause was in the frame the probes run inside:
+
+- **The port was the constant 8646.** Every probe is a separate process
+  that boots its own copy of the product, so a probe could boot onto the
+  port the previous probe's server had not finished releasing.
+  `proc.terminate()` only asks; it does not wait.
+- **Readiness was a bare TCP connect.** That succeeds against a socket
+  which is already closing, so the check reported "up" about a server on
+  its way out, and the first real call then found nobody there.
+
+Now: an ephemeral port per probe; readiness that requires an actual HTTP
+answer (a 404 counts, a transport error does not); a liveness check so a
+product that dies on import says so instead of timing out for 30s; one
+retry before believing a refusal, and then an `AssertionError` in plain
+words rather than a raw traceback; and `proc.wait()` after `terminate()`
+so the port is genuinely back before the probe process exits.
+
+This is the third instance of one shape — run 7's `{}` failures, run 12's
+error bodies, and now this — **the harness charging the product for the
+harness's own miss.** Each was first read as a product defect.
+
 ## v0.83.0 — an unmeasured case is not a zero, and it is not silent
 
 Minor. v0.82.0 armed the bench loop and it ran the same night — the first
