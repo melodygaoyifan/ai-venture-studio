@@ -31,6 +31,8 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field
 
+from ai_venture_studio.testing import _as_text
+from ai_venture_studio.testing import _run as _run_killing_the_group
 from ai_venture_studio.upstream import init_workspace
 from ai_venture_studio.upstream.autopilot import run_autopilot
 from ai_venture_studio.upstream.provisioning import preview_env
@@ -206,6 +208,12 @@ def workspace_python(workspace: Path) -> str:
     return str(venv_python) if installed.returncode == 0 else sys.executable
 
 
+def _last_line_of(exc: subprocess.TimeoutExpired) -> str:
+    """The last thing a wedged probe managed to say, if it said anything."""
+    printed = (_as_text(exc.stdout) + "\n" + _as_text(exc.stderr)).strip().splitlines()
+    return printed[-1][:160] if printed else ""
+
+
 def run_probe(workspace: Path, probe: Probe) -> ProbeResult:
     """The probe runs IN the built workspace with the product's runtime
     env — it observes the product from outside, like a user's script."""
@@ -217,11 +225,13 @@ def run_probe(workspace: Path, probe: Probe) -> ProbeResult:
         handle.write(probe.script)
         probe_path = handle.name
     try:
-        proc = subprocess.run(
+        # testing._run, not subprocess.run: a probe routinely boots the
+        # product's server, and subprocess.run's timeout kills the probe
+        # alone — leaving that server alive, holding its port against the
+        # next probe. Same fix as the test gate, one runner over.
+        proc = _run_killing_the_group(
             [workspace_python(workspace), probe_path],
             cwd=workspace,
-            capture_output=True,
-            text=True,
             timeout=_PROBE_TIMEOUT_S,
             env={**os.environ, "PYTHONPATH": str(workspace), **preview_env(workspace)},
         )
@@ -231,10 +241,33 @@ def run_probe(workspace: Path, probe: Probe) -> ProbeResult:
             passed=proc.returncode == 0,
             detail=detail[-1][:200] if detail else "",
         )
-    except subprocess.TimeoutExpired:
-        return ProbeResult(name=probe.name, passed=False, detail="probe timed out")
+    except subprocess.TimeoutExpired as exc:
+        # What the probe printed before it wedged is the whole diagnosis;
+        # "probe timed out" alone is the shape that left run 12 unexplained.
+        printed = _last_line_of(exc)
+        return ProbeResult(
+            name=probe.name,
+            passed=False,
+            detail=f"probe timed out after {_PROBE_TIMEOUT_S}s"
+                   + (f" — last output: {printed}" if printed else ""),
+        )
     finally:
         Path(probe_path).unlink(missing_ok=True)
+
+
+def _preserve_workspace(
+    workspace: Path | None, case_name: str, keep_dir: str | Path | None
+) -> str:
+    """Copy a case workspace out of the temp dir before that dir is deleted."""
+    if workspace is None or not Path(workspace).exists():
+        return ""
+    import shutil as _shutil
+
+    keep = Path(keep_dir or Path(".mas") / "product-bench" / "workspaces") / case_name
+    _shutil.rmtree(keep, ignore_errors=True)
+    keep.parent.mkdir(parents=True, exist_ok=True)
+    _shutil.copytree(workspace, keep, ignore=_shutil.ignore_patterns(".probe-venv"))
+    return str(keep)
 
 
 def run_case(
@@ -250,6 +283,7 @@ def run_case(
     # its resetperms path there. A leaked tmp file on an ephemeral runner
     # is harmless; a crashed suite is not.
     tmp = tempfile.mkdtemp(prefix="avs-productbench-")
+    workspace: Path | None = None
     try:
         workspace = init_workspace(Path(tmp) / case.name, case.name, case.profile)
         (workspace / "FDR.md").write_text(case.fdr, encoding="utf-8")
@@ -311,13 +345,7 @@ def run_case(
         if result.status != "completed" or not all(p.passed for p in probes):
             # Failure forensics: the temp workspace would vanish with the
             # scoreboard's most important evidence.
-            import shutil as _shutil
-
-            keep = Path(keep_dir or Path(".mas") / "product-bench" / "workspaces") / case.name
-            _shutil.rmtree(keep, ignore_errors=True)
-            keep.parent.mkdir(parents=True, exist_ok=True)
-            _shutil.copytree(workspace, keep, ignore=_shutil.ignore_patterns(".probe-venv"))
-            preserved = str(keep)
+            preserved = _preserve_workspace(workspace, case.name, keep_dir)
         return CaseResult(
             name=case.name,
             autopilot_status=result.status,
@@ -341,6 +369,26 @@ def run_case(
             probes=probes,
             duration_s=round(time.monotonic() - start, 1),
         )
+    except BaseException as exc:
+        # The case that CRASHED is the one whose workspace you need, and it
+        # was the only one thrown away: preservation ran after the autopilot
+        # call, so an exception jumped over it and the `finally` below deleted
+        # the evidence. Run 12's case 04 hung, took its workspace with it, and
+        # the hang stayed unexplained afterwards because there was nothing
+        # left to look at — the product that hung no longer existed anywhere.
+        # The path rides on the exception so the caller that turns it into an
+        # error row can point at it.
+        #
+        # Nothing in here may replace the exception being handled: a copy that
+        # fails, or an exception type that refuses attributes, would report a
+        # bookkeeping error where the real failure was.
+        try:
+            exc.avs_preserved_workspace = _preserve_workspace(  # type: ignore[attr-defined]
+                workspace, case.name, keep_dir
+            )
+        except Exception:  # noqa: BLE001 — forensics must not mask the failure
+            pass
+        raise
     finally:
         import shutil as _shutil_cleanup
 
@@ -376,6 +424,9 @@ def _run_product_bench(
                 CaseResult(
                     name=case.name,
                     autopilot_status=f"error: {type(exc).__name__}: {str(exc)[:120]}",
+                    # Written by run_case on its way out. Without it the row
+                    # names a failure whose evidence is already deleted.
+                    preserved_workspace=getattr(exc, "avs_preserved_workspace", ""),
                     duration_s=round(time.monotonic() - start, 1),
                 )
             )

@@ -113,6 +113,8 @@ def capture_web(workspace: str | Path, paths: list[str] | None = None, port: int
         env={**os.environ, "PORT": str(port), **preview_env(root)},
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        # Its own session, so the cleanup below can reach the whole tree.
+        start_new_session=True,
     )
     captured: list[str] = []
     try:
@@ -154,7 +156,16 @@ def capture_web(workspace: str | Path, paths: list[str] | None = None, port: int
     except Exception as exc:  # noqa: BLE001 — capture is best-effort, visibly
         return ShotResult(captured=captured, note=f"screenshot error: {exc}")
     finally:
-        server.terminate()
+        # terminate() alone signalled the parent and never reaped it: every
+        # capture left a zombie plus whatever workers the server had forked,
+        # all still bound to their ports, for the whole length of a bench run.
+        from ai_venture_studio.testing import _kill_process_group
+
+        _kill_process_group(server)
+        try:
+            server.wait(timeout=10)
+        except subprocess.TimeoutExpired:  # pragma: no cover — SIGKILL landed
+            pass
 
 
 def capture(workspace: str | Path, profile: str) -> ShotResult:

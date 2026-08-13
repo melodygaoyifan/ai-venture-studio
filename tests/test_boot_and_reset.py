@@ -7,6 +7,7 @@ import subprocess
 import pytest
 
 from ai_venture_studio.upstream.build import (
+    _blocks_on_import,
     _boot_gate,
     _preserve_failed_attempt,
     _reset_workspace,
@@ -43,6 +44,69 @@ def test_boot_gate_fails_when_entry_exits_without_serving(tmp_path):
 def test_boot_gate_skips_when_no_entry_point(tmp_path):
     (tmp_path / "lib.py").write_text("x = 1\n")
     assert _boot_gate(tmp_path) is None
+
+
+# --- the hang run 12 could not explain, answered from a parse ---------------
+#
+# The boot contract ("`python main.py` must serve") is satisfied by a
+# module-level `uvicorn.run(app)` — and that same line makes every test that
+# imports the module block forever. The suite then burns the full timeout and
+# reports only that time passed. Cheap to check statically; the dynamic
+# version of the check IS the hang.
+
+
+def test_a_module_that_serves_on_import_is_rejected_before_the_suite_runs(tmp_path):
+    (tmp_path / "main.py").write_text(
+        'import os, uvicorn\napp = object()\n'
+        'uvicorn.run(app, host="127.0.0.1", port=int(os.environ["PORT"]))\n'
+    )
+    failure = _blocks_on_import(tmp_path)
+    assert failure is not None and "IMPORT GATE" in failure
+    assert "line 3" in failure                 # points at the line, not the file
+    assert '__main__' in failure               # and teaches the fix
+
+
+def test_the_contract_form_passes_the_import_gate(tmp_path):
+    """Exactly what the profile's boot contract tells the model to write."""
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "main.py").write_text(
+        'import os\napp = object()\n'
+        'if __name__ == "__main__":\n'
+        '    import uvicorn\n'
+        '    uvicorn.run(app, host="127.0.0.1", port=int(os.environ.get("PORT", "8000")))\n'
+    )
+    assert _blocks_on_import(tmp_path) is None
+
+
+def test_the_import_gate_does_not_flag_ordinary_module_level_calls(tmp_path):
+    """`.run` is everywhere. Only the known server objects block on it."""
+    (tmp_path / "main.py").write_text(
+        "import subprocess\n"
+        "VERSION = subprocess.run(['git', 'describe'], capture_output=True)\n"
+        "def serve():\n"
+        "    app.run()\n"
+    )
+    assert _blocks_on_import(tmp_path) is None
+
+
+def test_boot_gate_leaves_no_worker_serving_behind_it(tmp_path):
+    """The gate boots a process TREE — uvicorn reloaders and worker pools
+    fork. Killing the parent alone hands the test run that follows a live
+    server it never started, on a port it does not know about."""
+    (tmp_path / "main.py").write_text(
+        "import os, socket, subprocess, sys, time\n"
+        "subprocess.Popen([sys.executable, '-c', "
+        '"import time; time.sleep(90)  # pretend-worker"])\n'
+        + _SERVER
+    )
+    assert _boot_gate(tmp_path) is None  # the parent did listen
+
+    survivors = subprocess.run(
+        ["pgrep", "-f", "pretend-worker"], capture_output=True, text=True
+    )
+    assert "pretend-worker" not in survivors.stdout, (
+        "a forked worker outlived the boot gate and is still holding its port"
+    )
 
 
 def _git(repo, *args):

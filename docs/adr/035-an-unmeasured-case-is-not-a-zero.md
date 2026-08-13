@@ -117,3 +117,6 @@ guarantee for two and a half weeks.
   suite hangs is still unknown.** It is now a blocked task with a named
   reason instead of a dead run, which makes it diagnosable on the next
   run rather than diagnosed now.
+  *(Followed up in [ADR-036](036-a-hang-must-describe-itself.md): it was
+  not diagnosable on the next run either, because the harness deleted the
+  evidence four ways. Run 12's own product remains unrecoverable.)*

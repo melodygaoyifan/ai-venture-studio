@@ -19,8 +19,10 @@ the changed code. Score < 60% blocks APPROVE-class verdicts.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -31,6 +33,9 @@ from typing import Literal
 from pydantic import BaseModel
 
 _TEST_TIMEOUT_S = 300
+# Dump the hung test's traceback well before the suite is killed, so the
+# report says WHICH test hung instead of only that something did.
+_HANG_DUMP_S = 120
 _MUTATION_TIMEOUT_S = 300
 _DOCKER_IMAGE = "python:3.12-slim"
 MUTATION_SCORE_MIN = 0.60
@@ -66,10 +71,66 @@ class TestReport(BaseModel):
         return bool(self.mutation and self.mutation.status == "failed")
 
 
-def _run(cmd: list[str], cwd: str | Path, timeout: int = _TEST_TIMEOUT_S):
-    return subprocess.run(
-        cmd, capture_output=True, text=True, cwd=cwd, timeout=timeout
-    )
+def _kill_process_group(proc: subprocess.Popen) -> None:
+    """Kill the whole tree, not just the process we launched.
+
+    `subprocess.run`'s own timeout path calls `proc.kill()`, which signals the
+    direct child alone. A product whose tests start a server leaves that
+    server RUNNING after the timeout — holding its port against the next case
+    and holding the stdout pipe it inherited, so the read that was supposed to
+    end at the timeout can block past it. Measured: with a plain kill the
+    grandchild outlives the timeout every time.
+    """
+    if not hasattr(os, "killpg"):  # pragma: no cover — POSIX-only path
+        proc.kill()
+        return
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        proc.kill()
+
+
+def _run(
+    cmd: list[str], cwd: str | Path, timeout: int | None = None,
+    env: dict[str, str] | None = None,
+):
+    """Run a command, and on timeout kill its process GROUP and keep its output.
+
+    The timeout resolves at CALL time, not at import time: a default argument
+    written as `timeout=_TEST_TIMEOUT_S` would freeze the module constant into
+    the function object, so a test that lowers the constant would still wait
+    the full five minutes while the report claimed the shorter budget.
+
+    `start_new_session` is what makes the group killable: it puts the child in
+    a session of its own, so one signal reaches everything it spawned.
+
+    The re-raised `TimeoutExpired` carries `output`/`stderr` as text. CPython's
+    own timeout path leaves them as raw bytes even under `text=True`, which is
+    a quiet trap for any caller that tries to read what the hung command had
+    printed — and reading that is the entire point of keeping it.
+    """
+    timeout = _TEST_TIMEOUT_S if timeout is None else timeout
+    with subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=cwd,
+        env=env,
+        start_new_session=True,
+    ) as proc:
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _kill_process_group(proc)
+            # The group is dead, so both pipes are closed by every writer and
+            # this returns rather than waiting on an orphan that outlived the
+            # timeout.
+            stdout, stderr = proc.communicate()
+            raise subprocess.TimeoutExpired(
+                cmd, timeout, output=stdout, stderr=stderr
+            ) from None
+        return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
 
 
 def _has_tests(root: Path) -> bool:
@@ -152,10 +213,74 @@ def _classify(returncode: int, output: str, *, sandbox: str) -> TestReport:
     return TestReport(status="failed", summary=_last_line(tail), detail=tail, sandbox=sandbox)
 
 
+def pytest_flags() -> list[str]:
+    """`-q`, plus the flag that makes a hang describe itself.
+
+    `faulthandler_timeout` makes pytest dump the traceback of every thread
+    when a single test outruns it — naming the test and the exact line it is
+    stuck on. It only prints; the run continues, so a merely slow suite is
+    unaffected. Set below `_TEST_TIMEOUT_S` so the dump happens while the
+    process is still alive to write it, and well above any honest suite
+    (the bench's real products finish in tens of seconds).
+    """
+    return ["-q", "-o", f"faulthandler_timeout={_HANG_DUMP_S}"]
+
+
 def pytest_cmd(worktree: Path) -> list[str]:
     if (worktree / "uv.lock").exists() and shutil.which("uv"):
-        return ["uv", "run", "--project", str(worktree), "pytest", "-q"]
-    return [sys.executable, "-m", "pytest", "-q"]
+        return ["uv", "run", "--project", str(worktree), "pytest", *pytest_flags()]
+    return [sys.executable, "-m", "pytest", *pytest_flags()]
+
+
+def _as_text(chunk: object) -> str:
+    if not chunk:
+        return ""
+    if isinstance(chunk, bytes):
+        return chunk.decode("utf-8", "replace")
+    return str(chunk)
+
+
+def _clip(text: str, head: int, tail: int) -> str:
+    """Keep BOTH ends of a long capture, never just the tail.
+
+    faulthandler prints each stack most-recent-call-first, so the hung test's
+    own frame is the FIRST line of the dump and the pytest/pluggy internals
+    are the rest. A tail-only clip therefore drops the only line that names
+    the test and keeps a page of runner plumbing — which is what the first
+    version of this did.
+    """
+    if len(text) <= head + tail:
+        return text
+    elided = len(text) - head - tail
+    return f"{text[:head]}\n[... {elided} characters elided ...]\n{text[-tail:]}"
+
+
+def _hang_detail(cmd: list[str], exc: subprocess.TimeoutExpired) -> str:
+    """Everything the suite had printed before it was killed.
+
+    This used to be the command line and nothing else, and that is exactly
+    why bench run 12's hang was never explained: `TimeoutExpired` was
+    carrying the output the whole time — including pytest's faulthandler
+    dump, which names the test and the line it is stuck on — and the report
+    threw it away and said only that 300s had elapsed. A timeout report that
+    omits what the process said is the harness discarding the one piece of
+    evidence that identifies the cause.
+
+    stderr comes first because the faulthandler dump goes there.
+    """
+    parts = [" ".join(str(part) for part in cmd)]
+    err = _as_text(getattr(exc, "stderr", None)).strip()
+    out = _as_text(getattr(exc, "output", None)).strip()
+    if err:
+        parts.append(
+            "--- stderr (a faulthandler dump names the hung test) ---\n"
+            + _clip(err, 2400, 800)
+        )
+    if out:
+        parts.append("--- stdout ---\n" + _clip(out, 400, 800))
+    if not err and not out:
+        parts.append("the command printed nothing before it was killed")
+    return "\n\n".join(parts)
 
 
 def _run_and_classify(
@@ -173,11 +298,11 @@ def _run_and_classify(
     """
     try:
         proc = _run(cmd, worktree)
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
         return TestReport(
             status="error",
             summary=f"test command exceeded {_TEST_TIMEOUT_S}s and was killed",
-            detail=" ".join(str(part) for part in cmd),
+            detail=_hang_detail(cmd, exc),
             sandbox=sandbox,
         )
     return _classify(proc.returncode, proc.stdout or proc.stderr, sandbox=sandbox)
@@ -268,15 +393,21 @@ def _pytest_in_docker(worktree: Path) -> TestReport:
         base_sync = "apt-get update -qq >/dev/null && apt-get install -y -qq git >/dev/null"
         if (worktree / "uv.lock").exists():
             sync_cmd = f"{base_sync} && pip install -q uv && uv sync --project /work --quiet"
-            test_cmd = ["uv", "run", "--project", "/work", "--no-sync", "pytest", "-q"]
+            test_cmd = ["uv", "run", "--project", "/work", "--no-sync", "pytest", *pytest_flags()]
         else:
             sync_cmd = f"{base_sync} && pip install -q pytest"
-            test_cmd = ["python", "-m", "pytest", "-q"]
-        sync = _run(
-            ["docker", "exec", name, "sh", "-c", sync_cmd],
-            worktree,
-            timeout=_TEST_TIMEOUT_S,
-        )
+            test_cmd = ["python", "-m", "pytest", *pytest_flags()]
+        sync_cmd_argv = ["docker", "exec", name, "sh", "-c", sync_cmd]
+        try:
+            sync = _run(sync_cmd_argv, worktree, timeout=_TEST_TIMEOUT_S)
+        except subprocess.TimeoutExpired as exc:
+            # A wedged `apt-get`/`uv sync` is a blocked gate, not a crash.
+            return TestReport(
+                status="error",
+                summary=f"dependency sync exceeded {_TEST_TIMEOUT_S}s and was killed",
+                detail=_hang_detail(sync_cmd_argv, exc),
+                sandbox="docker",
+            )
         if sync.returncode != 0:
             return TestReport(
                 status="error",
@@ -302,9 +433,12 @@ def _pytest_in_docker(worktree: Path) -> TestReport:
                 summary=f"could not isolate sandbox network (still attached: {remaining})",
                 sandbox="docker",
             )
-        proc = _run(["docker", "exec", name, *test_cmd], worktree)
-        return _classify(
-            proc.returncode, proc.stdout or proc.stderr, sandbox="docker:no-network"
+        # Via _run_and_classify, not a bare _run: the sandboxed suite can hang
+        # exactly like the subprocess one, and an unguarded TimeoutExpired here
+        # would raise straight through every caller — the failure shape that
+        # took bench run 12's case down with it.
+        return _run_and_classify(
+            ["docker", "exec", name, *test_cmd], worktree, sandbox="docker:no-network"
         )
     finally:
         _run(["docker", "rm", "-f", name], worktree, timeout=30)

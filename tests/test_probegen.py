@@ -4,6 +4,7 @@ users get generation."""
 
 import shutil
 import subprocess
+import sys
 
 import pytest
 
@@ -72,6 +73,49 @@ def test_verify_runs_generated_probes_against_booted_product(tmp_path):
     assert "✅ root-responds" in text          # generated probe passed live
     assert "1/1" in text
     assert "⚠️" in text                        # the dropped body is visible
+
+
+def test_a_finished_probe_leaves_no_worker_holding_the_port(tmp_path):
+    """The frame terminates the server it booted — the whole tree of it.
+
+    Real web products fork (uvicorn reloaders, worker pools). Signalling
+    only the parent left a worker bound to the port after the probe had
+    exited, which is the same collision the random-port fix addressed one
+    level up: the next probe's first call comes back refused and the
+    product is charged for the harness's race.
+    """
+    import textwrap
+
+    from ai_venture_studio.upstream.probegen import BOOT_FRAME
+
+    root = tmp_path / "forking"
+    root.mkdir()
+    (root / "main.py").write_text(
+        "import subprocess, sys\n"
+        'subprocess.Popen([sys.executable, "-c", '
+        '"import time; time.sleep(90)  # forked-worker"])\n'
+        + MAIN_PY
+    )
+    script = root / "probe.py"
+    script.write_text(
+        BOOT_FRAME.replace(
+            "{body}",
+            textwrap.indent('s, _, _ = call("GET", "/")\nassert s == 200', "    "),
+        )
+    )
+
+    done = subprocess.run(
+        [sys.executable, str(script)], cwd=root, capture_output=True, text=True,
+        timeout=120,
+    )
+    assert done.returncode == 0, done.stderr
+
+    survivors = subprocess.run(
+        ["pgrep", "-f", "forked-worker"], capture_output=True, text=True
+    )
+    assert "forked-worker" not in survivors.stdout, (
+        "a worker outlived the probe and is still holding the product's port"
+    )
 
 
 def test_no_routes_is_a_visible_note_not_a_pass(tmp_path):

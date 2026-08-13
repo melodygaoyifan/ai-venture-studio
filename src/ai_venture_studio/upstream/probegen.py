@@ -25,7 +25,7 @@ from ai_venture_studio.yamlx import extract_mapping
 
 PROBEGEN_MARKER = "acceptance probe generator for built products"
 
-BOOT_FRAME = '''import json, os, socket, subprocess, sys, time, urllib.request, urllib.error
+BOOT_FRAME = '''import json, os, signal, socket, subprocess, sys, time, urllib.request, urllib.error
 
 def _free_port():
     # Every probe is its own process and boots its own server, so a fixed
@@ -46,7 +46,12 @@ entry = next((e for e in ("app/main.py", "main.py", "app.py") if os.path.exists(
 assert entry, "no runnable entry point"
 proc = subprocess.Popen([sys.executable, entry],
                         env={**os.environ, "PORT": str(PORT)},
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        # Own session: the cleanup below signals the whole
+                        # tree, so a forked worker cannot outlive the probe
+                        # still holding the port (the run-13 collision, one
+                        # level down from the port fix above).
+                        start_new_session=True)
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -121,12 +126,25 @@ wait()
 try:
 {body}
 finally:
-    proc.terminate()
+    # The whole GROUP, not just the process we launched: terminate() only
+    # asks, and it only asks the parent — a forked worker ignoring SIGTERM
+    # would keep the port while its parent exited and looked cleaned up.
+    def _signal_group(sig):
+        try:
+            os.killpg(os.getpgid(proc.pid), sig)
+        except Exception:
+            if sig == signal.SIGTERM:
+                proc.terminate()
+            else:
+                proc.kill()
+
+    _signal_group(signal.SIGTERM)
     try:
-        # Wait for the port to actually come back: terminate() only asks.
+        # Wait for the port to actually come back.
         proc.wait(5)
     except Exception:
-        proc.kill()
+        pass
+    _signal_group(signal.SIGKILL)  # unconditional: harmless once it is gone
 '''
 
 _SYSTEM = f"""You are the {PROBEGEN_MARKER}. Write behavioral probes for

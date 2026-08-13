@@ -1,4 +1,6 @@
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -259,3 +261,107 @@ def test_a_bench_that_measured_everything_stays_quiet(monkeypatch, tmp_path):
     assert result.exit_code == 0, result.output
     assert "never ran" not in result.output
     assert "over 1 of" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# The case that CRASHED is the one whose workspace you need. Run 12's case 04
+# hung on `pytest`, and preservation lived after the autopilot call — so the
+# exception jumped straight over it into the `finally` that deletes the temp
+# dir. The row said `preserved_workspace: ''`, the product that hung existed
+# nowhere afterwards, and the hang could never be explained.
+# ---------------------------------------------------------------------------
+
+
+def _case_that_crashes(monkeypatch, exc):
+    """Point run_case at an autopilot that dies after the workspace exists."""
+    import ai_venture_studio.product_bench as pb
+
+    def _boom(workspace, fdr, provider=None, yes=False):
+        (workspace / "the-evidence.txt").write_text("what the hung case built")
+        raise exc
+
+    monkeypatch.setattr(pb, "run_autopilot", _boom)
+    return pb
+
+
+def test_a_crashed_case_keeps_the_workspace_it_crashed_in(monkeypatch, tmp_path):
+    pb = _case_that_crashes(monkeypatch, RuntimeError("pytest timed out"))
+    case = load_cases(CASES)[0]
+
+    with pytest.raises(RuntimeError) as caught:
+        run_case(case, provider="mock", keep_dir=tmp_path / "keep")
+
+    kept = Path(getattr(caught.value, "avs_preserved_workspace", ""))
+    assert str(kept), "the crashed case's workspace was thrown away — this is run 12"
+    assert (kept / "the-evidence.txt").read_text() == "what the hung case built"
+
+
+def test_the_crash_row_points_at_the_preserved_workspace(monkeypatch, tmp_path):
+    pb = _case_that_crashes(monkeypatch, RuntimeError("pytest timed out"))
+    monkeypatch.chdir(tmp_path)
+
+    summary = pb.run_product_bench(CASES, provider="mock", limit=1, repo_dir=tmp_path)
+
+    (row,) = summary.cases
+    assert row.autopilot_status.startswith("error: RuntimeError")
+    # A row naming a failure whose evidence is deleted is not a record.
+    kept = Path(row.preserved_workspace)
+    assert row.preserved_workspace and kept.is_dir()
+    assert (kept / "the-evidence.txt").exists()
+
+
+def test_preserving_the_workspace_never_replaces_the_real_failure(monkeypatch, tmp_path):
+    pb = _case_that_crashes(monkeypatch, RuntimeError("pytest timed out"))
+
+    def _cannot_copy(*args, **kwargs):
+        raise OSError("read-only filesystem")
+
+    monkeypatch.setattr(pb, "_preserve_workspace", _cannot_copy)
+    case = load_cases(CASES)[0]
+
+    # Forensics is bookkeeping. If it fails, the report must still name the
+    # hang — not an OSError from the code that was trying to explain it.
+    with pytest.raises(RuntimeError, match="pytest timed out"):
+        run_case(case, provider="mock", keep_dir=tmp_path / "keep")
+
+
+# ---------------------------------------------------------------------------
+# A probe boots the product's server. `subprocess.run`'s timeout kills the
+# probe alone, so a wedged probe used to leave that server alive holding its
+# port — and the next probe then measured someone else's product (the run 13
+# harness failure, on the constant port 8646).
+# ---------------------------------------------------------------------------
+
+
+def test_a_wedged_probe_does_not_leave_the_product_server_running(tmp_path, monkeypatch):
+    import ai_venture_studio.product_bench as pb
+    from ai_venture_studio.product_bench import Probe, run_probe
+
+    monkeypatch.setattr(pb, "_PROBE_TIMEOUT_S", 5)
+    monkeypatch.setattr(pb, "workspace_python", lambda ws: sys.executable)
+    marker = tmp_path / "server-started"
+    result = run_probe(
+        tmp_path,
+        Probe(
+            name="boots-a-server",
+            script=(
+                "import subprocess, sys, time\n"
+                "subprocess.Popen([sys.executable, '-c', "
+                "\"import time; time.sleep(120)\"])\n"
+                f"open({str(marker)!r}, 'w').write('up')\n"
+                "print('serving', flush=True)\n"
+                "time.sleep(120)\n"
+            ),
+        ),
+    )
+
+    assert not result.passed
+    assert marker.exists(), "the probe never got as far as starting anything"
+    # The last thing it said, not a bare 'probe timed out'.
+    assert "serving" in result.detail
+    survivors = subprocess.run(
+        ["pgrep", "-f", "time.sleep(120)"], capture_output=True, text=True
+    )
+    assert "time.sleep(120)" not in survivors.stdout, (
+        "the probe's server outlived the probe and still holds its port"
+    )

@@ -140,6 +140,11 @@ def _boot_gate(repo: Path) -> str | None:
         env={**os.environ, "PORT": str(port), "PYTHONPATH": str(repo)},
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
+        # A server started here is a process TREE — uvicorn reloaders and
+        # worker pools fork. Killing the parent alone leaves the workers
+        # serving, so the boot gate would leak a live server into the test
+        # run that follows it.
+        start_new_session=True,
     )
     try:
         deadline = time.monotonic() + _BOOT_GATE_TIMEOUT_S
@@ -161,11 +166,68 @@ def _boot_gate(repo: Path) -> str | None:
             "listening on 127.0.0.1:$PORT — " + _BOOT_CONTRACT_HINT
         )
     finally:
-        proc.kill()
+        from ai_venture_studio.testing import _kill_process_group
+
+        _kill_process_group(proc)
         try:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             pass
+
+
+_BLOCKING_SERVE = ("run", "serve_forever", "run_forever", "main_loop", "mainloop")
+
+
+def _blocks_on_import(repo: Path) -> str | None:
+    """Reject a product whose modules SERVE the moment they are imported.
+
+    The boot contract says `python main.py` must serve — and a module-level
+    `uvicorn.run(app)` satisfies it, which is why nothing caught this. But
+    `import main` is what every test does, so the same line makes the suite
+    hang forever with no output: pytest collects, blocks inside the import,
+    and the only signal is that five minutes passed. Bench run 12's case 04
+    died exactly that way and could never be explained after the fact.
+
+    Static, because the dynamic version of this check IS the hang. The serve
+    call belongs under `if __name__ == "__main__":`, where the contract has
+    always put it, and there it is invisible to an import.
+    """
+    import ast
+
+    for path in sorted(list(repo.glob("*.py")) + list(repo.glob("app/**/*.py"))):
+        if path.name.startswith("test_") or ".mas" in path.parts:
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            continue  # the test run will report it far better than we can
+        for node in tree.body:
+            # Module level ONLY: a `__main__` guard is an ast.If and a
+            # function body is a FunctionDef, and neither runs on import.
+            if not isinstance(node, (ast.Expr, ast.Assign, ast.With, ast.Try)):
+                continue
+            for call in (n for n in ast.walk(node) if isinstance(n, ast.Call)):
+                func = call.func
+                attr = isinstance(func, ast.Attribute)
+                name = func.attr if attr else getattr(func, "id", "")
+                # `.run` alone is far too common to flag; only the known
+                # server objects block on it.
+                blocking = name in _BLOCKING_SERVE and name != "run"
+                serves = (
+                    name == "run" and attr
+                    and getattr(func.value, "id", "") in ("uvicorn", "app", "socketio")
+                )
+                if blocking or serves:
+                    return (
+                        f"IMPORT GATE: {path.relative_to(repo)} line {call.lineno} "
+                        f"calls `{name}(...)` at module level, so importing it "
+                        "never returns — `python "
+                        f"{path.relative_to(repo)}` would serve, but every test "
+                        "that imports this module hangs forever instead of "
+                        "failing. Move the serve call under "
+                        '`if __name__ == "__main__":` — ' + _BOOT_CONTRACT_HINT
+                    )
+    return None
 
 
 _MP_CONTRACT_HINT = (
@@ -1214,6 +1276,15 @@ def _run_build_inner(
             repo, slug, "build",
             f"running your tests ({len(written)} file(s) written)",
         )
+        # Before the suite, not after: an import-time serve call makes the
+        # run hang for the full timeout and report nothing useful, and this
+        # answers it from a parse.
+        if project.profile in ("web", "enterprise-web"):
+            import_failure = _blocks_on_import(repo)
+            if import_failure:
+                progress.step(repo, slug, "build", "it would hang on import — fixing")
+                feedback = import_failure
+                continue
         report = combine_reports(_run_tests(repo), run_js_tests(repo))
         python_skeletons = any(s.path.endswith(".py") for s in spec.test_skeletons)
         if report.status == "passed" or (
