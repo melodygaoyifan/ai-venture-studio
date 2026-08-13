@@ -158,9 +158,33 @@ def pytest_cmd(worktree: Path) -> list[str]:
     return [sys.executable, "-m", "pytest", "-q"]
 
 
+def _run_and_classify(
+    cmd: list[str], worktree: Path, *, sandbox: str = "subprocess"
+) -> TestReport:
+    """A suite that hangs is a BLOCKED GATE, not a dead process.
+
+    `run_test_gate` catches `TimeoutExpired` for its own path, but four
+    other callers (build, autopilot, correction, fixpr) reach the runners
+    directly and had no guard — so one product whose tests never returned
+    raised out of everything above it. In the bench that killed the whole
+    case, which then scored zero and pulled the rates the kill criterion
+    reads. `error` already blocks the gate: an unprovable suite must not
+    pass, and it must not take the run down either.
+    """
+    try:
+        proc = _run(cmd, worktree)
+    except subprocess.TimeoutExpired:
+        return TestReport(
+            status="error",
+            summary=f"test command exceeded {_TEST_TIMEOUT_S}s and was killed",
+            detail=" ".join(str(part) for part in cmd),
+            sandbox=sandbox,
+        )
+    return _classify(proc.returncode, proc.stdout or proc.stderr, sandbox=sandbox)
+
+
 def _pytest_in_subprocess(worktree: Path) -> TestReport:
-    proc = _run(pytest_cmd(worktree), worktree)
-    return _classify(proc.returncode, proc.stdout or proc.stderr, sandbox="subprocess")
+    return _run_and_classify(pytest_cmd(worktree), worktree)
 
 
 def _has_js_tests(root: Path) -> bool:
@@ -185,8 +209,7 @@ def run_js_tests(worktree: Path) -> TestReport | None:
 
         scripts = (json.loads(package.read_text(encoding="utf-8")) or {}).get("scripts", {})
         if "test" in scripts:
-            proc = _run(["npm", "test", "--silent"], worktree)
-            return _classify(proc.returncode, proc.stdout or proc.stderr, sandbox="subprocess")
+            return _run_and_classify(["npm", "test", "--silent"], worktree)
     # NEVER inside .mas: it holds preserved copies of FAILED attempts
     # (.mas/failed-builds/), and pathlib's ** walks hidden directories. Once
     # one task failed, every later task's gate was running that task's broken
@@ -200,8 +223,7 @@ def run_js_tests(worktree: Path) -> TestReport | None:
     )
     if not test_files:
         return None
-    proc = _run(["node", "--test", *test_files], worktree)
-    return _classify(proc.returncode, proc.stdout or proc.stderr, sandbox="subprocess")
+    return _run_and_classify(["node", "--test", *test_files], worktree)
 
 
 def combine_reports(python_report: TestReport, js_report: TestReport | None) -> TestReport:

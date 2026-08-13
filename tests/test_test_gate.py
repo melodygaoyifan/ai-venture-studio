@@ -122,3 +122,25 @@ def test_e2e_voter_logs_appended(tmp_path, planted_diff_text, skills_dir):
     entries = yaml.safe_load(log.read_text())
     assert entries[0]["review_id"] == state["review_id"]
     assert entries[0]["status"] == "OK"
+
+
+def test_a_hanging_suite_blocks_the_gate_instead_of_killing_the_run(monkeypatch, tmp_path):
+    """`run_test_gate` guarded its own path, but build/autopilot/correction/
+    fixpr call the runners directly. In bench run 12 one product whose tests
+    never returned raised TimeoutExpired out of everything above it and took
+    the whole case down — which then scored zero against a kill criterion.
+    """
+    import subprocess
+
+    from ai_venture_studio import testing
+
+    def _hang(cmd, cwd, timeout=testing._TEST_TIMEOUT_S):
+        raise subprocess.TimeoutExpired(cmd, timeout)
+
+    monkeypatch.setattr(testing, "_run", _hang)
+    report = testing._pytest_in_subprocess(tmp_path)
+
+    assert report.status == "error"
+    assert "exceeded" in report.summary
+    # An unprovable suite must not pass — 'error' already blocks the gate.
+    assert report.gate_blocks is True

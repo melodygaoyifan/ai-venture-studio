@@ -4,6 +4,87 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.83.0 — an unmeasured case is not a zero, and it is not silent
+
+Minor. v0.82.0 armed the bench loop and it ran the same night — the first
+bench run a scheduler ever performed. It reported **build 75% · probes 65%
+· clean 48%** and exited 0, so `avs cadence --notify` printed *no alert:
+nothing needs a person*. Three of those statements were misleading, for
+three separate reasons ([ADR-035](docs/adr/035-an-unmeasured-case-is-not-a-zero.md)).
+
+**Case 04 never ran.** Its `pytest -q` did not return within 300s.
+`run_test_gate` catches `TimeoutExpired` on its own path, but four other
+callers — build, autopilot, correction, fixpr — reach the runners directly
+and had no guard, so the exception raised out of everything above it and
+killed the case an hour into the run.
+
+**The dead case then scored zero.** `_avg` averaged `0.0` for a case with
+no denominator, which is how "we did not measure this" became "the machine
+failed at this". It cost 22 points of probe rate: over the three cases that
+actually ran, the run scored **build 100% · probes 87%**. The launch PRD's
+only remaining kill criterion reads that probe number against a 50% floor,
+so a hung subprocess was two more bad weeks away from firing a
+**capability** verdict about the writer.
+
+**And nobody was told.** `product-bench` exits 0 whether or not a case
+died, because a case erroring is data rather than a run failure — the same
+absence-as-clean-pass shape ADR-033 and ADR-034 each removed one level
+further out, now one level further in.
+
+So: a rate averages only over cases that produced its denominator, and a
+case that ran and built nothing still scores a real `0.0` — that is a
+failure, not an absence, and the test that pins it is what keeps the
+exclusion from becoming a way to hide bad runs. The denominator travels
+with the number: `cases_measured`, `cases_total` and `unmeasured` are
+written into the saved result, and the cadence line, the Discord alert and
+`avs bench-criterion` itself carry `(over 3 of 4 cases)` so a later reader of
+the series can tell 75%-of-four from 75%-of-three. That last one matters
+most: Gate PL5 is a human deciding whether to cut scope on two numbers, and
+they should not have to open the YAML to learn one of them was averaged over
+three cases. Results predating this carry no denominator and are read as
+complete, which is what they were. A run that could not measure a case
+**exits 3** — not
+because the result is bad, but because the harness broke and nothing else
+will say so; a merely poor result stays quiet, because a channel that
+alerts on the benchmark doing its job is a channel nobody reads. And a
+hanging suite now blocks its gate instead of killing the run:
+`_run_and_classify` converts `TimeoutExpired` into
+`TestReport(status="error")`, which already blocks APPROVE — an unprovable
+suite must not pass, and must not take the run down with it.
+
+**The measurement was also lying about the products.** Run 12's case 03
+failed two probes with `AssertionError: no error field: {}`. The product
+was correct — booted by hand it answers `400 {"error": "id must be a
+base-10 integer: 'abc'"}`. The frame in `probegen.BOOT_FRAME` was
+discarding it: `urllib` raises `HTTPError` on every 4xx and puts the body
+on the exception, and `call()` returned `e.code, {}` without ever calling
+`e.read()`. Run 7 produced the identical `{}` failures in the same case,
+and the response then (`2bb4808`, and the `web.yaml` rule beside it) was to
+require products to write a human-readable `error` field into 4xx bodies.
+That rule is good and stays — but it was written to fix a symptom in the
+product that was a defect in the measurement, and it could never have
+worked, because the probe could not see the field no matter what the
+product wrote. A harness that cannot read the answer will keep reporting
+that the answer is wrong, and each round of that produces a plausible fix
+one layer too low.
+
+One more thing this exposed, worth stating on its own: the metric definition
+in `metrics/product_bench_capability.md` had excluded *"cases that died on
+harness noise rather than on the product under test"* since 2026-07-27. The
+code never did. **A stated exclusion that nothing enforces is a comment** —
+and this one read as a guarantee for two and a half weeks. The runner now
+enforces it, and the metric's `changed_at` moves to 2026-08-12 because the
+denominator changed, so any comparison straddling that date is flagged
+(F-22.1). The floors and the O-L2 baseline stand: runs 1–11 hold no crashed
+cases except run 4, already excluded as noise.
+
+Run 12's recorded numbers are **not** rewritten — `benchmarks/results/` is
+a record, not a document — with the recomputed reading and the new
+denominators' comparability break noted beside them in `HISTORY.md`. Stated
+rather than left implied: **why case 04's suite hangs is still unknown.**
+It is now a blocked task with a named reason instead of a dead run, which
+makes it diagnosable on the next run rather than diagnosed now.
+
 ## v0.82.0 — the kill criterion's series is watched, and its schedule leaves cron
 
 Minor. v0.81.0 left the product-bench capability axis as the launch PRD's

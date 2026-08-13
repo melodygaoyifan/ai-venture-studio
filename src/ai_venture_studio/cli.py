@@ -1242,12 +1242,31 @@ def product_bench(
             str(c.duration_s),
         )
     console.print(table)
+    scope = (
+        f" (over {summary.cases_measured} of {len(summary.cases)} cases)"
+        if summary.unmeasured else ""
+    )
     console.print(
         f"build rate [bold]{summary.build_rate:.0%}[/bold] · "
         f"probe pass [bold]{summary.probe_pass_rate:.0%}[/bold] · "
-        f"clean reviews [bold]{summary.clean_review_rate:.0%}[/bold]"
+        f"clean reviews [bold]{summary.clean_review_rate:.0%}[/bold]{scope}"
     )
+    # Save before exiting: a run that measured three cases still measured
+    # three cases, and the result is the series the kill criterion reads.
     console.print(f"saved: {save_summary(summary, repo_dir)}")
+    if summary.unmeasured:
+        # Not a capability finding — the harness broke, and nothing else
+        # will say so. The rates above are honest about their scope and
+        # would otherwise be the only thing anyone sees.
+        console.print(
+            f"[red]{len(summary.unmeasured)} case(s) never ran: "
+            f"{', '.join(summary.unmeasured)}[/red]"
+        )
+        console.print(
+            "  These are excluded from the rates above, not scored as zero — "
+            "so this run measured less of the machine than it looks like."
+        )
+        raise typer.Exit(3)
 
 
 @app.command()

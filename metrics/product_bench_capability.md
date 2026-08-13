@@ -3,12 +3,12 @@ metric:
   id: product_bench_build_rate
   definition: "fraction of product-bench cases whose generated product BUILDS (every planned task reaching built with its suite green) in one run; companion series in the same run are the probe pass rate and the clean-review rate"
   numerator_event: product_bench.case_built
-  denominator: "cases in the run's corpus (benchmarks/products-real/)"
+  denominator: "cases in the run's corpus (benchmarks/products-real/) that PRODUCED the rate's denominator — a case that never ran is dropped, not entered as a zero; each result YAML records cases_measured / cases_total / unmeasured (ADR-035)"
   window_days: 7
   cohort_basis: bench_run
-  exclusions: ["cases that died on harness noise rather than on the product under test (run 4 KeyError, run 5 budget exhaustion)", "runs whose corpus differs — comparability resets when a case is added or edited"]
+  exclusions: ["cases that died on harness noise rather than on the product under test (run 4 KeyError, run 5 budget exhaustion, run 12 pytest timeout) — enforced mechanically since v0.83.0, stated here since 2026-07-27", "runs whose corpus differs — comparability resets when a case is added or edited"]
   owner: melody
-  changed_at: "2026-07-27"
+  changed_at: "2026-08-12"
 ---
 
 # product-bench capability (build / probes / clean)
@@ -48,6 +48,29 @@ most recent comparable runs, and reports whether the criterion has fired. It
 never rewrites history and never averages across a corpus change. A fired
 criterion demands a recorded human decision at Gate PL5 (invariant 14.20) —
 the evaluator states, it does not decide.
+
+## The denominator (2026-08-12 definition change, ADR-035)
+
+The exclusion above — *cases that died on harness noise rather than on the
+product under test* — was written into this file on 2026-07-27 and was not
+true of the code. `_run_product_bench` averaged a `0.0` for any case with no
+denominator, so run 12's case 04, killed by a `pytest -q` that never
+returned, entered all three rates as a zero and cost 22 points of probe
+rate. **A stated exclusion that nothing enforces is a comment.** Since
+v0.83.0 the runner enforces it, and every result records
+`cases_measured` / `cases_total` / `unmeasured` so a reader can tell
+75%-of-four from 75%-of-three. `avs bench-criterion` prints
+`(over 3 of 4 cases)` when that is what happened.
+
+Two things this deliberately does **not** do. A case that ran and built
+nothing still scores a real `0.0` — that is a failure, not an absence, and
+the exclusion must never become a way to drop bad runs. And run 12's
+recorded numbers are not rewritten; `benchmarks/results/` is a record, with
+the recomputed reading noted beside it in `HISTORY.md`.
+
+`changed_at` moves to 2026-08-12 because the denominator changed, so
+comparisons straddling it are flagged (F-22.1). The floors are unaffected:
+runs 1–11 hold no crashed cases except run 4, already excluded as noise.
 
 ## Falsifier
 

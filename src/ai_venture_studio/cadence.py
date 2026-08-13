@@ -381,7 +381,14 @@ def _bench_rates(path: str) -> str:
         probes = float(data["probe_pass_rate"])
     except (KeyError, TypeError, ValueError):
         return ""
-    return f"build {build:.0%}, probes {probes:.0%}"
+    read = f"build {build:.0%}, probes {probes:.0%}"
+    # A rate averaged over 3 of 4 cases is a different reading from one
+    # averaged over 4, and the percentages alone cannot say which it is.
+    rates = data.get("rates") if isinstance(data.get("rates"), dict) else {}
+    measured, total = rates.get("cases_measured"), rates.get("cases_total")
+    if isinstance(measured, int) and isinstance(total, int) and measured < total:
+        read += f" — over {measured} of {total} cases"
+    return read
 
 
 def _selected(only) -> set[str] | None:

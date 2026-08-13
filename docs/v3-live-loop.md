@@ -66,6 +66,17 @@ Discord message ([ADR-034](adr/034-the-bench-is-a-watched-loop.md)). A kill
 criterion is only as live as the collection behind it, and "the run writes
 it automatically" is a claim about a scheduler, not a guarantee.
 
+The first scheduled run showed the other half of it. One case died on a hung
+subprocess and was averaged into the rates as `0.0`, which dropped the probe
+rate 22 points and exited 0 — so the number the criterion reads was an
+infrastructure failure wearing a capability failure's clothes, and nothing
+said so. Since v0.83.0 a rate averages only over cases that produced its
+denominator, `cases_measured` / `cases_total` / `unmeasured` are written into
+every saved result, and a run that could not measure a case exits **3**
+([ADR-035](adr/035-an-unmeasured-case-is-not-a-zero.md)). **Read the
+denominator before reading the rate**: 75%-of-three and 75%-of-four are not
+the same evidence, and only one of them belongs in a kill decision.
+
 ## Closing it, when the criterion fires
 
 1. Run the weekly benchmark. `avs loop --root launch` reads

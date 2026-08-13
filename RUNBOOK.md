@@ -235,6 +235,11 @@ Then, weekly:
    The bench agent runs the bench and writes the file; it does not push. The
    criterion reads your working tree either way — committing is what makes
    the series survive losing the machine, which it has done once before.
+   If the alert said the bench **exited 3**, a case never ran: the rates in
+   that file are averaged over fewer cases than the bench has, and the file
+   says which ones in `unmeasured`. That is a broken harness, not a
+   capability finding — the rate is still honest about what it measured, so
+   commit it, but do not read it as a week's verdict on the writer.
 
 ## When a review escalates (Gate 3)
 

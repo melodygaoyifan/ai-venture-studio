@@ -30,7 +30,7 @@ prd:
   # with O-L1 (v0.81.0, ADR-033). One axis remains, and it is the one whose
   # series is actually collected.
   kill_criteria:
-    - "If the product-bench build rate falls below 60% OR the probe pass rate below 50% for 2 consecutive weekly runs, the capability claim is not holding and scope is cut per Gate PL5. The 60/50 floors read the observed pre-fix era (42-54% build) against the current 74-75% — a real floor, not a chosen number; the series is benchmarks/results/HISTORY.md, and since v0.82.0 its collection is a watched cadence loop (ADR-034), so a run that stops happening is a Discord alert rather than a criterion that reports 'not fired' forever."
+    - "If the product-bench build rate falls below 60% OR the probe pass rate below 50% for 2 consecutive weekly runs, the capability claim is not holding and scope is cut per Gate PL5. The 60/50 floors read the observed pre-fix era (42-54% build) against the current 74-75% — a real floor, not a chosen number; the series is benchmarks/results/HISTORY.md, and since v0.82.0 its collection is a watched cadence loop (ADR-034), so a run that stops happening is a Discord alert rather than a criterion that reports 'not fired' forever. Both rates are read over the cases that PRODUCED them (ADR-035): a case that never ran is dropped from the average and named in `unmeasured`, never entered as a zero, because an infrastructure crash must not be able to fire a capability verdict."
   # Amended 2026-08-12, v0.82.0. What stood here said the series was
   # "already collected weekly, so this can fire on the next run". The
   # collection had in fact stopped on 2026-07-27 and went 16 days unnoticed:
@@ -38,3 +38,11 @@ prd:
   # criterion. The floors and the rule are unchanged; only the sentence
   # about what keeps the series alive is corrected, and it now names the
   # mechanism that enforces it.
+  #
+  # Amended again 2026-08-13, v0.83.0. The first scheduled run showed the
+  # other half: a case killed by a hung subprocess was averaged in as 0.0,
+  # dropping the probe rate 22 points, and the run exited 0. The floors and
+  # the rule are unchanged and the baseline stands (runs 1-11 hold no
+  # crashed cases except run 4, already excluded as noise); what changes is
+  # WHAT the rates are averaged over. See ADR-035 and the 2026-08-12
+  # definition change in metrics/product_bench_capability.md.

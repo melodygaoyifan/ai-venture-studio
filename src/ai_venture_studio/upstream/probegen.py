@@ -51,6 +51,16 @@ def wait():
     raise SystemExit("server never listened")
 
 
+def _decode(raw):
+    raw = raw.decode(errors="replace") if isinstance(raw, bytes) else raw
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {"_raw": raw}
+
+
 def call(method, path, body=None, expect_redirect=False):
     req = urllib.request.Request(BASE + path, method=method,
         data=json.dumps(body).encode() if body is not None else None,
@@ -59,14 +69,13 @@ def call(method, path, body=None, expect_redirect=False):
               if expect_redirect else urllib.request.build_opener())
     try:
         resp = opener.open(req, timeout=10)
-        raw = resp.read().decode() or "{}"
-        try:
-            data = json.loads(raw)
-        except Exception:
-            data = {"_raw": raw}
-        return resp.status, data, dict(resp.headers)
+        return resp.status, _decode(resp.read()), dict(resp.headers)
     except urllib.error.HTTPError as e:
-        return e.code, {}, dict(e.headers)
+        # urllib raises on every 4xx/5xx, and the body is on the exception.
+        # Reading it is the whole point of an error probe: returning {} here
+        # failed a product that answered exactly as its contract said, and
+        # the framework once "fixed" the product prompt in response.
+        return e.code, _decode(e.read()), dict(e.headers)
 
 
 wait()

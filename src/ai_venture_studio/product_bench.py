@@ -122,21 +122,26 @@ class CaseResult(BaseModel):
     probes: list[ProbeResult] = Field(default_factory=list)
     duration_s: float = 0.0
 
+    # Each rate is None when the case produced no denominator for it — a
+    # case that crashed before planning has no build rate, and averaging a
+    # 0.0 in its place records "the machine failed" where the truth is "we
+    # did not measure". The kill criterion reads these averages, so that
+    # substitution lets an infrastructure crash fire a capability verdict.
     @property
-    def build_rate(self) -> float:
-        return self.tasks_built / self.tasks_total if self.tasks_total else 0.0
+    def build_rate(self) -> float | None:
+        return self.tasks_built / self.tasks_total if self.tasks_total else None
 
     @property
-    def probe_pass_rate(self) -> float:
+    def probe_pass_rate(self) -> float | None:
         return (
             sum(1 for p in self.probes if p.passed) / len(self.probes)
             if self.probes
-            else 0.0
+            else None
         )
 
     @property
-    def clean_review_rate(self) -> float:
-        return self.clean_reviews / self.tasks_built if self.tasks_built else 0.0
+    def clean_review_rate(self) -> float | None:
+        return self.clean_reviews / self.tasks_built if self.tasks_built else None
 
 
 class BenchSummary(BaseModel):
@@ -144,6 +149,14 @@ class BenchSummary(BaseModel):
     build_rate: float
     probe_pass_rate: float
     clean_review_rate: float
+    # Named, not just absent: a rate averaged over 3 of 4 cases and one
+    # averaged over 4 are different measurements, and the reader cannot
+    # tell them apart from the percentages alone.
+    unmeasured: list[str] = Field(default_factory=list)
+
+    @property
+    def cases_measured(self) -> int:
+        return len(self.cases) - len(self.unmeasured)
 
 
 def load_cases(cases_dir: str | Path) -> list[ProductCase]:
@@ -367,14 +380,18 @@ def _run_product_bench(
                 )
             )
 
-    def _avg(values: list[float]) -> float:
-        return sum(values) / len(values) if values else 0.0
+    def _avg(values: list[float | None]) -> float:
+        # Only cases that produced the denominator count. A case with no
+        # data is dropped from that rate, never entered as a zero.
+        measured = [v for v in values if v is not None]
+        return sum(measured) / len(measured) if measured else 0.0
 
     return BenchSummary(
         cases=results,
         build_rate=_avg([r.build_rate for r in results]),
         probe_pass_rate=_avg([r.probe_pass_rate for r in results]),
         clean_review_rate=_avg([r.clean_review_rate for r in results]),
+        unmeasured=[r.name for r in results if r.build_rate is None],
     )
 
 
@@ -388,6 +405,12 @@ def save_summary(summary: BenchSummary, repo_dir: str | Path) -> Path:
         "build_rate": round(summary.build_rate, 3),
         "probe_pass_rate": round(summary.probe_pass_rate, 3),
         "clean_review_rate": round(summary.clean_review_rate, 3),
+        # The denominator travels with the numbers into the series the kill
+        # criterion reads — "75%" over three of four cases is not the same
+        # reading as "75%" over four, and a later reader has only this file.
+        "cases_measured": summary.cases_measured,
+        "cases_total": len(summary.cases),
+        "unmeasured": list(summary.unmeasured),
     }
     rendered = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
     path.write_text(rendered, encoding="utf-8")

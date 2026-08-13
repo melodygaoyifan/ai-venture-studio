@@ -16,6 +16,11 @@ at 8–33% build, runs 6–9 climbed 42–72%, runs 10–11 hold 74–75%. Cross
 
 Two runs, not one, because at n=4 real-product cases a single run is noise.
 
+Since v0.83.0 a run also records how much of the bench it measured, and this
+module carries that into the sentence a human reads at Gate PL5 (ADR-035):
+run 12 reported 65% probes only because a case that never ran was averaged in
+as a zero, and a rate is not evidence without its denominator.
+
 This module states; it never decides. A fired criterion demands a recorded
 human decision at Gate PL5 (invariant 14.20).
 """
@@ -38,6 +43,19 @@ class BenchRun(BaseModel):
     build_rate: float
     probe_pass_rate: float
     clean_review_rate: float | None = None
+    # Runs from v0.83.0 on record how much of the bench they actually
+    # measured (ADR-035). Older files carry neither, and are read as
+    # complete — which is what they were.
+    cases_measured: int | None = None
+    cases_total: int | None = None
+
+    @property
+    def partial(self) -> bool:
+        return (
+            self.cases_measured is not None
+            and self.cases_total is not None
+            and self.cases_measured < self.cases_total
+        )
 
     @property
     def below_floor(self) -> bool:
@@ -49,6 +67,11 @@ class BenchRun(BaseModel):
             f"probes {self.probe_pass_rate:.0%}"
             + (f", clean {self.clean_review_rate:.0%}"
                if self.clean_review_rate is not None else "")
+            # A human at Gate PL5 is deciding whether to kill the project on
+            # these two numbers. They must not have to open the file to find
+            # out that one of them was averaged over three cases, not four.
+            + (f" (over {self.cases_measured} of {self.cases_total} cases)"
+               if self.partial else "")
         )
 
 
@@ -64,6 +87,10 @@ class BenchCriterionState(BaseModel):
 
 class BenchCriterionError(RuntimeError):
     pass
+
+
+def _as_int(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def load_runs(repo_dir: str | pathlib.Path) -> list[BenchRun]:
@@ -86,6 +113,7 @@ def load_runs(repo_dir: str | pathlib.Path) -> list[BenchRun]:
             continue
         if "build_rate" not in data or "probe_pass_rate" not in data:
             continue
+        rates = data.get("rates") if isinstance(data.get("rates"), dict) else {}
         try:
             runs.append(BenchRun(
                 path=str(path.relative_to(pathlib.Path(repo_dir))),
@@ -95,6 +123,8 @@ def load_runs(repo_dir: str | pathlib.Path) -> list[BenchRun]:
                     float(data["clean_review_rate"])
                     if data.get("clean_review_rate") is not None else None
                 ),
+                cases_measured=_as_int(rates.get("cases_measured")),
+                cases_total=_as_int(rates.get("cases_total")),
             ))
         except (TypeError, ValueError):
             continue

@@ -80,3 +80,51 @@ def test_no_routes_is_a_visible_note_not_a_pass(tmp_path):
     probes, notes = generate_probes(root, provider="mock")
     assert probes == []
     assert any("no observed backend routes" in n for n in notes)
+
+
+def test_a_probe_can_read_the_error_body_the_product_sent():
+    """urllib RAISES on 4xx and puts the body on the exception. The frame
+    used to return `{}` there, so every probe asserting on an error message
+    failed against a product that answered exactly as its contract said —
+    and run 7's identical `{}` failures were once "fixed" by tightening the
+    *product* prompt, one layer below the actual defect.
+    """
+    import http.server
+    import json
+    import threading
+
+    from ai_venture_studio.upstream.probegen import BOOT_FRAME
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = json.dumps({"error": "id must be an integer"}).encode()
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        # Exercise the frame's own `call` against a real 4xx response:
+        # take the helper definitions verbatim, minus the boot block (the
+        # server is already up here).
+        helpers = BOOT_FRAME[
+            BOOT_FRAME.index("class NoRedirect"):BOOT_FRAME.index("\nwait()")
+        ]
+        frame_src = (
+            "import json, urllib.request, urllib.error\n"
+            f'BASE = "http://127.0.0.1:{server.server_address[1]}"\n' + helpers
+        )
+        namespace: dict = {}
+        exec(compile(frame_src, "<frame>", "exec"), namespace)  # noqa: S102
+        status, data, _ = namespace["call"]("GET", "/groupbuys/abc")
+    finally:
+        server.shutdown()
+
+    assert status == 400
+    assert data == {"error": "id must be an integer"}, data

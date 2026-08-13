@@ -21,7 +21,32 @@ for the headline numbers.
 | 9 | result-2026-07-26-2320.yaml (original) | 043176b | 54% | 75% | 8% | case 01 perfect + first clean review; case 03 probegen produced 0 probes |
 | 10 | result-2026-07-27-0129.yaml | a0a4469 | 75% | 75% | 43% | best composite; fixture visibility ended case-04 decomposition deaths; SSRF scoping moved clean reviews off 0% |
 | 11 | result-2026-07-27-0449.yaml | f246a4c | 74% | 75% | 38% | scoreboard HOLDS (same code as run 10, repeat within noise); case 02 perfect for the first time — intensive run phase ended per the stopping rule |
-| 12 | result-2026-08-13-0347.yaml | ddad6f2 | 75% | 65% | 48% | **first run ever driven by the scheduler** (v0.82.0 bench cadence loop, 16 days after the series stopped). Cases 01/02/03 ALL completed, 11/11 tasks built — the first three-case sweep; clean reviews 48%, the best recorded. Case 03 is **measured again after five runs unmeasured** (the 4a77fd3 probegen fallback works: 5 probes generated, 3 passed) and both its failures are the same known shape, `no error field: {}` — the empty-4xx-body defect 2bb4808 and dd81a41 targeted has **not** held here. Case 04 did not run: `pytest -q` timed out at 300s and the case errored, scoring **0/0 → counted as 0.0** in all three aggregates, so the headline understates the three cases that ran (11/11 built = 100%) and the probe drop 75%→65% is that zero, not a capability regression |
+| 12 | result-2026-08-13-0347.yaml | ddad6f2 | 75% | 65% | 48% | **first run ever driven by the scheduler** (v0.82.0 bench cadence loop, 16 days after the series stopped). Cases 01/02/03 ALL completed, 11/11 tasks built — the first three-case sweep; clean reviews 48%, the best recorded. Case 03 is **measured again after five runs unmeasured** (the 4a77fd3 probegen fallback works: 5 probes generated, 3 passed) and both its failures read `no error field: {}` — **which was the harness, not the product** (see the correction below). Case 04 did not run: `pytest -q` timed out at 300s and the case errored, scoring **0/0 → counted as 0.0** in all three aggregates, so the headline understates the three cases that ran (11/11 built = 100%) and the probe drop 75%→65% is that zero, not a capability regression |
+
+> **Run 12, recomputed reading (ADR-035).** The numbers above stand as
+> recorded — this table is a record, not a document — but two of them were
+> read wrong on the day, and both readings are corrected here rather than
+> overwritten above.
+>
+> - **Probes 65% was 87%.** Case 04 contributed no probes at all; averaging
+>   its absence in as `0.0` cost 22 points. Over the three cases actually
+>   measured the run scored **build 100% · probes 87% · clean 48%**.
+> - **Case 03's two `no error field: {}` failures were the probe frame's,
+>   not the product's.** Booted by hand the product answers `400 {"error":
+>   "id must be a base-10 integer: 'abc'"}`. `urllib` raises `HTTPError` on
+>   every 4xx and `call()` returned `e.code, {}` without reading the body.
+>   Run 7 showed the identical failures and the response then (`2bb4808`)
+>   was to tighten the *product* prompt — a fix one layer too low, which
+>   could never have worked while the probe could not see the field.
+
+> **Comparability break after run 12:** ADR-035 changes the denominators.
+> A case that produced no denominator is dropped from the rate rather than
+> averaged in as `0.0`, and the saved result carries `cases_measured` /
+> `cases_total` / `unmeasured` so a later reader can tell 75%-of-four from
+> 75%-of-three. A case that ran and built nothing still scores a real
+> `0.0`. Runs 1–11 contain no crashed cases except run 4 (already recorded
+> as noise), so the floors' basis is unaffected; runs ≥ 13 use the new
+> denominators.
 
 > **Comparability break after run 11:** v0.65.0 added the in-run auto-retry
 > (each failed task re-attempted once with its failure as context) and later

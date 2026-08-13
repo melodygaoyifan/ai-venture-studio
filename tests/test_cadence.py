@@ -853,3 +853,25 @@ def test_a_label_that_could_escape_its_directory_is_refused():
             cadence.agent_plist_path(bad)
     # Blank is not an attack, it is "unspecified" — it takes the default.
     assert cadence.agent_plist_path("   ") == cadence.agent_plist_path()
+
+
+def test_a_partial_bench_says_so_in_the_line_the_reader_sees(tmp_path):
+    """The rates go to Discord as one line. A run that could not measure a
+    case must not read like a run that measured them all."""
+    _bench_cases(tmp_path)
+    results = tmp_path / "benchmarks" / "results"
+    results.mkdir(parents=True, exist_ok=True)
+    (results / "result-2026-08-13-0347.yaml").write_text(
+        "build_rate: 1.0\nprobe_pass_rate: 0.87\n"
+        "rates:\n  cases_measured: 3\n  cases_total: 4\n",
+        encoding="utf-8",
+    )
+    status = cadence.assess(tmp_path, today=dt.date(2026, 8, 13), only=["bench"]).loops[0]
+    assert "over 3 of 4 cases" in status.produced
+
+
+def test_a_complete_bench_does_not_carry_a_scope_note(tmp_path):
+    _bench_cases(tmp_path)
+    _bench_result(tmp_path, "2026-08-13")
+    status = cadence.assess(tmp_path, today=dt.date(2026, 8, 13), only=["bench"]).loops[0]
+    assert "of" not in status.produced.replace("probes", "")

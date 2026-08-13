@@ -195,7 +195,7 @@ is in [claims/platform.yaml](claims/platform.yaml).
 - **Perf-lane calibration**: 5 of 5 seeded defects caught (catch rate 100%)
   at the 3x relative-detection factor, loopback low-parity environment,
   2026-07-26 ([manifest](benchmarks/perf_seeded/calibration.yaml)).
-- **1885 hermetic tests** (`uv run pytest`, no network, no keys); every PR
+- **1898 hermetic tests** (`uv run pytest`, no network, no keys); every PR
   in this repo was reviewed by avs itself, and five of those reviews caught
   real bugs.
 - **A hermetic suite is not enough, and this repo says so.** Twelve real
@@ -381,7 +381,13 @@ word, so in v0.82.0 that series became a watched loop of its own
 ([ADR-034](docs/adr/034-the-bench-is-a-watched-loop.md)). `avs cadence`
 keeps that clock honest, every loop it drives can close itself, and a
 criterion reading a dead series is now a Discord message rather than a
-standing "not fired".
+standing "not fired". The first scheduled run then showed the other half of
+the same problem: a case killed by a hung subprocess was averaged into the
+rates as `0.0`, so an infrastructure crash was two bad weeks from firing a
+*capability* verdict. Since v0.83.0 a rate averages only over cases that
+produced its denominator, the denominator travels with the number, and a
+run that could not measure a case exits 3
+([ADR-035](docs/adr/035-an-unmeasured-case-is-not-a-zero.md)).
 
 ---
 

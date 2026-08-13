@@ -109,6 +109,49 @@ def test_unreadable_and_rateless_files_are_skipped_not_fatal(tmp_path):
     assert evaluate(tmp_path).fires is False
 
 
+# --- the denominator reaches the person deciding (ADR-035) -------------------
+
+
+def _run_with_rates(tmp_path, name: str, rates: dict) -> None:
+    out = tmp_path / "benchmarks" / "results"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / name).write_text(
+        yaml.safe_dump({"build_rate": 0.75, "probe_pass_rate": 0.65,
+                        "clean_review_rate": 0.4, "cases": [], "rates": rates}),
+        encoding="utf-8",
+    )
+
+
+def test_a_partial_run_says_so_in_the_line_gate_pl5_reads(tmp_path):
+    """The Gate PL5 decision is made on these two numbers. If one of them was
+    averaged over three cases instead of four, the sentence has to say so —
+    nobody should have to open the YAML to find out what they are killing on."""
+    _run_with_rates(tmp_path, "result-2026-08-13-0000.yaml",
+                    {"cases_measured": 3, "cases_total": 4, "unmeasured": ["04"]})
+    run = load_runs(tmp_path)[0]
+    assert run.partial is True
+    assert "over 3 of 4 cases" in run.summary()
+    assert "over 3 of 4 cases" in evaluate(tmp_path).detail
+
+
+def test_a_complete_run_carries_no_scope_note(tmp_path):
+    _run_with_rates(tmp_path, "result-2026-08-13-0000.yaml",
+                    {"cases_measured": 4, "cases_total": 4, "unmeasured": []})
+    run = load_runs(tmp_path)[0]
+    assert run.partial is False
+    assert "cases)" not in run.summary()
+
+
+def test_runs_predating_the_denominator_are_read_as_complete(tmp_path):
+    """Runs 1-12 carry no rates block. They were complete runs (except the
+    already-noted crashes), and reading them as partial would put a caveat on
+    the whole historical series that is not true of it."""
+    _runs(tmp_path, [(0.75, 0.75)])
+    run = load_runs(tmp_path)[0]
+    assert run.cases_measured is None and run.partial is False
+    assert "cases)" not in run.summary()
+
+
 # --- the real ledger and the PRD ---------------------------------------------
 
 
