@@ -17,6 +17,15 @@
 # THEN, to release: bump `version` in pyproject.toml, land it on main, and
 #   git tag v0.54.0 && git push origin v0.54.0
 #
+# AFTER this workflow is green, PyPI having the file is not the same as the
+# file working, and published is not the same as deployed. Finish with:
+#   scripts/verify-release.sh --deploy
+# which installs the published version into a throwaway venv, proves the
+# `avs` console script exists and runs, and only then upgrades the binary the
+# schedulers actually invoke. Do not hand-roll that check: the three times it
+# was typed from memory it was `pip install -q ... | tail -3`, which cannot
+# tell a failed install from a successful one. See the script's header.
+#
 # The gate is deliberate: the suite must pass on the tagged commit before
 # anything is uploaded, because a PyPI version cannot be replaced — only
 # yanked. The tag must also match the version in pyproject.toml, so a
