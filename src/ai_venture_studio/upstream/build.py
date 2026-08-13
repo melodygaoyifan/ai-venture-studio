@@ -178,7 +178,14 @@ def _boot_gate(repo: Path) -> str | None:
 _BLOCKING_SERVE = ("run", "serve_forever", "run_forever", "main_loop", "mainloop")
 
 
-def _blocks_on_import(repo: Path) -> str | None:
+_BLOCKS_ON_IMPORT_HINT = (
+    "nothing that blocks may run at import time — every test imports the "
+    "module, so a call that never returns hangs the suite instead of failing "
+    "it. Put it under the guard, or inside a function the caller invokes."
+)
+
+
+def _blocks_on_import(repo: Path, profile: str = "") -> str | None:
     """Reject a product whose modules SERVE the moment they are imported.
 
     The boot contract says `python main.py` must serve — and a module-level
@@ -191,6 +198,16 @@ def _blocks_on_import(repo: Path) -> str | None:
     Static, because the dynamic version of this check IS the hang. The serve
     call belongs under `if __name__ == "__main__":`, where the contract has
     always put it, and there it is invisible to an import.
+
+    Runs for EVERY profile, which v0.85.0 got wrong. It was gated on
+    web/enterprise-web on the reasoning that only they carry the boot
+    contract — but the contract is what makes a web product *prone* to this,
+    not what makes the hang possible. `data` is "Python + the team's existing
+    warehouse/orchestrator", and a module-level `run_forever()` there hangs
+    its suite exactly the same way; `_BLOCKING_SERVE` could already name it
+    while the gate never ran. Absence of the instruction that induces a bug
+    is not immunity from the bug. Profile only picks the fix sentence: a
+    non-web product must not be told to append `uvicorn.run`.
     """
     import ast
 
@@ -218,14 +235,19 @@ def _blocks_on_import(repo: Path) -> str | None:
                     and getattr(func.value, "id", "") in ("uvicorn", "app", "socketio")
                 )
                 if blocking or serves:
+                    hint = (
+                        _BOOT_CONTRACT_HINT
+                        if profile in ("web", "enterprise-web")
+                        else _BLOCKS_ON_IMPORT_HINT
+                    )
                     return (
                         f"IMPORT GATE: {path.relative_to(repo)} line {call.lineno} "
                         f"calls `{name}(...)` at module level, so importing it "
                         "never returns — `python "
-                        f"{path.relative_to(repo)}` would serve, but every test "
+                        f"{path.relative_to(repo)}` would run it, but every test "
                         "that imports this module hangs forever instead of "
-                        "failing. Move the serve call under "
-                        '`if __name__ == "__main__":` — ' + _BOOT_CONTRACT_HINT
+                        "failing. Move the call under "
+                        '`if __name__ == "__main__":` — ' + hint
                     )
     return None
 
@@ -1279,12 +1301,15 @@ def _run_build_inner(
         # Before the suite, not after: an import-time serve call makes the
         # run hang for the full timeout and report nothing useful, and this
         # answers it from a parse.
-        if project.profile in ("web", "enterprise-web"):
-            import_failure = _blocks_on_import(repo)
-            if import_failure:
-                progress.step(repo, slug, "build", "it would hang on import — fixing")
-                feedback = import_failure
-                continue
+        # Every profile, not just the two carrying the boot contract: any
+        # Python module that blocks at import hangs its own suite, and only
+        # miniprogram cannot execute Python at all (where the scan finds
+        # nothing and costs nothing).
+        import_failure = _blocks_on_import(repo, project.profile)
+        if import_failure:
+            progress.step(repo, slug, "build", "it would hang on import — fixing")
+            feedback = import_failure
+            continue
         report = combine_reports(_run_tests(repo), run_js_tests(repo))
         python_skeletons = any(s.path.endswith(".py") for s in spec.test_skeletons)
         if report.status == "passed" or (

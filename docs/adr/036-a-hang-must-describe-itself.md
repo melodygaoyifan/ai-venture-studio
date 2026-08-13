@@ -101,3 +101,22 @@ the hang itself.
   case 04 did. It is unrecoverable. What is claimed is narrower and
   checkable — the next hang arrives with the test name, the line, its
   output, and a workspace on disk.
+
+## Correction (v0.86.0)
+
+Decision 5 shipped in v0.85.0 gated on the `web` and `enterprise-web`
+profiles, because those are the two that carry the boot contract, and the
+contract was taken to be the precondition for the hang. That was wrong, and
+the reasoning is the part worth recording: the contract is what makes a web
+product *prone* to this shape — it instructs the model to make the entry
+point serve itself — but the hang requires only a module-level call that
+never returns, in a Python file the tests import. `data` is "Python + the
+team's existing warehouse/orchestrator"; a module-level `run_forever()`
+there hangs its suite identically, and `_BLOCKING_SERVE` could already name
+that call while the gate never ran over it.
+
+The gate now runs for every profile. Absence of the instruction that induces
+a bug was mistaken for immunity from the bug — which is the same class of
+error as ADR-035's *"a stated exclusion that nothing enforces is a
+comment"*: a guarantee inferred from something that was never actually
+checking.

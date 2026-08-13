@@ -4,6 +4,42 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.86.0 — the import gate ran for two profiles and should have run for all
+
+v0.85.0 shipped `_blocks_on_import` gated on `web` and `enterprise-web`, on
+the reasoning that only those two carry the boot contract — `python
+app/main.py` must serve when run directly — and that the contract is the
+precondition for the failure.
+
+It isn't. The contract is what makes a web product *prone* to the shape, by
+actively instructing the model to make the entry point serve itself; a model
+that obeys at module level satisfies the gate and hangs every test. But the
+hang needs only one thing: a call that never returns, at module level, in a
+Python file the tests import. The `data` profile's own stack hint is "Python
++ the team's existing warehouse/orchestrator", and a module-level
+`run_forever()` there hangs its suite in exactly the same way, printing
+exactly as little. `_BLOCKING_SERVE` has listed `run_forever`,
+`serve_forever`, `main_loop` and `mainloop` since v0.85.0 — the gate could
+already name that call and simply never ran over it.
+
+Only `miniprogram` bans `.py` at the write boundary, so `data`, `game` and
+`app` can all produce Python that pytest imports. The gate now runs for
+every profile; where there is no Python the scan finds nothing and costs
+nothing.
+
+The profile now picks one thing only: the fix sentence. A data pipeline told
+to append `uvicorn.run(app, port=int(os.environ["PORT"]))` receives advice
+it cannot act on, and feedback a model cannot act on is feedback that loops
+— so non-web products get the general rule instead, that nothing which
+blocks may run at import time.
+
+Minor for the same reason v0.85.0 was: this refuses builds that previously
+passed, in three profiles that were not being checked at all.
+
+Generalizing from *the instruction that induces a bug* to *the bug* is the
+error worth naming here. Absence of the boot contract was read as immunity
+from the failure the boot contract happens to encourage.
+
 ## v0.85.0 — a hang must describe itself, and must not outlive its own timeout
 
 Bench run 12's case 04 died on `pytest -q` exceeding 300s. v0.83.0 turned

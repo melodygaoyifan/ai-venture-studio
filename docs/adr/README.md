@@ -18,7 +18,7 @@ decision wins and must be recorded. These files are that record.
 | [033](033-withdraw-weekly-attention-axis.md) | The weekly maintenance-hours kill axis is withdrawn; no scheduled loop asks a human for a number, and a non-zero exit is now always a failure | PRD outcome O-L1 and its kill criterion (v0.50.0–v0.80.0), and the alert path's `attention` exemption |
 | [034](034-the-bench-is-a-watched-loop.md) | The product-bench series becomes a third cadence loop with a per-loop timeout, and leaves cron for launchd | "the series is already collected weekly" — a claim about a scheduler nobody watched |
 | [035](035-an-unmeasured-case-is-not-a-zero.md) | A rate averages only over cases that produced its denominator, the denominator travels into the series and the alert, and a run that could not measure a case exits 3 | averaging a crashed case in as `0.0`; the probe frame's discarded 4xx body; and part of `2bb4808`'s reasoning |
-| [036](036-a-hang-must-describe-itself.md) | A timeout carries what the process printed, kills the whole process group, and keeps the crashed case's workspace; a module that serves on import is rejected from a parse | nothing — it answers ADR-035's open bullet |
+| [036](036-a-hang-must-describe-itself.md) | A timeout carries what the process printed, kills the whole process group, and keeps the crashed case's workspace; a module that blocks on import is rejected from a parse, in every profile (scope corrected in v0.86.0) | nothing — it answers ADR-035's open bullet |
 
 ## Format
 

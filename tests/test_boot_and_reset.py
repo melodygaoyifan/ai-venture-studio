@@ -89,6 +89,39 @@ def test_the_import_gate_does_not_flag_ordinary_module_level_calls(tmp_path):
     assert _blocks_on_import(tmp_path) is None
 
 
+def test_a_non_web_product_that_blocks_on_import_is_rejected_too(tmp_path):
+    """v0.85.0 ran this gate only for web/enterprise-web, reasoning that only
+    they carry the boot contract. But the contract is what makes a web product
+    PRONE to the shape, not what makes the hang possible: `data` is "Python +
+    the team's existing warehouse/orchestrator", and a module-level
+    `run_forever()` there hangs its suite identically. `_BLOCKING_SERVE` could
+    already name that call while the gate never ran over it."""
+    (tmp_path / "pipeline.py").write_text(
+        "import scheduler\nsched = scheduler.Scheduler()\nsched.run_forever()\n"
+    )
+    failure = _blocks_on_import(tmp_path, "data")
+    assert failure is not None and "IMPORT GATE" in failure
+    assert "line 3" in failure
+
+
+def test_a_non_web_product_is_not_told_to_add_uvicorn(tmp_path):
+    """The fix sentence is the only thing the profile picks. Telling a data
+    pipeline to append `uvicorn.run(app)` would be advice that cannot apply,
+    and feedback the model cannot act on is feedback that loops."""
+    (tmp_path / "pipeline.py").write_text("import x\nx.mainloop()\n")
+    failure = _blocks_on_import(tmp_path, "data")
+    assert failure is not None
+    # "PORT" alone is a substring of "IMPORT GATE" — match the contract's
+    # own phrase, not a fragment that the heading happens to contain.
+    assert "uvicorn" not in failure and "PORT env var" not in failure
+    assert "__main__" in failure  # still teaches the fix
+
+    (tmp_path / "pipeline.py").unlink()
+    (tmp_path / "main.py").write_text("import uvicorn\napp = object()\nuvicorn.run(app)\n")
+    web = _blocks_on_import(tmp_path, "web")
+    assert web is not None and "uvicorn" in web  # web keeps the boot-contract hint
+
+
 def test_boot_gate_leaves_no_worker_serving_behind_it(tmp_path):
     """The gate boots a process TREE — uvicorn reloaders and worker pools
     fork. Killing the parent alone hands the test run that follows a live
