@@ -35,6 +35,19 @@ from ai_venture_studio.state import CLEAN_VERDICT_VALUES, Severity, Verdict
 #: thresholds that must match. The test that pins them apart is
 #: `test_a_fix_is_not_rolled_back_for_the_severity_that_prompted_it`.
 ROLLBACK_SEVERITIES = frozenset({Severity.CRITICAL, Severity.HIGH})
+
+#: How many findings one repair pass is asked to fix, and how many files it may
+#: be shown. Bounded because the fix prompt has to fit in one completion — but
+#: the bound is now NAMED and its overflow is REPORTED, because silently
+#: dropping the 9th finding is the difference between "the fix wasn't good
+#: enough" and "the task could never clear". Run 13 hit exactly that: nine
+#: copies of one issue, eight repaired, the ninth surviving by construction and
+#: rejecting the re-review no matter what the fix did. The leader now folds
+#: repeats of one issue into one finding, so reaching this cap means nine
+#: genuinely different issues — worth saying out loud in the row.
+MAX_REPAIR_FINDINGS = 8
+MAX_REPAIR_FILES = 12
+
 from ai_venture_studio.providers import get_provider
 from ai_venture_studio.upstream import progress
 from ai_venture_studio.upstream.discover import approve_brief, run_discovery
@@ -88,6 +101,11 @@ class TaskOutcome(BaseModel):
     iterations: int = 0
     files_written: list[str] = Field(default_factory=list)
     test_summary: str = ""
+    #: Blocking findings per voter on the FINAL review — `{"security": 2}`.
+    #: A rejection rate says how often the review said no; this says who said
+    #: it, which is the difference between tightening the code and fixing a
+    #: miscalibrated reviewer. Empty on a clean verdict and on older records.
+    blocking_by_voter: dict[str, int] = Field(default_factory=dict)
 
 
 class AutopilotResult(BaseModel):
@@ -652,8 +670,9 @@ def _attempt_task(
     )
     verdict = None
     detail = built.detail
+    by_voter: dict[str, int] = {}
     if built.status == "built":
-        verdict, detail, approvals = review_and_repair(
+        verdict, detail, approvals, by_voter = review_and_repair(
             root, provider=provider, model=model, label=spec.slug,
             task_id=task.id, detail=detail,
         )
@@ -664,6 +683,7 @@ def _attempt_task(
         iterations=built.iterations,
         files_written=built.files_written,
         test_summary=built.test_summary,
+        blocking_by_voter=by_voter,
     )
 
 
@@ -1035,7 +1055,7 @@ def review_and_repair(
     label: str,
     task_id: str = "",
     detail: str = "",
-) -> tuple[str | None, str, list[str]]:
+) -> tuple[str | None, str, list[str], dict[str, int]]:
     """Gate 3 for one just-built module: review, one bounded repair pass on
     critical/high findings, re-review, roll back if it did not clear.
 
@@ -1046,7 +1066,7 @@ def review_and_repair(
     empty verdict in the report while the modules built by `create` beside
     them carried a real one. A retry is not a lesser build.
 
-    Returns (verdict, detail, auto-approval lines).
+    Returns (verdict, detail, auto-approval lines, blocking findings by voter).
     """
     approvals: list[str] = []
     if task_id:
@@ -1093,6 +1113,26 @@ def review_and_repair(
                 "(a fix was attempted and rolled back — it did not clear "
                 "the review)"
             )
+        # SAY WHAT THE CAPS DROPPED. A repair pass shown 8 of 11 findings
+        # cannot clear a re-review that checks all 11, and until now that read
+        # in the row as an ordinary rejection. A bound nobody can see is
+        # indistinguishable from a fix that wasn't good enough.
+        _repairing, _sites, omitted_sites = _repair_scope(serious)
+        capped = []
+        if len(serious) > MAX_REPAIR_FINDINGS:
+            capped.append(
+                f"{MAX_REPAIR_FINDINGS} of {len(serious)} findings — "
+                f"{len(serious) - MAX_REPAIR_FINDINGS} were never shown to it"
+            )
+        if omitted_sites:
+            capped.append(
+                f"{len(omitted_sites)} file(s) a finding names were not "
+                "shown either"
+            )
+        if capped:
+            detail = (detail + " " if detail else "") + (
+                "(repair pass saw " + "; ".join(capped) + ")"
+            )
     # A non-clean verdict must say what made it non-clean. It did not: `detail`
     # was written ONLY when a fix iteration ran, so every medium-only rejection
     # reached the scoreboard as REQUEST_CHANGES with an empty reason — 11 of
@@ -1104,7 +1144,27 @@ def review_and_repair(
         why = _findings_summary(final_review.findings if final_review else [])
         if why:
             detail = (detail + " " if detail else "") + why
-    return verdict, detail, approvals
+    return verdict, detail, approvals, _blocking_by_voter(final_review)
+
+
+def _blocking_by_voter(review) -> dict[str, int]:
+    """WHICH REVIEWER IS REJECTING THE WORK, recorded per task.
+
+    Run 13's rejections were diagnosable only by hand-reading preserved
+    review YAML — and the answer, once read, was that one deterministic
+    tool raised 60% of every blocking finding in the run. A scoreboard that
+    reports a rejection rate without saying who rejected cannot tell a
+    strict reviewer from a miscalibrated one, which is the same shape as
+    ADR-036: two very different failures with byte-identical records.
+    """
+    import collections
+
+    counts = collections.Counter(
+        f.voter
+        for f in (review.findings if review else [])
+        if f.severity in ACTIONABLE_SEVERITIES
+    )
+    return dict(counts.most_common())
 
 
 def _findings_summary(findings, limit: int = 3, width: int = 240) -> str:
@@ -1155,6 +1215,23 @@ def _review_head(root: Path, provider: str):
     return review
 
 
+def _repair_scope(findings) -> tuple[list, list[str], list[str]]:
+    """What one repair pass can be shown: `(findings, file sites, omitted)`.
+
+    ONE definition of the bound, read twice — by the pass that applies it and
+    by the row that has to report it. Computing it in both places is how the
+    first bound came to be an unnamed `[:8]` sitting in two expressions with
+    nothing saying it had dropped anything.
+    """
+    repairing = list(findings[:MAX_REPAIR_FINDINGS])
+    wanted: list[str] = []
+    for f in repairing:
+        for rel in [f.file_path, *(getattr(f, "also_in", None) or [])]:
+            if rel not in wanted:
+                wanted.append(rel)
+    return repairing, wanted[:MAX_REPAIR_FILES], wanted[MAX_REPAIR_FILES:]
+
+
 def _fix_iteration(root: Path, provider: str, model: str, findings):
     """One bounded repair pass: findings → implementer → suite must pass
     → commit → RE-REVIEW, rolled back if it made things worse.
@@ -1169,19 +1246,27 @@ def _fix_iteration(root: Path, provider: str, model: str, findings):
     from ai_venture_studio.upstream.build import IMPLEMENTER_MARKER  # noqa: F401
     from ai_venture_studio.upstream.build import _write_files
 
+    repairing, sites, _omitted = _repair_scope(findings)
     listing = yaml.safe_dump(
         [
             {"file": f.file_path, "line": f.line_start, "severity": f.severity.value,
-             "title": f.title, "explanation": f.explanation[:300]}
-            for f in findings[:8]
+             "title": f.title, "explanation": f.explanation[:300],
+             # A folded finding carries its other sites. Without them the fix
+             # pass would repair the one file the leader kept and leave the
+             # other eight — and the re-review would raise the same issue again
+             # at the sites nobody was shown.
+             **({"also_in": list(f.also_in)} if getattr(f, "also_in", None) else {}),
+             **({"occurrences": f.occurrences}
+                if getattr(f, "occurrences", 1) > 1 else {})}
+            for f in repairing
         ],
         sort_keys=False, allow_unicode=True,
     )
     sources = {}
-    for f in findings[:8]:
-        path = root / f.file_path
-        if path.is_file() and f.file_path not in sources:
-            sources[f.file_path] = path.read_text(encoding="utf-8", errors="replace")
+    for rel in sites:
+        path = root / rel
+        if path.is_file():
+            sources[rel] = path.read_text(encoding="utf-8", errors="replace")
     file_blocks = "\n\n".join(
         f"<file path=\"{p}\">\n{t}\n</file>" for p, t in sources.items()
     )

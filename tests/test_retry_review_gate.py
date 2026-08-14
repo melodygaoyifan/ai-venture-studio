@@ -65,7 +65,7 @@ def test_retry_task_runs_the_review_gate_and_records_its_verdict(
 
     def _spy(root_arg, *, provider, model, label, task_id="", detail=""):
         calls.append({"label": label, "provider": provider})
-        return "APPROVE_WITH_NOTES", detail, ["fix iteration (spy): none needed"]
+        return "APPROVE_WITH_NOTES", detail, ["fix iteration (spy): none needed"], {}
 
     monkeypatch.setattr(autopilot_mod, "review_and_repair", _spy)
 

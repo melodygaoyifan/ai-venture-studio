@@ -179,3 +179,60 @@ def test_asserting_beyond_the_ledger_fails():
 
     fine = "A named cheapest test (a stub behind a click counter)."
     assert check_platform_claims(fine, ledger) == []  # term of art, exempt
+
+
+# --- ADR-039: one comparative vocabulary, and a `#1` that can actually match --
+
+
+def test_the_hash_one_claim_is_not_a_dead_alternative():
+    """`#1` sat in BOTH claim gates and could never match in EITHER.
+
+    It was written `\\b#1\\b`, and `\\b` needs a word/non-word transition — a
+    space and a `#` are both non-word, so the boundary never held. The most
+    quotable superlative in marketing was the one neither gate could see.
+    """
+    from ai_venture_studio.marketing.substantiation import _SUPERLATIVE as marketing
+    from ai_venture_studio.product.platform_claims import _SUPERLATIVE as platform
+
+    for gate in (platform, marketing):
+        assert gate.search("the #1 platform for founders")
+        assert gate.search("#1 by build rate")
+        # A link to issue #10 is not a ranking claim.
+        assert not gate.search("fixed in issue #10")
+        assert not gate.search("see PR #123")
+
+
+def test_both_claim_gates_share_one_comparative_vocabulary():
+    """They were two hand-maintained lists and had already drifted: `slowest`
+    and "the only tool that…" were caught in founder copy and waved through
+    in the README, for no recorded reason."""
+    from ai_venture_studio.marketing.substantiation import _SUPERLATIVE as marketing
+    from ai_venture_studio.product.platform_claims import _SUPERLATIVE as platform
+
+    for phrase in (
+        "the fastest reviewer on the market",
+        "the slowest build in the industry",
+        "the only tool that ships product",
+        "the worst latency of any platform",
+        "best-in-class agents",
+        "a leading platform",
+        "SOTA on every benchmark",
+    ):
+        assert platform.search(phrase), f"platform gate misses {phrase!r}"
+        assert marketing.search(phrase), f"marketing gate misses {phrase!r}"
+
+
+def test_the_carve_outs_are_the_documented_three():
+    """Each exemption is an ordering over our OWN data, not a claim about a
+    competitor. A fourth one appearing without that justification is how a
+    gate stops meaning anything."""
+    from ai_venture_studio.marketing.substantiation import _SUPERLATIVE as marketing
+    from ai_venture_studio.product.platform_claims import _SUPERLATIVE as platform
+
+    assert not platform.search("run the cheapest test first")  # §20.54.3
+    assert not platform.search("retried at most once per task")
+    for gate in (platform, marketing):
+        assert not gate.search("whose worst finding was medium")
+        assert not gate.search("worst case is an eight-hour timeout")
+        # The carve-outs are narrow: the ranking sense still fails.
+        assert gate.search("the worst tool you can buy")

@@ -135,14 +135,25 @@ def test_external_tools_skip_when_missing(monkeypatch):
         assert "not installed" in report.detail
 
 
-def test_bandit_b310_skipped_on_test_files(monkeypatch, tmp_path):
-    """B310 (urllib.urlopen audit) on a test file flags the suite's own
-    localhost client — run 11: 30 of 44 review findings were this one
-    check. Production files keep the full audit; other MEDIUM findings
-    on test files still report."""
+def test_a_static_analysis_hit_on_a_test_file_is_a_note_not_a_blocker(
+    monkeypatch, tmp_path
+):
+    """ADR-039. This was a per-test_id patch and the class kept recurring.
+
+    B310 (urllib audit) on a test file flags the suite's own localhost
+    client — 30 of 44 review findings in bench run 11 — so B310 was skipped
+    by name. Then B306 (`tempfile.mktemp` in a fixture) did exactly the same
+    thing in run 13, 9 of the 15 blocking findings, through the door the
+    named patch left open. The rule is now the class: analyzer findings on
+    test scaffolding report at LOW (visible, never blocking); production
+    paths keep the full audit; credential checks keep full severity
+    everywhere, because a hardcoded password in a fixture is a real leak.
+    """
     import json as _json
     import shutil as _shutil
 
+    from ai_venture_studio.leader import ACTIONABLE_SEVERITIES
+    from ai_venture_studio.state import Severity
     from ai_venture_studio.tools import external
 
     (tmp_path / "tests").mkdir()
@@ -160,14 +171,30 @@ def test_bandit_b310_skipped_on_test_files(monkeypatch, tmp_path):
         {"filename": "app/client.py", "line_number": 1, "test_id": "B310",
          "test_name": "blacklist", "issue_severity": "MEDIUM",
          "issue_text": "urlopen audit", "code": "urllib.request.urlopen(u)"},
-        {"filename": "tests/test_x.py", "line_number": 1, "test_id": "B608",
-         "test_name": "hardcoded_sql", "issue_severity": "MEDIUM",
-         "issue_text": "sql", "code": "q"},
+        # The check that recurred under a NEW id after B310 was named.
+        {"filename": "tests/test_x.py", "line_number": 1, "test_id": "B306",
+         "test_name": "blacklist", "issue_severity": "MEDIUM",
+         "issue_text": "mktemp", "code": "tempfile.mktemp()"},
+        {"filename": "tests/test_x.py", "line_number": 1, "test_id": "B105",
+         "test_name": "hardcoded_password_string", "issue_severity": "MEDIUM",
+         "issue_text": "password", "code": "PW = 'hunter2'"},
     ]}
     monkeypatch.setattr(_shutil, "which", lambda name: "/usr/bin/" + name)
     monkeypatch.setattr(external, "_run_json", lambda cmd, cwd: (_json.dumps(results), ""))
     report = external.bandit(diff, str(tmp_path))
-    flagged = {(f.file_path, f.title.split(":")[0]) for f in report.findings}
-    assert ("app/client.py", "B310") in flagged      # production keeps the audit
-    assert ("tests/test_x.py", "B608") in flagged    # other MEDIUMs on tests stay
-    assert ("tests/test_x.py", "B310") not in flagged
+    by_id = {(f.file_path, f.title.split(":")[0]): f for f in report.findings}
+
+    # Reported, not dropped — a real issue in a fixture stays visible.
+    assert ("tests/test_x.py", "B310") in by_id
+    assert ("tests/test_x.py", "B306") in by_id
+    for test_id in ("B310", "B306"):
+        assert by_id[("tests/test_x.py", test_id)].severity is Severity.LOW
+        assert (
+            by_id[("tests/test_x.py", test_id)].severity
+            not in ACTIONABLE_SEVERITIES
+        ), f"{test_id} on a test file can still block a verdict"
+
+    # Production code keeps the full audit at full severity.
+    assert by_id[("app/client.py", "B310")].severity is Severity.MEDIUM
+    # Credentials are the one class where "it's only a test" is no defence.
+    assert by_id[("tests/test_x.py", "B105")].severity is Severity.MEDIUM

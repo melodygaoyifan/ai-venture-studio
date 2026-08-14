@@ -383,7 +383,13 @@ def run_case(
                  "review": o.review_verdict,
                  "detail": _row_detail(o.status, o.review_verdict, o.detail),
                  **({"test_summary": o.test_summary} if o.test_summary else {}),
-                 **({"iterations": o.iterations} if o.iterations else {})}
+                 **({"iterations": o.iterations} if o.iterations else {}),
+                 # WHO rejected, not just how often. Diagnosing run 13's
+                 # clean-review rate meant hand-reading preserved review YAML
+                 # to discover that one deterministic tool raised 60% of every
+                 # blocking finding; the row now carries that on its own.
+                 **({"blocking_by_voter": o.blocking_by_voter}
+                    if getattr(o, "blocking_by_voter", None) else {})}
                 for o in result.outcomes
             ],
             preserved_workspace=preserved,

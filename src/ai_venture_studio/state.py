@@ -98,6 +98,17 @@ class VoterFinding(BaseModel):
     score: int | None = Field(
         default=None, ge=0, le=100, description="Composite confidence score (§09.4.7)"
     )
+    #: How many sites this one ISSUE was raised at, after the leader folds
+    #: repeats of the same (voter, title) across files. One line of test
+    #: boilerplate copied into nine files produced nine separate blocking
+    #: findings in run 13 — one issue that outvoted every real one, and
+    #: outnumbered the repair pass's own 8-finding cap so the task could
+    #: never clear. Defaults keep older serialized reviews readable.
+    occurrences: int = Field(default=1, ge=1)
+    #: The other files the same issue was found in (`file_path` is the first).
+    #: Carried so a folded finding loses no repair target: the fix pass is
+    #: shown every site, not just the one that survived the fold.
+    also_in: list[str] = Field(default_factory=list)
 
 
 class VoterOutput(BaseModel):

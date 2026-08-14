@@ -18,17 +18,17 @@ import re
 from pydantic import BaseModel
 
 from ai_venture_studio.marketing.register import RegisteredClaim, ReleaseContract
+from ai_venture_studio.superlatives import compile_gate
 
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n{2,}")
 _NUMBER = re.compile(r"\d+(?:,\d{3})*(?:\.\d+)?")
 _QUANT = re.compile(
     r"(\d+(?:\.\d+)?\s*%|\$\s?\d|\b\d+(?:\.\d+)?\s*(?:x|×)\b|\b\d[\d,]*\b)"
 )
-_SUPERLATIVE = re.compile(
-    r"\b(fastest|slowest|best|cheapest|most \w+|only (?:tool|platform|product|system)|"
-    r"#1|number one|leading|unmatched|unrivalled|unrivaled)\b",
-    re.I,
-)
+# Shared with the platform gate (ADR-039), which had drifted from this list.
+# `most \w+` stays marketing-only: founder copy has no reason to say "at most
+# once", and the README does.
+_SUPERLATIVE = compile_gate(("cheapest", r"most \w+"))
 _CAPABILITY = re.compile(
     r"\b(exports?|imports?|supports?|handles?|processes|integrates?|delivers?|"
     r"generates?|builds?|reviews?|saves?|reduces?|increases?|automates?|scales?)\b",

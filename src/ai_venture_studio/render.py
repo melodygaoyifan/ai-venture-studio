@@ -43,8 +43,16 @@ def render_pr_comment(
         for f in result.findings:
             icon = _SEVERITY_ICON.get(f.severity.value, "")
             score = str(f.score) if f.score is not None else "—"
+            # A folded finding shows its scale. The leader now reports one
+            # issue once however many files it appears in (ADR-039), and a
+            # location cell naming a single file would read as a one-line
+            # problem when it is a nine-file one.
+            also = len(getattr(f, "also_in", None) or [])
+            where = f"`{f.file_path}:{f.line_start}`" + (
+                f" +{also} more file(s)" if also else ""
+            )
             lines.append(
-                f"| {icon} {f.severity.value} | `{f.file_path}:{f.line_start}` "
+                f"| {icon} {f.severity.value} | {where} "
                 f"| {f.title} | {f.voter} | {score} |"
             )
         lines.append("")

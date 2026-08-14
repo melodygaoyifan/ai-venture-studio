@@ -17,17 +17,19 @@ import re
 from pydantic import BaseModel
 
 from ai_venture_studio.product.claims import SOURCE_TYPES
+from ai_venture_studio.superlatives import compile_gate
 
 _URL = re.compile(r"https?://\S+|\]\([^)]*\)")
 _PERCENT = re.compile(r"(\d+(?:\.\d+)?)%")
 _N_EQUALS = re.compile(r"n=(\d+)")
 _CI = re.compile(r"CI \[?([0-9., –-]+)\]?")
-# "cheapest test" is the framework's own term of art (§20.54.3), not a
-# comparative marketing claim — the lookahead exempts exactly that.
-_SUPERLATIVE = re.compile(
-    r"\b(fastest|best|cheapest(?!\s+test)|most accurate|#1|number one|leading|"
-    r"unmatched|state.of.the.art|SOTA|unrivalled|unrivaled)\b",
-    re.I,
+# The vocabulary is shared with the marketing gate (ADR-039) — the two lists
+# were maintained by hand and had drifted. Both carve-outs below are
+# documented in `superlatives`: "cheapest test" is the framework's own term of
+# art (§20.54.3), and the specific comparatives are listed instead of a broad
+# `most \w+` because the README legitimately says "at most once".
+_SUPERLATIVE = compile_gate(
+    (r"cheapest(?!\s+test)", "most accurate", "most reliable", "most complete")
 )
 _COUNT = re.compile(r"\b(\d{2,})\s+(?:hermetic tests|labeled cases|tests\b|fixtures\b)")
 

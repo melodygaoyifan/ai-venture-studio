@@ -21,6 +21,18 @@ _SEVERITY_MAP = {
     "HIGH": "high", "MEDIUM": "medium", "LOW": "low",          # bandit
 }
 
+#: The only bandit checks that keep full severity inside a test file: credential
+#: material. A hardcoded password in a fixture is a real leak whichever file it
+#: sits in, and it is the one class where "it's only a test" is not a defence.
+#: Everything else about test scaffolding is a note (see `bandit()` below).
+_TEST_FILE_BLOCKING_IDS = frozenset(
+    {
+        "B105",  # hardcoded_password_string
+        "B106",  # hardcoded_password_funcarg
+        "B107",  # hardcoded_password_default
+    }
+)
+
 
 def _added_lines(diff: ParsedDiff) -> dict[str, set[int]]:
     return {f.path: {lineno for lineno, _ in f.added} for f in diff.files}
@@ -106,17 +118,29 @@ def bandit(diff: ParsedDiff, repo_dir: str) -> ToolReport:
         # self-review caught the earlier LOW+MEDIUM version as too broad).
         if _is_test_file(path) and result["issue_severity"] == "LOW":
             continue
-        if _is_test_file(path) and result["test_id"] == "B310":
-            # B310 (urllib.urlopen audit) is MEDIUM, but on a test file it
-            # flags the suite's own localhost client — run 11: 30 of 44
-            # review findings were this one check, pinning clean reviews
-            # near 40%. Production code keeps the full audit.
-            continue
+        severity = _SEVERITY_MAP.get(result["issue_severity"], "medium")
+        if _is_test_file(path) and result["test_id"] not in _TEST_FILE_BLOCKING_IDS:
+            # A STATIC-ANALYSIS HIT IN A TEST FILE IS A NOTE, NOT A BLOCKER.
+            # This was a per-test_id patch and the class kept recurring: B310
+            # (urllib audit flagging the suite's own localhost client) was 30
+            # of 44 review findings in run 11 and pinned clean reviews near
+            # 40%, so B310 was skipped by name — and then B306
+            # (`tempfile.mktemp` in a fixture) did exactly the same thing in
+            # run 13, 9 of the 15 blocking findings, through the door the
+            # named patch left open. Naming the next ID after each run is not
+            # a fix; the class is "the analyzer is judging test scaffolding
+            # against production rules".
+            #
+            # Downgraded rather than dropped: it still reports, so a real
+            # issue in a fixture stays visible — it just cannot block a
+            # verdict about product code. Production paths keep the full
+            # audit at full severity.
+            severity = "low"
         findings.append(
             tool_finding(
                 "bandit",
                 title=f"{result['test_id']}: {result['test_name']}",
-                severity=_SEVERITY_MAP.get(result["issue_severity"], "medium"),
+                severity=severity,
                 file_path=path,
                 line=line,
                 evidence=result.get("code", "").strip()[:200],

@@ -4,6 +4,49 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.89.0 — one issue is one finding
+
+Run 13's preserved review artifacts, read directly instead of reasoned about:
+**9 of the 15 blocking findings examined were one bandit check.** The build
+stage copied `tempfile.mktemp(suffix=".db")` into nine test files, bandit
+raised B306 at each, and the leader kept all nine. ADR-037 and ADR-038 fixed
+instances of "one concept, two definitions"; this fixes the class that
+produced the number both were about.
+
+- **The leader folds repeats of one issue.** Its dedupe key was
+  `(file_path, line_start, title)` — keyed on *location* — so the same issue
+  at a different path was never a duplicate. Repeats of the same
+  `(voter, title)` now collapse into one finding carrying `occurrences` and
+  `also_in`, keeping the worst severity any site was raised at.
+- **The unclearable case is closed.** The repair pass is capped at 8
+  findings, so nine copies meant eight repaired, the ninth surviving *by
+  construction*, and the re-review rejecting again — no matter how good the
+  fix was. The fold brings the count under the cap, and the fix prompt is
+  shown every site in `also_in` so it cannot repair one file and leave eight.
+- **A bound that drops work says so.** `MAX_REPAIR_FINDINGS` /
+  `MAX_REPAIR_FILES` replace an unnamed literal that appeared twice, and an
+  over-cap run records `repair pass saw 8 of 11 findings — 3 were never shown
+  to it`. A bound nobody can see reads exactly like a fix that was not good
+  enough.
+- **A static-analysis hit on a test file is a note, not a blocker.** This had
+  already happened once: B310 was 30 of 44 findings in run 11 and was skipped
+  *by name*, and B306 walked through the same door two runs later. Analyzer
+  findings on test scaffolding now report at `low` — visible, never blocking.
+  Production paths keep the full audit; credential checks (B105/B106/B107)
+  keep full severity everywhere.
+- **A rejection names its author.** `TaskOutcome.blocking_by_voter` records
+  blocking findings per voter and rides into the bench result file. Diagnosing
+  run 13 meant hand-reading preserved YAML to learn that one deterministic
+  tool raised 60% of the blocking findings; the row now carries it.
+- **One comparative vocabulary for both claim gates.** The platform and
+  marketing gates kept two hand-maintained superlative lists that had already
+  drifted, and `#1` was in **both** and could never match in **either** —
+  `\b#1\b`, where `\b` needs a word/non-word transition that a space and a
+  `#` cannot provide. New `ai_venture_studio.superlatives` module, three
+  documented carve-outs, and a `#1` boundary that holds.
+
+See `docs/adr/039-one-issue-is-one-finding.md`.
+
 ## v0.88.0 — the thresholds that must differ, and the one word "clean"
 
 A pre-run audit of ADR-037's *shape* — one concept defined in two places —

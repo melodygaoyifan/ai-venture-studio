@@ -1421,7 +1421,7 @@ def retry_task(
     verdict = None
     if result.status == "built":
         console.print("[dim]checking the code that was written[/dim]")
-        verdict, extra_detail, approvals = review_and_repair(
+        verdict, extra_detail, approvals, _by_voter = review_and_repair(
             Path(repo_dir).resolve(), provider=provider,
             model="claude-opus-4-8" if provider != "mock" else "mock",
             label=spec.slug, detail=result.detail,

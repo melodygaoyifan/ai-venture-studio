@@ -68,10 +68,10 @@ def _run(monkeypatch, tmp_path, review, after=None, landed=False):
         return landed, after
 
     monkeypatch.setattr(autopilot, "_fix_iteration", _fake_fix)
-    verdict, detail, approvals = autopilot.review_and_repair(
+    verdict, detail, approvals, by_voter = autopilot.review_and_repair(
         tmp_path, provider="mock", model="m", label="task-1",
     )
-    return verdict, detail, calls
+    return verdict, detail, calls, by_voter
 
 
 @pytest.mark.parametrize("severity", sorted(ACTIONABLE_SEVERITIES, key=str))
@@ -88,7 +88,7 @@ def test_every_severity_that_blocks_a_verdict_is_one_the_repair_pass_attempts(
         f"{severity} is in ACTIONABLE_SEVERITIES but does not block — "
         "the set no longer means what the repair pass reads it as"
     )
-    _, _, calls = _run(
+    _, _, calls, _bv = _run(
         monkeypatch, tmp_path, _review("REQUEST_CHANGES", [_finding(severity)])
     )
     assert calls, f"{severity} blocks the verdict but no repair was attempted"
@@ -98,7 +98,7 @@ def test_every_severity_that_blocks_a_verdict_is_one_the_repair_pass_attempts(
 def test_a_medium_only_rejection_gets_a_repair_attempt(monkeypatch, tmp_path):
     """The exact run-14 shape: nothing critical or high, and previously no
     fix ever ran."""
-    _, _, calls = _run(
+    _, _, calls, _bv = _run(
         monkeypatch, tmp_path,
         _review("REQUEST_CHANGES", [_finding(Severity.MEDIUM)]),
     )
@@ -108,7 +108,7 @@ def test_a_medium_only_rejection_gets_a_repair_attempt(monkeypatch, tmp_path):
 def test_a_rejection_records_what_it_objected_to(monkeypatch, tmp_path):
     """An empty reason beside a REQUEST_CHANGES is the evidence-deletion bug
     one stage over from ADR-036."""
-    _, detail, _ = _run(
+    _, detail, _c, _bv = _run(
         monkeypatch, tmp_path,
         _review("REQUEST_CHANGES", [
             _finding(Severity.MEDIUM, "missing WHERE clause"),
@@ -122,7 +122,7 @@ def test_a_rejection_records_what_it_objected_to(monkeypatch, tmp_path):
 def test_a_clean_verdict_does_not_carry_a_findings_dump(monkeypatch, tmp_path):
     """APPROVE_WITH_NOTES is clean; its low-severity notes must not turn the
     scoreboard row into a review transcript."""
-    _, detail, calls = _run(
+    _, detail, calls, _bv = _run(
         monkeypatch, tmp_path,
         _review("APPROVE_WITH_NOTES", [_finding(Severity.LOW, "naming nit")]),
     )
@@ -137,7 +137,7 @@ def test_the_reason_describes_the_review_that_produced_the_verdict(
     reasons must too — otherwise the row names findings just repaired."""
     before = _review("REQUEST_CHANGES", [_finding(Severity.HIGH, "sql injection")])
     after = _review("REQUEST_CHANGES", [_finding(Severity.MEDIUM, "still unbounded")])
-    _, detail, calls = _run(monkeypatch, tmp_path, before, after=after, landed=True)
+    _, detail, calls, _bv = _run(monkeypatch, tmp_path, before, after=after, landed=True)
     assert calls, "a high finding must still be repaired"
     assert "still unbounded" in detail
     assert "sql injection" not in detail, "reported a finding that was fixed"

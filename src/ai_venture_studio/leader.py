@@ -69,7 +69,18 @@ def synthesize(outputs: list[VoterOutput], policy=None) -> LeaderResult:
     all_findings = [f for o in outputs for f in o.findings]
     kept: list[VoterFinding] = []
     seen: set[tuple[str, int, str]] = set()
+    # ONE ISSUE IS ONE FINDING, however many files it appears in. Exact-key
+    # dedupe is keyed on location, so the same issue at a different path was
+    # never a duplicate: run 13's build stage copied
+    # `tempfile.mktemp(suffix=".db")` into nine test files and bandit raised
+    # B306 nine times. Nine medium findings, one issue, and 60% of every
+    # blocking finding in that run's preserved reviews. It also outnumbered
+    # the repair pass's 8-finding cap, so eight got fixed, the ninth survived
+    # by construction, and the re-review rejected the task again — unclearable
+    # no matter how good the fix was.
+    by_issue: dict[tuple[str, str], VoterFinding] = {}
     dropped = 0
+    folded = 0
     for output in outputs:
         for finding in output.findings:
             if not _keep(finding, all_findings, policy):
@@ -80,6 +91,24 @@ def synthesize(outputs: list[VoterOutput], policy=None) -> LeaderResult:
                 dropped += 1
                 continue
             seen.add(key)
+            issue = (finding.voter, finding.title.lower())
+            first = by_issue.get(issue)
+            if first is not None:
+                # Same issue, another site. Fold it into the first, keeping
+                # the site so the repair pass can still reach it — a folded
+                # finding must lose a row, never a fix target.
+                first.occurrences += 1
+                if finding.file_path not in first.also_in:
+                    first.also_in.append(finding.file_path)
+                # The worst severity any site was raised at wins, so folding
+                # can never soften what blocks.
+                if list(Severity).index(finding.severity) < list(Severity).index(
+                    first.severity
+                ):
+                    first.severity = finding.severity
+                folded += 1
+                continue
+            by_issue[issue] = finding
             kept.append(finding)
 
     kept.sort(key=lambda f: list(Severity).index(f.severity))
@@ -102,7 +131,8 @@ def synthesize(outputs: list[VoterOutput], policy=None) -> LeaderResult:
 
     summary = (
         f"{len(kept)} finding(s) kept, {dropped} dropped by filter/dedupe; "
-        f"{len(blocked)} of {len(outputs)} voter(s) blocked."
+        + (f"{folded} folded into a repeat of the same issue; " if folded else "")
+        + f"{len(blocked)} of {len(outputs)} voter(s) blocked."
     )
     return LeaderResult(
         verdict=verdict,

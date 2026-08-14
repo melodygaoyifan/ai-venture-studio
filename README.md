@@ -195,7 +195,7 @@ is in [claims/platform.yaml](claims/platform.yaml).
 - **Perf-lane calibration**: 5 of 5 seeded defects caught (catch rate 100%)
   at the 3x relative-detection factor, loopback low-parity environment,
   2026-07-26 ([manifest](benchmarks/perf_seeded/calibration.yaml)).
-- **1940 hermetic tests** (`uv run pytest`, no network, no keys); every PR
+- **1955 hermetic tests** (`uv run pytest`, no network, no keys); every PR
   in this repo was reviewed by avs itself, and five of those reviews caught
   real bugs.
 - **A hermetic suite is not enough, and this repo says so.** Twelve real
@@ -407,7 +407,20 @@ regression to hunt, and **75% was never as solid as it read**
 ([ADR-037](docs/adr/037-block-and-repair-are-one-threshold.md)). Four times
 now the harness has been charged to the product, and all four times it was
 first read as a product defect — the fourth one level up again, charged to
-the reviewer rather than the code it was reviewing. Run 15, the first run
+the reviewer rather than the code it was reviewing. Reading run 13's
+preserved review artifacts rather than reasoning about them turned up the
+rest: the build stage had copied one line of test boilerplate into nine
+files, a static analyzer raised the same finding at each, and the leader —
+whose dedupe key was keyed on *location* — kept all nine. One issue, nine
+blocking findings, and more of them than the repair pass's own cap, so eight
+were fixed, the ninth survived **by construction**, and the re-review
+rejected the task again — unclearable no matter how good the fix was. Two
+runs earlier the same shape had appeared under a different analyzer check
+and been patched by naming that check. Since v0.89.0 one issue is one
+finding however many files it appears in, a bound that drops work says so in
+the row, an analyzer finding on a test file is a note rather than a blocker,
+and a rejection records which voter made it
+([ADR-039](docs/adr/039-one-issue-is-one-finding.md)). Run 15, the first run
 with the thresholds joined, is the number that supersedes both.
 
 ---
