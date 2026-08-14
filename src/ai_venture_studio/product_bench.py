@@ -255,6 +255,24 @@ def run_probe(workspace: Path, probe: Probe) -> ProbeResult:
         Path(probe_path).unlink(missing_ok=True)
 
 
+CLEAN_VERDICTS = ("APPROVE", "APPROVE_WITH_NOTES")
+
+
+def _row_detail(status: str, verdict: str | None, detail: str) -> str:
+    """How much of a task's reason survives into the durable scoreboard row.
+
+    A built-but-REJECTED task is a FAILING row as far as clean_review_rate is
+    concerned, so it keeps its whole reason like any other failure. It used to
+    be clipped to 200 chars along with the clean rows, and since a rejection
+    that needed no repair wrote no reason at all, run 14 recorded 11
+    rejections without one reason between them. Only a genuinely clean row
+    stays terse — there is nothing to explain about an APPROVE.
+    """
+    if status != "built" or verdict not in CLEAN_VERDICTS:
+        return detail
+    return detail[:200]
+
+
 def _preserve_workspace(
     workspace: Path | None, case_name: str, keep_dir: str | Path | None
 ) -> str:
@@ -360,7 +378,7 @@ def run_case(
             outcomes=[
                 {"task_id": o.task_id, "title": o.title, "status": o.status,
                  "review": o.review_verdict,
-                 "detail": o.detail if o.status != "built" else o.detail[:200],
+                 "detail": _row_detail(o.status, o.review_verdict, o.detail),
                  **({"test_summary": o.test_summary} if o.test_summary else {}),
                  **({"iterations": o.iterations} if o.iterations else {})}
                 for o in result.outcomes
@@ -452,6 +470,14 @@ def save_summary(summary: BenchSummary, repo_dir: str | Path) -> Path:
     stamp = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d-%H%M")
     path = out_dir / f"result-{stamp}.yaml"
     payload = summary.model_dump(mode="json")
+    # Which build produced these numbers. Attributing run 14 to a version took
+    # diffing git commit timestamps against the result's filename, and that
+    # only worked because the release happened to land 9 minutes before the
+    # run — a row that cannot name its own build cannot be compared to the row
+    # above it, which is the entire point of a series.
+    from ai_venture_studio import __version__
+
+    payload["avs_version"] = __version__
     payload["rates"] = {
         "build_rate": round(summary.build_rate, 3),
         "probe_pass_rate": round(summary.probe_pass_rate, 3),

@@ -29,7 +29,15 @@ from ai_venture_studio.state import (
     VoterStatus,
 )
 
-_ACTIONABLE_SEVERITIES = {Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM}
+# PUBLIC because the repair pass must select from the SAME set that blocks a
+# verdict. It did not: this was private, `autopilot.review_and_repair` had its
+# own hard-coded ("critical", "high"), and MEDIUM therefore blocked a task
+# forever while no fix was ever attempted on it. Medium is the modal severity
+# the voters raise (89 of ~187 findings across run 13's preserved workspaces,
+# 5x the highs), so the gap was not a corner case — it was most of the
+# unclean rows in bench runs 13 and 14. Import this; never re-list it.
+ACTIONABLE_SEVERITIES = {Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM}
+_ACTIONABLE_SEVERITIES = ACTIONABLE_SEVERITIES  # pre-0.87 name
 
 
 def _keep(finding: VoterFinding, all_findings: list[VoterFinding], policy=None) -> bool:

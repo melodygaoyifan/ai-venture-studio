@@ -19,6 +19,7 @@ decision wins and must be recorded. These files are that record.
 | [034](034-the-bench-is-a-watched-loop.md) | The product-bench series becomes a third cadence loop with a per-loop timeout, and leaves cron for launchd | "the series is already collected weekly" — a claim about a scheduler nobody watched |
 | [035](035-an-unmeasured-case-is-not-a-zero.md) | A rate averages only over cases that produced its denominator, the denominator travels into the series and the alert, and a run that could not measure a case exits 3 | averaging a crashed case in as `0.0`; the probe frame's discarded 4xx body; and part of `2bb4808`'s reasoning |
 | [036](036-a-hang-must-describe-itself.md) | A timeout carries what the process printed, kills the whole process group, and keeps the crashed case's workspace; a module that blocks on import is rejected from a parse, in every profile (scope corrected in v0.86.0) | nothing — it answers ADR-035's open bullet |
+| [037](037-block-and-repair-are-one-threshold.md) | The repair pass filters by the leader's own `ACTIONABLE_SEVERITIES` instead of a second hard-coded list, so MEDIUM can no longer block a verdict that nothing will ever try to fix; every non-clean verdict records what it objected to, and a result file names the build that produced it | nothing — it explains run 14's 38% clean-review rate |
 
 ## Format
 

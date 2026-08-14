@@ -4,6 +4,45 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.87.0 — a severity you block on is a severity you must try to repair
+
+Bench run 14 scored its best build and probe rates ever (100%/100%, against
+run 13's 94%/92%) and its **worst** clean-review rate: 38%, down from 75%.
+Two of four cases scored zero clean reviews across nine tasks, each rejection
+carrying an empty reason.
+
+The reviewer had not become stricter. Two thresholds that must be one number
+were written in two files and had drifted: `leader.synthesize` blocks a
+verdict on `{CRITICAL, HIGH, MEDIUM}`, while `review_and_repair` selected
+findings to repair with its own hard-coded `("critical", "high")`. A task
+whose worst finding was MEDIUM was rejected, **never repaired, and could
+never be cleared** — unclean by construction, not by quality. Medium is the
+modal severity the voters raise (89 of ~187 findings across run 13's
+preserved workspaces, vs 17 high and 2 critical), so this was most of the
+unclean rows: medium-only rejections went 2→7 between runs while repairable
+ones stayed 3→4. Neither release had touched `leader.py` or any voter — the
+defect was constant in both runs and only the exposure varied, so 38% was
+not a regression, and 75% was never as solid as it read.
+
+- **One threshold.** `ACTIONABLE_SEVERITIES` is public in `leader.py` and
+  imported by `review_and_repair`. A parametrized test walks the set itself,
+  asserting each severity both blocks a verdict and triggers a repair
+  attempt — nothing pinned the two together before, which is how they drifted.
+- **Every non-clean verdict says what it objected to**, bounded to 240 chars
+  and built from the review that produced the final verdict, so a post-fix
+  row never names findings that were just repaired. Previously `detail` was
+  written only when a fix iteration ran, so 11 of run 14's 17 outcomes
+  reached the series unexplained — ADR-036's evidence-deletion failure one
+  stage over.
+- **A rejected row keeps its whole reason**; the 200-char clip now applies
+  only to clean rows, where there is nothing to explain.
+- **Result files carry `avs_version`.** Attributing run 14 to a build meant
+  diffing git commit timestamps against the result's filename, which only
+  worked because the release landed 9 minutes before the run.
+
+MINOR, not patch: the repair pass now spends model round-trips it did not
+spend before, and the bench result gains a field.
+
 ## v0.86.0 — the import gate ran for two profiles and should have run for all
 
 v0.85.0 shipped `_blocks_on_import` gated on `web` and `enterprise-web`, on

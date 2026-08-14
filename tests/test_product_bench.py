@@ -200,6 +200,37 @@ def test_the_saved_series_carries_its_own_denominator(monkeypatch, tmp_path):
     assert len(rates["unmeasured"]) == 1
 
 
+def test_a_rejected_task_keeps_its_whole_reason_in_the_row():
+    """The row is the durable record — the workspace it points at is
+    gitignored. A rejection clipped to 200 chars alongside the clean rows is
+    how 11 of run 14's 17 outcomes reached the series unexplained."""
+    from ai_venture_studio.product_bench import _row_detail
+
+    reason = "[review: 3 medium — " + ("unbounded query; " * 30) + "]"
+    assert _row_detail("built", "REQUEST_CHANGES", reason) == reason
+    assert len(_row_detail("built", "APPROVE", reason)) == 200
+    # a failure keeps everything, as it always did
+    assert _row_detail("spec_blocked", None, reason) == reason
+
+
+def test_the_saved_series_names_the_build_that_produced_it(monkeypatch, tmp_path):
+    """Attributing run 14 to a version meant diffing git commit timestamps
+    against the result filename, and that only worked because the release
+    happened to land 9 minutes before the run started. A row that cannot name
+    its own build cannot be compared to the row above it."""
+    from ai_venture_studio import __version__
+
+    pb = _crashing_bench(
+        monkeypatch, tmp_path,
+        [_case("ok", total=1, built=1, clean=1, probes_passed=1, probes_total=1)],
+    )
+    summary = pb.run_product_bench(CASES, limit=1, repo_dir=tmp_path)
+    path = pb.save_summary(summary, tmp_path)
+    import yaml as _yaml
+
+    assert _yaml.safe_load(path.read_text())["avs_version"] == __version__
+
+
 # ---------------------------------------------------------------------------
 # ...and it must reach a person. Run 12 exited 0 with a quarter of the
 # benchmark never run, so `avs cadence --notify` printed "nothing needs a

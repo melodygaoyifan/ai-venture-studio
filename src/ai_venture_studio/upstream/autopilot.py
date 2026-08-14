@@ -20,6 +20,7 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field
 
+from ai_venture_studio.leader import ACTIONABLE_SEVERITIES
 from ai_venture_studio.providers import get_provider
 from ai_venture_studio.upstream import progress
 from ai_venture_studio.upstream.discover import approve_brief, run_discovery
@@ -1027,24 +1028,37 @@ def review_and_repair(
         progress.step(root, task_id, "review", "checking the code that was written")
     review = _review_head(root, provider)
     verdict = review.verdict.value if review else None
-    # Fix loop: critical/high findings get ONE bounded repair iteration —
-    # recorded, re-reviewed, never silent.
+    # Fix loop: ONE bounded repair iteration — recorded, re-reviewed, never
+    # silent. The set is imported from the leader rather than re-listed here,
+    # because this list USED to read ("critical", "high") while the leader
+    # blocked on {CRITICAL, HIGH, MEDIUM}. A medium-only finding therefore
+    # produced REQUEST_CHANGES that no fix was ever attempted on and that no
+    # later attempt could clear — permanently unclean by construction, not by
+    # quality. Bench run 14 scored clean-review 38% with build and probes both
+    # at 100%, and 7 of its 11 rejections were exactly this shape.
+    # Blocking on a severity you will not try to repair is not a strict
+    # reviewer, it is a dead end.
     serious = [
         f for f in (review.findings if review else [])
-        if f.severity.value in ("critical", "high")
+        if f.severity in ACTIONABLE_SEVERITIES
     ]
     if serious and task_id:
         progress.step(
             root, task_id, "fix",
-            f"fixing {len(serious)} serious issue(s) the review found",
+            f"fixing {len(serious)} issue(s) the review found",
         )
+    final_review = review
     if serious:
         landed, after = _fix_iteration(root, provider, model, serious)
         if after:
             verdict = after.verdict.value
+            # The verdict comes from the re-review, so the reasons must too.
+            # Reporting the PRE-fix findings next to a POST-fix verdict would
+            # name issues that were just repaired.
+            final_review = after
         if landed:
             approvals.append(
-                f"fix iteration ({label}): {len(serious)} serious review "
+                f"fix iteration ({label}): {len(serious)} review "
                 "finding(s) repaired; suite re-passed and the re-review "
                 "found nothing serious"
             )
@@ -1054,7 +1068,40 @@ def review_and_repair(
                 "(a fix was attempted and rolled back — it did not clear "
                 "the review)"
             )
+    # A non-clean verdict must say what made it non-clean. It did not: `detail`
+    # was written ONLY when a fix iteration ran, so every medium-only rejection
+    # reached the scoreboard as REQUEST_CHANGES with an empty reason — 11 of
+    # run 14's 17 rows. The run could report that it rejected the work and not
+    # what it objected to, which is ADR-036's evidence-deletion failure one
+    # stage over: a reviewer rejecting everything correctly and one rejecting
+    # everything spuriously produce byte-identical records.
+    if verdict not in ("APPROVE", "APPROVE_WITH_NOTES"):
+        why = _findings_summary(final_review.findings if final_review else [])
+        if why:
+            detail = (detail + " " if detail else "") + why
     return verdict, detail, approvals
+
+
+def _findings_summary(findings, limit: int = 3, width: int = 240) -> str:
+    """`2 medium, 1 high — title; title; title`, bounded.
+
+    Bounded on purpose: this rides in the bench row for every task, and the
+    row is the durable record (the workspace it points at is gitignored).
+    Enough to tell two different rejections apart without turning the
+    scoreboard into a review dump.
+    """
+    if not findings:
+        return ""
+    import collections
+
+    counts = collections.Counter(f.severity.value for f in findings)
+    order = ("critical", "high", "medium", "low", "minor", "info")
+    tally = ", ".join(
+        f"{counts[s]} {s}" for s in order if counts.get(s)
+    )
+    titles = "; ".join(str(f.title) for f in findings[:limit])
+    more = f" (+{len(findings) - limit} more)" if len(findings) > limit else ""
+    return f"[review: {tally} — {titles}{more}]"[:width]
 
 
 def _review_head(root: Path, provider: str):
