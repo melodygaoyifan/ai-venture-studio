@@ -21,6 +21,20 @@ import yaml
 from pydantic import BaseModel, Field
 
 from ai_venture_studio.leader import ACTIONABLE_SEVERITIES
+from ai_venture_studio.state import CLEAN_VERDICT_VALUES, Severity, Verdict
+
+#: What makes a fix WORSE THAN THE CODE IT REPLACED, and so gets it rolled back.
+#: Deliberately NARROWER than `ACTIONABLE_SEVERITIES`, and it must stay that
+#: way: medium is the modal severity a review raises (89 of ~187 findings in
+#: run 13), so a re-review of any real diff almost always still contains one.
+#: Rolling back on medium would discard nearly every fix — turning the repair
+#: pass ADR-037 just enabled back into the no-op ADR-037 exists to remove,
+#: while looking like it ran.
+#:
+#: Two thresholds that must differ, in a codebase whose last ADR was about two
+#: thresholds that must match. The test that pins them apart is
+#: `test_a_fix_is_not_rolled_back_for_the_severity_that_prompted_it`.
+ROLLBACK_SEVERITIES = frozenset({Severity.CRITICAL, Severity.HIGH})
 from ai_venture_studio.providers import get_provider
 from ai_venture_studio.upstream import progress
 from ai_venture_studio.upstream.discover import approve_brief, run_discovery
@@ -520,6 +534,7 @@ _TALLY_TEXT = {
         "built_fmt": "**{built} / {total}** 个模块建成 / modules built.",
         "clean": "已通过检查 / clean",
         "notes": "建好了，检查有意见 / built, review had notes",
+        "changes": "建好了，但检查要求改动 / built, but the review asked for changes",
         "ours": "（这不是你的需求写得不好，是我们这边没过；可以单独重试）"
                 " / not your requirements — ours; retry it on its own",
         "cost_heading": "花了多少 / What this cost",
@@ -529,6 +544,7 @@ _TALLY_TEXT = {
         "built_fmt": "**{built} / {total}** modules built.",
         "clean": "clean",
         "notes": "built, review had notes",
+        "changes": "built, but the review asked for changes",
         "ours": " — not your requirements, ours; you can retry it on its own",
         "cost_heading": "What this cost",
     },
@@ -549,10 +565,19 @@ def _outcome_tally(outcomes, lang: str = "zh") -> str:
     ]
     for outcome in outcomes:
         if outcome.status == "built":
-            note = (
-                words["clean"] if outcome.review_verdict == "APPROVE"
-                else words["notes"]
-            )
+            # Three states, not two. A REQUEST_CHANGES task used to print the
+            # same "review had notes" as an APPROVE_WITH_NOTES one, so the
+            # founder could not tell work the reviewer signed off on from work
+            # it refused to — the two rows read identically. That mattered
+            # little while medium-only rejections were also reasonless; now
+            # that ADR-037 makes them say what they objected to, the tally has
+            # to stop flattening them into the approvals.
+            if outcome.review_verdict == Verdict.APPROVE.value:
+                note = words["clean"]
+            elif outcome.review_verdict in CLEAN_VERDICT_VALUES:
+                note = words["notes"]
+            else:
+                note = words["changes"]
             lines.append(f"- ✅ **{outcome.title}** — {note}")
         else:
             lines.append(
@@ -1075,7 +1100,7 @@ def review_and_repair(
     # what it objected to, which is ADR-036's evidence-deletion failure one
     # stage over: a reviewer rejecting everything correctly and one rejecting
     # everything spuriously produce byte-identical records.
-    if verdict not in ("APPROVE", "APPROVE_WITH_NOTES"):
+    if verdict not in CLEAN_VERDICT_VALUES:
         why = _findings_summary(final_review.findings if final_review else [])
         if why:
             detail = (detail + " " if detail else "") + why
@@ -1221,17 +1246,25 @@ def _fix_iteration(root: Path, provider: str, model: str, findings):
     # Same number of review calls as before; the difference is that this one
     # can say no.
     after = _review_head(root, provider)
-    still_serious = [
-        f for f in (after.findings if after else [])
-        if f.severity.value in ("critical", "high")
-    ]
-    if still_serious:
+    if _should_roll_back(after):
         subprocess.run(
             ["git", "reset", "--hard", before or "HEAD~1"],
             cwd=root, capture_output=True, timeout=60,
         )
         return False, after
     return True, after
+
+
+def _should_roll_back(after) -> bool:
+    """Did the fix leave something bad enough to be worse than not fixing?
+
+    A seam, so the threshold can be tested without driving git and a model.
+    Reads `ROLLBACK_SEVERITIES`, which is narrower than the set that prompted
+    the fix — see the comment on that constant for why it must stay narrower.
+    """
+    return any(
+        f.severity in ROLLBACK_SEVERITIES for f in (after.findings if after else [])
+    )
 
 
 from ai_venture_studio.upstream.plan import PLANNER_MARKER as _PLANNER_MARKER

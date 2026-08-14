@@ -4,6 +4,43 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.88.0 — the thresholds that must differ, and the one word "clean"
+
+A pre-run audit of ADR-037's *shape* — one concept defined in two places —
+before firing bench run 15. Fixing the instance was not fixing the class:
+three more live definitions of "a clean review" were in the tree, and
+ADR-037 had left a trap of its own.
+
+- **`ROLLBACK_SEVERITIES`, named and pinned apart.** `_fix_iteration` still
+  rolled a fix back on the hard-coded `("critical", "high")` ADR-037 deleted
+  one function above. It reads like leftover drift; changing it to match
+  would have been a serious regression. Medium is the modal severity a review
+  raises, so rolling back on medium would discard nearly every fix — turning
+  the repair pass ADR-037 enables back into the no-op it exists to remove,
+  while looking like it ran. Named, commented, and held to a strict subset by
+  test. New `_should_roll_back` seam makes the threshold testable without
+  driving git and a model call.
+- **One definition of "clean."** `state.CLEAN_VERDICTS` lives beside the
+  `Verdict` enum and is derived from it, so a new approval-shaped verdict
+  cannot be added to the taxonomy and silently missed. `product_bench`'s
+  literal, `review_and_repair`'s literal, and the constant added in v0.87.0
+  now all resolve to it.
+- **The founder tally reports three states, not two.** A `REQUEST_CHANGES`
+  task printed the same "built, review had notes" as an `APPROVE_WITH_NOTES`
+  one, so the founder could not tell work the reviewer signed off on from
+  work it refused. Tolerable while those rejections carried no reason;
+  not once v0.87.0 made them say what they objected to.
+- **`BENCH_TIMEOUT_S` 6h → 8h.** Run 14 used 3.1h of the 6h. v0.87.0 sends
+  every medium-only review into a fix iteration plus a re-review, so most
+  tasks now spend two model round-trips they did not before; the margin was
+  sized against runs that never did that.
+- **Deliberately not unified:** `automation.MERGEABLE_VERDICTS`,
+  `review_gate._BLOCKING_SEVERITIES`, and the deploy gate have overlapping
+  members and answer different questions. ADR-038 records the rule — unify
+  definitions of one concept, name and pin definitions of two.
+
+See `docs/adr/038-the-thresholds-that-must-differ.md`.
+
 ## v0.87.0 — a severity you block on is a severity you must try to repair
 
 Bench run 14 scored its best build and probe rates ever (100%/100%, against

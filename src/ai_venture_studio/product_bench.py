@@ -31,6 +31,7 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field
 
+from ai_venture_studio.state import CLEAN_VERDICT_VALUES
 from ai_venture_studio.testing import _as_text
 from ai_venture_studio.testing import _run as _run_killing_the_group
 from ai_venture_studio.upstream import init_workspace
@@ -255,7 +256,9 @@ def run_probe(workspace: Path, probe: Probe) -> ProbeResult:
         Path(probe_path).unlink(missing_ok=True)
 
 
-CLEAN_VERDICTS = ("APPROVE", "APPROVE_WITH_NOTES")
+#: Re-exported under the name this module already used. The definition lives
+#: beside the `Verdict` enum it is derived from — see `state.CLEAN_VERDICTS`.
+CLEAN_VERDICTS = CLEAN_VERDICT_VALUES
 
 
 def _row_detail(status: str, verdict: str | None, detail: str) -> str:
@@ -331,7 +334,7 @@ def run_case(
         built = [o for o in result.outcomes if o.status == "built"]
         clean = [
             o for o in built
-            if o.review_verdict in ("APPROVE", "APPROVE_WITH_NOTES")
+            if o.review_verdict in CLEAN_VERDICTS
         ]
         case_probes = list(case.probes)
         probegen_dry = False

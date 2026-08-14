@@ -170,3 +170,79 @@ def test_the_summary_is_bounded():
 
 def test_no_findings_means_no_note():
     assert autopilot._findings_summary([]) == ""
+
+
+# --- ADR-038: the thresholds that must DIFFER, and the one word "clean" ------
+
+
+def test_a_fix_is_not_rolled_back_for_the_severity_that_prompted_it():
+    """The trap ADR-037 set for the next reader.
+
+    `_fix_iteration` rolls a fix back on ("critical", "high") — the same pair
+    ADR-037 removed one function above, so it now reads like drift left
+    behind. It is not: it must stay narrower. Medium is the modal severity a
+    review raises, so a re-review of any real diff almost always still has
+    one. Rolling back on medium would discard nearly every fix, turning the
+    repair pass ADR-037 enabled back into a no-op that looks like it ran.
+    """
+    assert Severity.MEDIUM in ACTIONABLE_SEVERITIES
+    assert Severity.MEDIUM not in autopilot.ROLLBACK_SEVERITIES
+    assert autopilot.ROLLBACK_SEVERITIES < ACTIONABLE_SEVERITIES, (
+        "the rollback set must stay a strict subset of what prompts a fix"
+    )
+    # The behaviour, not just the sets: a medium-only re-review keeps the fix.
+    assert not autopilot._should_roll_back(
+        _review("REQUEST_CHANGES", [_finding(Severity.MEDIUM)])
+    )
+    assert autopilot._should_roll_back(
+        _review("REQUEST_CHANGES", [_finding(Severity.HIGH)])
+    )
+    assert not autopilot._should_roll_back(None)
+
+
+def test_clean_has_exactly_one_definition():
+    """It had three: the bench counted both approvals, `review_and_repair`
+    re-listed the same pair as a literal, and the founder tally counted only
+    APPROVE. Same shape as ADR-037, different concept."""
+    from ai_venture_studio import product_bench
+    from ai_venture_studio.state import CLEAN_VERDICTS, CLEAN_VERDICT_VALUES
+
+    assert product_bench.CLEAN_VERDICTS is CLEAN_VERDICT_VALUES
+    # Derived from the enum, so a new approval-shaped verdict cannot be added
+    # to the taxonomy and silently missed here.
+    assert CLEAN_VERDICT_VALUES == tuple(v.value for v in CLEAN_VERDICTS)
+    assert set(CLEAN_VERDICT_VALUES) == {"APPROVE", "APPROVE_WITH_NOTES"}
+
+
+@pytest.mark.parametrize(
+    "module", ["ai_venture_studio.product_bench", "ai_venture_studio.upstream.autopilot"]
+)
+def test_the_clean_pair_is_not_re_listed(module):
+    """Comments stripped first: the comments here quote the old literal to
+    explain the drift, and matching them would be the `"PORT"` in
+    `IMPORT GATE` trap a third time."""
+    import importlib
+
+    source = inspect.getsource(importlib.import_module(module))
+    code = "\n".join(
+        line for line in source.splitlines() if not line.strip().startswith("#")
+    )
+    assert '"APPROVE", "APPROVE_WITH_NOTES"' not in code
+
+
+def test_the_tally_does_not_read_a_rejection_as_an_approval():
+    """A REQUEST_CHANGES task printed the same "review had notes" as an
+    APPROVE_WITH_NOTES one, so the founder could not tell work the reviewer
+    signed off on from work it refused."""
+    def _outcome(verdict):
+        return types.SimpleNamespace(
+            status="built", title="Checkout", review_verdict=verdict,
+        )
+
+    approved = autopilot._outcome_tally([_outcome("APPROVE_WITH_NOTES")], lang="en")
+    rejected = autopilot._outcome_tally([_outcome("REQUEST_CHANGES")], lang="en")
+    assert "asked for changes" in rejected
+    assert "asked for changes" not in approved
+    assert approved != rejected
+    for lang in ("en", "zh"):
+        assert "changes" in autopilot._TALLY_TEXT[lang]

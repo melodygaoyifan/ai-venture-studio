@@ -58,6 +58,23 @@ class Verdict(str, enum.Enum):
         return self.value.startswith("ESCALATE_")
 
 
+#: The verdicts that mean "the review did not ask for changes". Lives beside the
+#: enum and is derived FROM it, so it cannot drift from the taxonomy — and is
+#: shared so "clean" is one definition rather than one per caller. It was three:
+#: `product_bench` counted APPROVE and APPROVE_WITH_NOTES, `review_and_repair`
+#: re-listed the same pair as a literal, and the founder-facing tally counted
+#: only APPROVE. That is ADR-037's shape (one concept, two definitions, no test
+#: pinning them) on a different concept. Import this; never re-list it.
+#:
+#: Deliberately NOT unified with `automation.MERGEABLE_VERDICTS`, which has the
+#: same members today for a different reason: whether a human-armed policy may
+#: merge the branch. Equal members are not the same concept, and merging them
+#: would couple a governance gate to a scoreboard definition by coincidence.
+CLEAN_VERDICTS: tuple[Verdict, ...] = (Verdict.APPROVE, Verdict.APPROVE_WITH_NOTES)
+#: The same set as the wire strings that cross process and YAML boundaries.
+CLEAN_VERDICT_VALUES: tuple[str, ...] = tuple(v.value for v in CLEAN_VERDICTS)
+
+
 class VoterFinding(BaseModel):
     """One candidate issue. Evidence is mandatory (charter rule 2): findings
     without a locatable quote of the actual code are filtered by the Leader."""

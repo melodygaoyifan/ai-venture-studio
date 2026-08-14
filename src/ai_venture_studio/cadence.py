@@ -77,7 +77,16 @@ BENCH_RESULTS = pathlib.Path("benchmarks") / "results"
 #: three-quarter mark and reported a timeout as a capability failure — a lie
 #: in the direction that costs the most, since this series is the only kill
 #: criterion the launch PRD has left.
-BENCH_TIMEOUT_S = 6 * 3600
+#:
+#: Raised 6h → 8h for run 15. Run 14 spent 11,206s (3.1h) of the 6h, which
+#: read as ample — but ADR-037 sends every medium-only review into a fix
+#: iteration plus a re-review, and medium is the modal severity, so most of
+#: the 17 tasks now spend two model round-trips they did not before. The
+#: margin was sized against runs that never did that. A ceiling that is too
+#: high costs nothing when the run finishes early; one that is too low
+#: reports a capability failure that did not happen, on the only kill
+#: criterion the launch PRD has left.
+BENCH_TIMEOUT_S = 8 * 3600
 
 #: What every other loop gets. Minutes of work, not hours.
 DEFAULT_TIMEOUT_S = 3600

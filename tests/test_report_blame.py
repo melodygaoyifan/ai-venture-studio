@@ -45,9 +45,19 @@ def test_a_blocked_task_is_named_as_our_failure():
 
 
 def test_the_tally_distinguishes_clean_from_flagged_builds():
+    """Three states, not two. `加购与模拟下单` is REQUEST_CHANGES — the reviewer
+    refused to sign it off — and used to print the same "检查有意见 / review had
+    notes" as an APPROVE_WITH_NOTES task the reviewer approved. The founder
+    could not tell those two rows apart."""
     tally = _outcome_tally(OUTCOMES)
     assert "商品浏览列表页** — 已通过检查" in tally
-    assert "加购与模拟下单** — 建好了，检查有意见" in tally
+    assert "加购与模拟下单** — 建好了，但检查要求改动" in tally
+    with_notes = _outcome_tally([
+        TaskOutcome(task_id="t4", title="结算页", status="built",
+                    review_verdict="APPROVE_WITH_NOTES"),
+    ])
+    assert "结算页** — 建好了，检查有意见" in with_notes
+    assert "要求改动" not in with_notes
 
 
 @pytest.mark.parametrize("status", ["spec_blocked", "build_failed", "error"])
