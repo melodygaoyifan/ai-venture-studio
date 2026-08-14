@@ -393,8 +393,22 @@ with all four cases measured — and turned up the same defect one level
 smaller: a probe that got `Connection refused` had reached nothing at all,
 and was scored against the product anyway. v0.84.0 gives every probe its
 own port and makes readiness require an answer rather than an open socket.
-Three times now the harness has been charged to the product, and all three
-times it was first read as a product defect.
+Run 14 then scored **build 100% · probes 100% · clean 38%** — both rates up
+from run 13's 94% and 92%, and clean review down from its 75%, with two of
+four cases scoring zero clean reviews and every rejection carrying an empty
+reason. That reads as a quality regression and was not one. The leader
+blocked a verdict on `{critical, high, medium}` while the repair pass
+selected fixes with its own hard-coded `("critical", "high")`, so a task
+whose worst finding was medium — the modal severity the voters raise — was
+rejected, never repaired, and could never clear: **unclean by construction**.
+Neither release had touched the leader or any voter, so the defect was
+constant across both runs and only the exposure varied. 38% was not a
+regression to hunt, and **75% was never as solid as it read**
+([ADR-037](docs/adr/037-block-and-repair-are-one-threshold.md)). Four times
+now the harness has been charged to the product, and all four times it was
+first read as a product defect — the fourth one level up again, charged to
+the reviewer rather than the code it was reviewing. Run 15, the first run
+with the thresholds joined, is the number that supersedes both.
 
 ---
 
