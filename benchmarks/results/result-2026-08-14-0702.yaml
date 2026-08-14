@@ -1,0 +1,197 @@
+cases:
+- name: 01-groupbuy-api
+  autopilot_status: failed
+  tasks_total: 4
+  tasks_built: 2
+  clean_reviews: 1
+  outcomes:
+  - task_id: t1
+    title: 数据库持久化基础与团购创建
+    status: spec_blocked
+    review: null
+    detail: 'no acceptance criteria (auto-retry also failed; first attempt: build_failed
+      — build gate still failing after max iterations; nothing committed — last failure:
+      ERROR tests/test_groupbuys_read.py::test_nonexistent_id ERROR tests/test_groupb)'
+  - task_id: t2
+    title: 团购详情查询
+    status: build_failed
+    review: null
+    detail: 'build gate still failing after max iterations; nothing committed — last
+      failure: =================================== FAILURES ===================================
+      ____________________________ test_huge_id_no_crash _____________________________
+      server = (''127.0.0.1'', 64131) def test_huge_id_no_crash(server): huge = "9"
+      *  (failed attempt preserved at .mas/failed-builds/get-api-groupbuys-id-fetch-a-group-buy-by-id;
+      workspace reset) (auto-retry also failed; first attempt: build_failed — build
+      gate still failing after max iterations; nothing committed — last failure: E
+      TypeError: make_server() takes 1 positional argument but 3 were given tests/c)'
+    test_summary: "=================================== FAILURES ===================================\n\
+      ____________________________ test_huge_id_no_crash _____________________________\n\
+      \nserver = ('127.0.0.1', 64131)\n\n    def test_huge_id_no_crash(server):\n\
+      \        huge = \"9\" * 40\n        status, body = _get(server, \"/api/groupbuys/%s\"\
+      \ % huge)\n>       assert status == 404\nE       assert 400 == 404\n\ntests/test_get_groupbuy_notfound.py:27:\
+      \ AssertionError\n=========================== short test summary info ============================\n\
+      FAILED tests/test_get_groupbuy_notfound.py::test_huge_id_no_crash - assert 40...\n\
+      1 failed, 27 passed in 7.23s"
+    iterations: 3
+  - task_id: t3
+    title: 订单创建与持久化
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(a fix was attempted and rolled back — it did not clear the review) [review:
+      1 high, 1 medium, 1 info — Exception handler now returns 500 instead of 4xx
+      on malformed input; Module-level _SCHEMA_READY cache mutated by multiple server
+      threads and never re-initializes schema; Missing trailing newline / raw fil'
+    test_summary: 14 passed in 0.12s
+    iterations: 1
+  - task_id: t4
+    title: 应收汇总计算
+    status: built
+    review: APPROVE_WITH_NOTES
+    detail: (after fix iteration)
+    test_summary: 22 passed in 4.19s
+    iterations: 1
+  preserved_workspace: .mas/product-bench/workspaces/01-groupbuy-api
+  probes:
+  - name: create-and-read
+    passed: true
+    detail: create/read ok
+  - name: order-summary-math
+    passed: true
+    detail: summary math ok
+  - name: unknown-id-is-client-error
+    passed: true
+    detail: 404 ok
+  duration_s: 3896.5
+- name: 02-shortener-api
+  autopilot_status: completed
+  tasks_total: 4
+  tasks_built: 4
+  clean_reviews: 3
+  outcomes:
+  - task_id: t1
+    title: Link storage and schema
+    status: built
+    review: APPROVE
+    detail: (after fix iteration)
+    test_summary: 10 passed in 5.20s
+    iterations: 2
+  - task_id: t2
+    title: Create short link endpoint
+    status: built
+    review: ESCALATE_MISSING_CONTEXT
+    detail: ''
+    test_summary: 23 passed in 12.59s
+    iterations: 1
+  - task_id: t3
+    title: Redirect endpoint
+    status: built
+    review: APPROVE
+    detail: ''
+    test_summary: 27 passed in 15.16s
+    iterations: 1
+  - task_id: t4
+    title: Stats endpoint
+    status: built
+    review: APPROVE
+    detail: ''
+    test_summary: 27 passed in 15.00s
+    iterations: 2
+  preserved_workspace: ''
+  probes:
+  - name: shorten-and-redirect
+    passed: true
+    detail: redirect ok
+  - name: click-counting
+    passed: true
+    detail: click count ok
+  duration_s: 2101.0
+- name: 03-groupbuy-auto
+  autopilot_status: completed
+  tasks_total: 5
+  tasks_built: 5
+  clean_reviews: 2
+  outcomes:
+  - task_id: t1
+    title: 分发 API 契约探针
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(a fix was attempted and rolled back — it did not clear the review) [review:
+      1 medium — New SQLite connection + full schema re-init opened and closed on
+      every single request]'
+    test_summary: 16 passed in 9.65s
+    iterations: 1
+  - task_id: t2
+    title: 创建团购端点
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(a fix was attempted and rolled back — it did not clear the review) [review:
+      1 medium — New test file duplicates existing behavioral test suite instead of
+      extending it]'
+    test_summary: 31 passed in 18.22s
+    iterations: 1
+  - task_id: t3
+    title: 查看团购端点
+    status: built
+    review: APPROVE
+    detail: ''
+    test_summary: 33 passed in 19.32s
+    iterations: 1
+  - task_id: t4
+    title: 住户下单端点
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(a fix was attempted and rolled back — it did not clear the review) [review:
+      1 high — Unknown-field check crashes on non-object JSON bodies (AttributeError
+      → 500)]'
+    test_summary: 33 passed in 19.60s
+    iterations: 2
+  - task_id: t5
+    title: 汇总端点
+    status: built
+    review: APPROVE
+    detail: ''
+    test_summary: 37 passed in 21.80s
+    iterations: 1
+  preserved_workspace: ''
+  probes:
+  - name: create-and-read-back-groupbuy
+    passed: true
+    detail: ''
+  - name: create-groupbuy-invalid-input
+    passed: true
+    detail: ''
+  - name: get-nonexistent-groupbuy
+    passed: true
+    detail: ''
+  - name: order-and-summary-math
+    passed: true
+    detail: ''
+  - name: summary-empty-and-order-invalid
+    passed: true
+    detail: ''
+  duration_s: 3541.8
+- name: 04-direction-workbench
+  autopilot_status: 'error: OverloadedError: Error code: 529 - {''type'': ''error'',
+    ''error'': {''type'': ''overloaded_error'', ''message'': ''Overloaded''}, ''request_id'':
+    ''req_0'
+  tasks_total: 0
+  tasks_built: 0
+  clean_reviews: 0
+  outcomes: []
+  preserved_workspace: .mas/product-bench/workspaces/04-direction-workbench
+  probes: []
+  duration_s: 1448.8
+build_rate: 0.8333333333333334
+probe_pass_rate: 1.0
+clean_review_rate: 0.5499999999999999
+unmeasured:
+- 04-direction-workbench
+avs_version: 0.88.0
+rates:
+  build_rate: 0.833
+  probe_pass_rate: 1.0
+  clean_review_rate: 0.55
+  cases_measured: 3
+  cases_total: 4
+  unmeasured:
+  - 04-direction-workbench
