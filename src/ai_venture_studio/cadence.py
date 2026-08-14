@@ -370,6 +370,30 @@ def _bench_status(
     )
 
 
+def result_concerns(repo_dir: str | pathlib.Path) -> list[tuple[str, str]]:
+    """What each loop's last RESULT says, as against whether it ran on time.
+
+    Every other reading in this module answers "is the loop keeping its
+    cadence". A loop can keep it perfectly and still produce something a
+    person has to see, and until v0.90.0 nothing anywhere looked: bench run
+    12 finished with a crashed case and build 75% / probes 65%, and the
+    alert path printed `nothing needs a person`, because the loop itself had
+    exited 0. Liveness and results are different questions and only one of
+    them was ever asked.
+
+    A list of `(loop, sentence)` rather than a string: the alert names which
+    loop is speaking, and the next loop to grow a result worth reading has
+    somewhere to put it. Only the bench has one today.
+
+    Still rule 1 — it states, it does not decide. The floors and the streak
+    are `bench_criterion`'s, read from there and never re-derived here.
+    """
+    from ai_venture_studio import bench_criterion
+
+    said = bench_criterion.concern(repo_dir)
+    return [("bench", said)] if said else []
+
+
 def _bench_rates(path: str) -> str:
     """The headline numbers the last run recorded, in its own words.
 

@@ -1208,6 +1208,40 @@ def ship(
             raise typer.Exit(code=1)
 
 
+def _notifier():
+    from ai_venture_studio import notify as notifier
+
+    return notifier
+
+
+def _bench_notify(repo_dir: str, alert) -> None:
+    """Post one finished bench run, and say plainly if that did not work.
+
+    Forced past the repeat window on purpose. That window exists for a
+    STANDING CONDITION re-reported every morning — an overdue loop stays
+    overdue, and saying so six days running is how a channel becomes noise.
+    A bench run is not a condition, it is an EVENT: it happened once, it
+    cost hours, and a second crash in the same week is a second thing that
+    happened, not a repeat of the first.
+
+    Delivery is reported, never assumed — the same rule the cadence path
+    follows. A notifier that fails quietly is worse than none, because the
+    log nobody reads at least never claimed to have told anyone.
+    """
+    notifier = _notifier()
+    try:
+        result = notifier.send(
+            repo_dir, alert, kind=notifier.BENCH_KIND, force=True
+        )
+    except notifier.NotifyError as exc:
+        console.print(f"[red]alert NOT sent: {exc}[/red]")
+        return
+    if result.sent:
+        console.print("[green]result posted to Discord[/green]")
+    else:
+        console.print(f"[dim]no alert: {result.reason}[/dim]")
+
+
 @app.command("product-bench")
 def product_bench(
     cases_dir: str = typer.Option(
@@ -1217,6 +1251,11 @@ def product_bench(
     provider: str = typer.Option(None, help="Provider (e.g. 'mock')"),
     limit: int = typer.Option(None, help="Run only the first N cases"),
     repo_dir: str = typer.Option(".", help="Where to record the result"),
+    notify: bool = typer.Option(
+        False, "--notify",
+        help="Post the result to Discord when the run ends, however it ends. "
+        "The scheduler is not the only thing that runs this.",
+    ),
 ):
     """Built-product quality, end to end: full autopilot per case, then
     INDEPENDENT probes against the built product (WebGen-Bench pattern)."""
@@ -1228,6 +1267,10 @@ def product_bench(
         )
     except RuntimeError as exc:
         console.print(f"[red]{exc}[/red]")
+        if notify:
+            _bench_notify(repo_dir, _notifier().bench_failed_alert(
+                str(exc), workspace=Path(repo_dir).resolve().name,
+            ))
         raise typer.Exit(1) from exc
     table = Table(title="product bench")
     for col in ("case", "autopilot", "built", "probes passed", "clean reviews", "s"):
@@ -1253,7 +1296,19 @@ def product_bench(
     )
     # Save before exiting: a run that measured three cases still measured
     # three cases, and the result is the series the kill criterion reads.
-    console.print(f"saved: {save_summary(summary, repo_dir)}")
+    saved = save_summary(summary, repo_dir)
+    console.print(f"saved: {saved}")
+    if notify:
+        from ai_venture_studio import bench_criterion
+
+        _bench_notify(repo_dir, _notifier().bench_alert(
+            summary,
+            workspace=Path(repo_dir).resolve().name,
+            saved=str(saved),
+            # Read AFTER saving, so the series they judge includes this run.
+            concern=bench_criterion.concern(repo_dir),
+            movement=bench_criterion.movement(repo_dir),
+        ))
     if summary.unmeasured:
         # Not a capability finding — the harness broke, and nothing else
         # will say so. The rates above are honest about their scope and
@@ -3617,7 +3672,7 @@ def cadence_cmd(
         try:
             alerted = notifier.notify(
                 repo_dir, report, build, today=day, force=force_notify,
-                outcomes=outcomes,
+                outcomes=outcomes, concerns=cad.result_concerns(repo_dir),
             )
         except notifier.NotifyError as exc:
             console.print(f"[red]alert NOT sent: {exc}[/red]")

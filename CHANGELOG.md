@@ -4,6 +4,37 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.90.0 — a result is not an exit code
+
+The founder asked why the Discord channel never showed logs, bugs or errors.
+Nothing was broken: the channel reported only **whether a loop ran**, never
+what it produced, and only for runs launchd itself started. Bench run 12
+finished with a crashed case at build 75% / probes 65% and the log records
+`bench: ran (exit 0)` then `no alert: nothing needs a person`. Runs 13, 14
+and 15 were started by hand and could not have posted anything at all.
+ADR-040.
+
+- **A loop's last result is alertable on its own.** `cadence.result_concerns`
+  collects a sentence per loop whose *output* needs a look, separate from
+  whether the loop got through — so a run that exited 0 can now raise an
+  alert. `bench_criterion.concern` supplies it for the bench series.
+- **A poor result is a finding, not a failure.** It is reported and fails
+  nothing: the scheduler's exit code still answers only "did the machine
+  break". Failing on a low rate would report every weak week as a broken
+  scheduler, and is refused explicitly so it is not re-proposed as a tidy-up.
+- **`avs product-bench --notify`.** Any finished run reports itself, however
+  it was started — completed, with cases that never ran (named first, above
+  the rates they distort), or crashed. Forced past the 7-day repeat window:
+  that window is for a standing condition, and a run is an event.
+- **Movement without a threshold.** `bench_criterion.movement` states the
+  run-over-run delta (`clean -37pp` — run 14's collapse, which no floor
+  covers). Adding a clean-review floor would extend the launch PRD's only
+  kill criterion by a constant in a module; that is a human decision.
+- **The floors keep one definition.** `BUILD_FLOOR` / `PROBE_FLOOR` stay in
+  `bench_criterion`; a test asserts neither `notify` nor `cadence` names a
+  floor value. The sent-log is keyed by alert kind (migrating the old flat
+  shape), so the second alert cannot erase the first's memory.
+
 ## v0.89.0 — one issue is one finding
 
 Run 13's preserved review artifacts, read directly instead of reasoned about:

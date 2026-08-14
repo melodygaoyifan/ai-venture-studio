@@ -165,3 +165,78 @@ def evaluate(repo_dir: str | pathlib.Path) -> BenchCriterionState:
     return BenchCriterionState(
         runs_considered=recent, streak=streak, fires=fires, detail=detail
     )
+
+
+def movement(repo_dir: str | pathlib.Path) -> str:
+    """How the newest run moved against the one before it, in points.
+
+    No threshold and no verdict, deliberately. There is NO floor on the
+    clean-review rate, and inventing one here would be adding an axis to the
+    launch PRD's only kill criterion through the back door — that is a
+    recorded human decision (doc 25 §76.4), not a constant this module gets
+    to introduce because it would be convenient.
+
+    Stating the move needs no such licence, and it is the single most
+    informative sentence about a run: run 14 took clean reviews from 75% to
+    38% while builds and probes went to 100%, and nobody was told anything
+    at all, because every number involved was comfortably above its floor.
+    """
+    runs = load_runs(repo_dir)
+    if len(runs) < 2:
+        return ""
+    now, before = runs[-1], runs[-2]
+    parts: list[str] = []
+    for label, new, old in (
+        ("build", now.build_rate, before.build_rate),
+        ("probes", now.probe_pass_rate, before.probe_pass_rate),
+        ("clean", now.clean_review_rate, before.clean_review_rate),
+    ):
+        if new is None or old is None:
+            continue
+        parts.append(f"{label} {round((new - old) * 100):+d}pp")
+    if not parts:
+        return ""
+    return f"vs {pathlib.Path(before.path).name}: " + ", ".join(parts)
+
+
+def concern(repo_dir: str | pathlib.Path) -> str:
+    """What a person needs told about this series, or "" when nothing does.
+
+    THE FLOORS LIVE HERE AND NOWHERE ELSE. A caller that wanted to alert on a
+    bad run could read `build_rate` and compare it against 0.60 itself — and
+    from that moment there would be two definitions of "below the floor",
+    drifting apart the first time either moved (ADR-038). This is the one.
+
+    Deliberately NOT a verdict on the harness, and the distinction is the
+    whole reason this function is separate from an exit code: **a run that
+    measured everything and scored badly is a FINDING, not a failure.** It
+    needs a person to LOOK; it does not need the machine to stop. ADR-035
+    pinned that for `product-bench`'s exit code and it holds here — the
+    tempting "consistency fix" of failing the scheduler on a low rate would
+    turn every weak week into a broken scheduler.
+    """
+    state = evaluate(repo_dir)
+    if not state.runs_considered:
+        return ""
+    newest = state.runs_considered[-1]
+    if state.fires:
+        return (
+            f"the capability kill criterion HAS FIRED — {state.streak} "
+            f"consecutive runs below the floors (build {BUILD_FLOOR:.0%} / "
+            f"probes {PROBE_FLOOR:.0%}). Gate PL5 requires a recorded human "
+            f"decision (invariant 14.20). Latest: {newest.summary()}"
+        )
+    if newest.below_floor:
+        remaining = CONSECUTIVE_RUNS_TO_FIRE - state.streak
+        return (
+            f"below the floors (build {BUILD_FLOOR:.0%} / probes "
+            f"{PROBE_FLOOR:.0%}) — {remaining} more consecutive run(s) would "
+            f"fire the kill criterion. {newest.summary()}"
+        )
+    if newest.partial:
+        return (
+            f"the newest run did not measure the whole bench: "
+            f"{newest.summary()}. The rates exclude what never ran, so this "
+            f"measured less of the machine than the percentages look like."
+        )
+    return ""
