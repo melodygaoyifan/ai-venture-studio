@@ -4,6 +4,49 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.92.0 — a failure must arrive as a fact
+
+Bench run 15's third finding: case 01 lost a task to a build that failed
+three times, and the result file recorded the reason as
+
+    last failure: ==== FAILURES ==== ____ test_huge_id_no_crash ____
+    server = ('127.0.0.1', 64131) def test_huge_id_no_crash(server):
+    huge = "9" *
+
+— 240 characters, cut mid-expression, containing no assertion and no
+verdict. ADR-037 added that clause so the cause would travel into the rows
+that read `detail`. It travels. What arrived was pytest's banner art:
+`==== FAILURES ====` and `____ test_name ____` are ~160 characters of rule
+characters before the run states a fact, so a head-slice spends its budget
+on punctuation and stops short of the answer.
+
+Nothing was lost — `test_summary` held the complete run all along. The
+defect was in the condensation. `testing.salient_failure()` now selects
+from pytest's own short-summary section, then the `E` assertion lines,
+keeping both when both exist: pytest elides its summary line to terminal
+width, so the summary names the test and the `E` line says what actually
+broke. Truncation lands on a word boundary. The same failure now reads
+
+    FAILED tests/test_get_groupbuy_notfound.py::test_huge_id_no_crash -
+    assert 40... E assert 400 == 404
+
+It lives in `testing.py` beside the rest of the pytest-output reading, and
+a test asserts `build.py` keeps no second copy of the clip.
+
+The underlying failure, recovered by re-running the preserved workspace: a
+40-digit id matches the spec's own `^[0-9]+$` valid-format criterion, so it
+is a well-formed id that does not exist and owes a 404; the product
+range-rejected it as malformed and answered 400. A real product defect,
+correctly caught, with the implementer holding the full traceback on all
+three attempts. Nothing about the product or the case is changed — the
+build rate measuring it is the benchmark working. See ADR-042.
+
+The word-boundary helper is `_clip_words`: `testing.py` already owned a
+`_clip` that keeps both ends of a faulthandler dump, and defining a second
+one rebound the name module-wide — the hang-dump path called the wrong
+helper and five tests failed with no import error naming the cause. A test
+now rejects any duplicated top-level definition in that file. 2021 tests.
+
 ## v0.91.0 — an empty answer is not a verdict
 
 Bench run 15 blocked two independent cases with the same spec: no criteria,

@@ -1358,7 +1358,9 @@ def _run_build_inner(
         # bench result rows, the founder's report, outcomes.yaml — showed the
         # generic half alone, which is why "why does it always fail" had no
         # answer in the record.
-        cause = " ".join((feedback or "").split())[:240]
+        from ai_venture_studio.testing import salient_failure
+
+        cause = salient_failure(feedback or "")
         detail = "build gate still failing after max iterations; nothing committed" + (
             f" — last failure: {cause}" if cause else ""
         )

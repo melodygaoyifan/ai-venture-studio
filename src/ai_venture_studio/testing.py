@@ -536,3 +536,69 @@ def _mutmut_cmd(worktree: Path, subcommand: str) -> list[str]:
 def _last_line(text: str) -> str:
     lines = [line for line in text.splitlines() if line.strip()]
     return lines[-1] if lines else "(no output)"
+
+
+# A line made only of pytest's banner characters, carrying no fact.
+_RULE_ONLY = re.compile(r"^[=_\-\s]*$")
+_SHORT_SUMMARY = re.compile(r"^=+ short test summary info =+$")
+_OUTCOME_LINE = re.compile(r"^(FAILED|ERROR)\s+\S")
+
+
+def _clip_words(text: str, limit: int) -> str:
+    """Truncate on a word boundary — a cut mid-expression reads as a
+    different expression.
+
+    Distinct from `_clip` above, which keeps both ends of a multi-line
+    capture. Two different jobs, so two different names: defining a second
+    `_clip` here silently shadowed the hang-dump one for the whole module.
+    """
+    if len(text) <= limit:
+        return text
+    head = text[:limit].rsplit(" ", 1)[0] or text[:limit]
+    return head.rstrip(" ,;:") + " …"
+
+
+def salient_failure(text: str, limit: int = 240) -> str:
+    """The lines a person needs from a failing pytest run — not the first
+    `limit` characters of one.
+
+    pytest opens its failure report with banner rules: `==== FAILURES ====`
+    then `____ test_name ____`, roughly 160 characters of decoration before
+    any fact. Head-truncating spends the whole budget on punctuation. Bench
+    run 15 recorded a real build failure as
+
+        last failure: ==== FAILURES ==== ____ test_huge_id_no_crash ____
+        server = ('127.0.0.1', 64131) def test_huge_id_no_crash(server):
+        huge = "9" *
+
+    — cut off before the assertion, and before the one line that names what
+    broke. The cause travelled with the sentence exactly as intended; what
+    arrived was decoration.
+
+    Prefers pytest's own summary section (one condensed line per failure),
+    then the `E` assertion lines for runs that have no such section
+    (collection errors, `-q` variants), and only then the text itself with
+    the rules stripped.
+    """
+    lines = [line.rstrip() for line in (text or "").splitlines()]
+    outcomes: list[str] = []
+    for index, line in enumerate(lines):
+        if _SHORT_SUMMARY.match(line.strip()):
+            outcomes = [
+                later.strip()
+                for later in lines[index + 1:]
+                if _OUTCOME_LINE.match(later.strip())
+            ]
+            break
+    # pytest elides its own summary line to terminal width ("- assert 40..."),
+    # so the `E` line is kept alongside it: the summary names the test, the
+    # assertion says what was actually wrong, and neither alone is enough.
+    assertions = [line.strip() for line in lines if line.lstrip().startswith("E ")]
+
+    picked = outcomes + [a for a in assertions if a not in outcomes]
+    if not picked:
+        picked = [
+            line.strip() for line in lines
+            if line.strip() and not _RULE_ONLY.match(line)
+        ]
+    return _clip_words(" ".join(" ".join(picked).split()), limit)
