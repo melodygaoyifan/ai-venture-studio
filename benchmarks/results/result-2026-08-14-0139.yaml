@@ -1,0 +1,206 @@
+cases:
+- name: 01-groupbuy-api
+  autopilot_status: completed
+  tasks_total: 4
+  tasks_built: 4
+  clean_reviews: 4
+  outcomes:
+  - task_id: t1
+    title: 数据库持久化基础与团购创建端点
+    status: built
+    review: APPROVE
+    detail: (after fix iteration)
+    test_summary: 24 passed in 0.18s
+    iterations: 2
+  - task_id: t2
+    title: 团购查询端点
+    status: built
+    review: APPROVE
+    detail: ''
+    test_summary: 33 passed in 0.20s
+    iterations: 1
+  - task_id: t3
+    title: 订单创建端点
+    status: built
+    review: APPROVE_WITH_NOTES
+    detail: ''
+    test_summary: 52 passed in 0.70s
+    iterations: 1
+  - task_id: t4
+    title: 团购汇总端点
+    status: built
+    review: APPROVE
+    detail: ''
+    test_summary: 58 passed in 0.36s
+    iterations: 1
+  preserved_workspace: ''
+  probes:
+  - name: create-and-read
+    passed: true
+    detail: create/read ok
+  - name: order-summary-math
+    passed: true
+    detail: summary math ok
+  - name: unknown-id-is-client-error
+    passed: true
+    detail: 404 ok
+  duration_s: 1968.8
+- name: 02-shortener-api
+  autopilot_status: completed
+  tasks_total: 4
+  tasks_built: 4
+  clean_reviews: 2
+  outcomes:
+  - task_id: t1
+    title: Link storage schema and DB layer
+    status: built
+    review: APPROVE_WITH_NOTES
+    detail: ''
+    test_summary: 4 passed in 2.33s
+    iterations: 1
+  - task_id: t2
+    title: Create short link endpoint
+    status: built
+    review: APPROVE
+    detail: ''
+    test_summary: 20 passed in 11.63s
+    iterations: 2
+  - task_id: t3
+    title: Redirect endpoint
+    status: built
+    review: REQUEST_CHANGES
+    detail: (recovered on auto-retry)
+    test_summary: 24 passed in 13.92s
+    iterations: 2
+  - task_id: t4
+    title: Stats endpoint
+    status: built
+    review: REQUEST_CHANGES
+    detail: (a fix was attempted and rolled back — it did not clear the review)
+    test_summary: 24 passed in 13.92s
+    iterations: 2
+  preserved_workspace: ''
+  probes:
+  - name: shorten-and-redirect
+    passed: true
+    detail: redirect ok
+  - name: click-counting
+    passed: true
+    detail: click count ok
+  duration_s: 2358.2
+- name: 03-groupbuy-auto
+  autopilot_status: completed
+  tasks_total: 3
+  tasks_built: 3
+  clean_reviews: 0
+  outcomes:
+  - task_id: t1
+    title: 数据库持久层与团购创建
+    status: built
+    review: REQUEST_CHANGES
+    detail: ''
+    test_summary: 14 passed in 0.05s
+    iterations: 1
+  - task_id: t2
+    title: 团购下单与汇总（核心假设验证）
+    status: built
+    review: REQUEST_CHANGES
+    detail: ''
+    test_summary: 40 passed in 13.81s
+    iterations: 1
+  - task_id: t3
+    title: 查看单个团购
+    status: built
+    review: REQUEST_CHANGES
+    detail: ''
+    test_summary: 48 passed in 17.53s
+    iterations: 1
+  preserved_workspace: ''
+  probes:
+  - name: create-and-read-back
+    passed: true
+    detail: ''
+  - name: invalid-create-rejected
+    passed: true
+    detail: ''
+  - name: order-and-summary-math
+    passed: true
+    detail: ''
+  - name: empty-summary-zero
+    passed: true
+    detail: ''
+  - name: not-found-and-bad-id
+    passed: true
+    detail: ''
+  duration_s: 2225.6
+- name: 04-direction-workbench
+  autopilot_status: completed
+  tasks_total: 6
+  tasks_built: 6
+  clean_reviews: 0
+  outcomes:
+  - task_id: t1
+    title: Create candidate endpoint with persistent storage
+    status: built
+    review: REQUEST_CHANGES
+    detail: ''
+    test_summary: 34 passed in 13.89s
+    iterations: 2
+  - task_id: t2
+    title: Submit round scores with rubric and veto rules
+    status: built
+    review: REQUEST_CHANGES
+    detail: ''
+    test_summary: 47 passed in 18.19s
+    iterations: 1
+  - task_id: t4
+    title: Eliminate candidate and list eliminated
+    status: built
+    review: REQUEST_CHANGES
+    detail: (a fix was attempted and rolled back — it did not clear the review)
+    test_summary: 61 passed in 24.54s
+    iterations: 1
+  - task_id: t3
+    title: Get single candidate with per-round results
+    status: built
+    review: REQUEST_CHANGES
+    detail: ''
+    test_summary: 61 passed in 19.82s
+    iterations: 1
+  - task_id: t5
+    title: List candidates by round excluding eliminated
+    status: built
+    review: REQUEST_CHANGES
+    detail: (a fix was attempted and rolled back — it did not clear the review)
+    test_summary: 69 passed in 24.60s
+    iterations: 2
+  - task_id: t6
+    title: Compare day5 vs day12 rounds for a candidate
+    status: built
+    review: REQUEST_CHANGES
+    detail: (a fix was attempted and rolled back — it did not clear the review)
+    test_summary: 69 passed in 29.82s
+    iterations: 2
+  preserved_workspace: ''
+  probes:
+  - name: score-veto-qualify-sort
+    passed: true
+    detail: score/veto/sort ok
+  - name: score-validation-and-evidence-downgrade
+    passed: true
+    detail: validation ok
+  - name: eliminate-and-two-round-compare
+    passed: true
+    detail: eliminate/compare ok
+  duration_s: 4653.2
+build_rate: 1.0
+probe_pass_rate: 1.0
+clean_review_rate: 0.375
+unmeasured: []
+rates:
+  build_rate: 1.0
+  probe_pass_rate: 1.0
+  clean_review_rate: 0.375
+  cases_measured: 4
+  cases_total: 4
+  unmeasured: []
