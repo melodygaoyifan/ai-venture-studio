@@ -4,6 +4,44 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.91.0 — an empty answer is not a verdict
+
+Bench run 15 blocked two independent cases with the same spec: no criteria,
+no test skeletons, no design, and one reason — "no acceptance criteria".
+That sentence reads as a judgment about a spec the writer wrote. Nothing
+was written, and the stage had no way to say so.
+
+**An empty spec was the quietest failure in the revision loop, not the
+loudest.** It passed every quality check by having nothing to check —
+`lint_criteria([])` is clean, no criterion can be uncovered among zero
+criteria, no skeleton can be in the wrong language among zero skeletons —
+so the loop's "good enough" break fired on a spec containing nothing, and
+the feedback handed back to the writer never once said its criteria list
+was empty. Whether an LLM critic happened to object was luck: one case
+drew three majors and looped, the other drew none and broke on the first
+attempt. Emptiness is now reported first, under its own name, and gates
+the break.
+
+**The spec stage was the only writer stage that never asked whether its
+response had been cut off.** `plan.py`, `build.py` and `discover.py` all
+check; `spec.py` did not import the check. A response truncated after
+`title:` is still valid YAML with zero criteria — a partial answer wearing
+the shape of a complete one, which is the hazard `providers/base.py`
+documents. It now asks, and a cut-off response gets its own block reason,
+because "raise the cap" and "rewrite the prompt" are different next
+actions.
+
+**The ledger now records why the model stopped.** Diagnosing run 15 meant
+inferring truncation from `output_tokens` landing exactly on a cap, which
+cannot tell a capped answer from a complete one of that length. The
+adapters knew the stop reason during the run and discarded it at the end.
+`stop_reason` is recorded on every call across all three adapters, and is
+optional so every result already on disk still loads.
+
+Not changed: the spec writer's 4096-token cap, which the evidence does not
+show to be binding, and the 529 retry policy, which run 15's fourth case
+exhausted correctly. See ADR-041.
+
 ## v0.90.0 — a result is not an exit code
 
 The founder asked why the Discord channel never showed logs, bugs or errors.

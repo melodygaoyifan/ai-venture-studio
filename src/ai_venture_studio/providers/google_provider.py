@@ -60,6 +60,7 @@ class GoogleProvider(Provider):
                 model,
                 usage.get("promptTokenCount"),
                 usage.get("candidatesTokenCount"),
+                stop_reason=(body.get("candidates") or [{}])[0].get("finishReason"),
             )
         candidate = body["candidates"][0]
         # Gemini spells it finishReason / "MAX_TOKENS"; the shared reason set in

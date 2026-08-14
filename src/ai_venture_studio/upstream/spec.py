@@ -20,6 +20,7 @@ import yaml
 from pydantic import BaseModel, Field
 
 from ai_venture_studio.providers import get_provider
+from ai_venture_studio.providers.base import last_response_truncated
 from ai_venture_studio.upstream import ears
 from ai_venture_studio.upstream.workspace import Project, load_project
 from ai_venture_studio.yamlx import extract_mapping
@@ -202,6 +203,34 @@ def _coverage_gaps(spec_data: dict) -> list[int]:
     return [i for i in range(len(spec_data.get("criteria", []))) if i not in covered]
 
 
+def _undelivered(spec_data: dict) -> list[str]:
+    """What the writer failed to deliver AT ALL, as revision feedback.
+
+    Emptiness is the worst outcome of this stage and — before this existed —
+    also the quietest, because it passes every quality check by having
+    nothing to check: `ears.lint_criteria([])` is clean, `_coverage_gaps`
+    finds no uncovered criterion among zero criteria, and
+    `_foreign_skeletons` finds no wrong-language skeleton among zero
+    skeletons. All three came back empty, the revision loop's "good enough"
+    break fired on a spec containing nothing, and the feedback sent to the
+    writer never mentioned the one thing that was actually wrong. Two cases
+    of bench run 15 blocked this way with `criteria: 0, skeletons: 0`.
+    """
+    if not spec_data.get("criteria"):
+        return [
+            "You returned NO acceptance criteria. The criteria list IS the "
+            "spec — a response without it is not a partial answer, it is no "
+            "answer. Return the whole YAML schema with a populated "
+            "`criteria:` list."
+        ]
+    if not spec_data.get("test_skeletons"):
+        return [
+            "You returned criteria but NO test skeletons. Every criterion "
+            "must be covered by at least one skeleton under tests/."
+        ]
+    return []
+
+
 def run_spec_stage(
     repo_dir: str | Path,
     request: str,
@@ -291,6 +320,7 @@ def run_spec_stage(
     spec_data: dict = {}
     lint: list = []
     critics: list[dict] = []
+    truncated = False
     for revision in range(MAX_REVISIONS + 1):
         raw = provider_impl.complete(
             model=writer_model,
@@ -300,6 +330,23 @@ def run_spec_stage(
             + (f"\n\n<revision_feedback>\n{feedback}\n</revision_feedback>" if feedback else ""),
             max_tokens=4096,
         )
+        # A response that hit the output cap is a PARTIAL spec wearing the
+        # shape of a whole one, and truncated YAML usually still parses — a
+        # response cut off after `title:` is a valid mapping with zero
+        # criteria. Every other writer stage asks this question (plan.py,
+        # build.py, discover.py); this one did not, so a delivery failure
+        # was reported as a content judgment ("no acceptance criteria").
+        if last_response_truncated():
+            truncated = True
+            feedback = (
+                "YOUR LAST RESPONSE WAS CUT OFF at the output limit, so the "
+                "spec was incomplete and was discarded. Return the SAME spec "
+                "with a shorter design section and terser criteria — every "
+                "criterion, fewer words each."
+            )
+            spec_data, lint, critics = {}, [], []
+            continue
+        truncated = False
         try:
             spec_data = extract_mapping(raw, ("criteria", "title"))
         except ValueError:
@@ -314,6 +361,7 @@ def run_spec_stage(
         lint = ears.lint_criteria([str(c) for c in spec_data.get("criteria", [])])
         gaps = _coverage_gaps(spec_data)
         foreign = _foreign_skeletons(spec_data, project.profile)
+        undelivered = _undelivered(spec_data)
         # Charter roster (doc 13 §25.1): Testability, Consistency,
         # Completeness, Ambiguity, InterfaceImpact — the two ad-hoc critic
         # prompts retired here (plan phase D13). The roster sees the same
@@ -341,10 +389,14 @@ def run_spec_stage(
         )
         critics = roster.as_issues()[:10]
         majors = [c for c in critics if c.get("severity") == "major"]
-        if not lint and not gaps and not majors and not foreign:
+        if not undelivered and not lint and not gaps and not majors and not foreign:
             break
         feedback = yaml.safe_dump(
             {
+                # First, and named so it cannot be read as one nit among
+                # several: nothing else in this blob matters if the spec is
+                # empty, and everything else in it is silent when it is.
+                "you_returned_nothing": undelivered,
                 "ears_lint": [i.model_dump() for i in lint],
                 "uncovered_criteria_indices": gaps,
                 "critic_majors": majors,
@@ -366,7 +418,17 @@ def run_spec_stage(
     block_reasons: list[str] = []
     if status == "blocked":
         if not has_criteria:
-            block_reasons.append("no acceptance criteria")
+            # Same empty spec, two different diagnoses. "no acceptance
+            # criteria" reads as a judgment on what the writer wrote; when
+            # the last response was cut off, nothing was written at all and
+            # saying so is the difference between raising the cap and
+            # rewriting the prompt.
+            block_reasons.append(
+                "spec writer response cut off at the output cap — no "
+                "acceptance criteria were received"
+                if truncated
+                else "no acceptance criteria"
+            )
         if foreign:
             block_reasons.append("; ".join(foreign))
         if lint:

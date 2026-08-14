@@ -65,7 +65,12 @@ class _ChatCompletionsProvider(Provider):
                 continue
             response.raise_for_status()
             body = response.json()
-            _record_usage(self.name, model, body.get("usage") or {})
+            # Metered before `choices` is indexed: a malformed body still
+            # cost tokens, and the ledger must not lose them to a KeyError.
+            _record_usage(
+                self.name, model, body.get("usage") or {},
+                stop_reason=(body.get("choices") or [{}])[0].get("finish_reason"),
+            )
             choice = body["choices"][0]
             # OpenAI-compatible bodies say finish_reason: "length" for the
             # ran-out-of-budget case.
@@ -83,7 +88,9 @@ class _ChatCompletionsProvider(Provider):
         raise ProviderError(f"{self.name}: both token params rejected for {model}")
 
 
-def _record_usage(provider: str, model: str, usage: dict) -> None:
+def _record_usage(
+    provider: str, model: str, usage: dict, *, stop_reason: str | None = None,
+) -> None:
     """Meter at the adapter, same as the anthropic path. OpenAI-compatible
     bodies report prompt_tokens/completion_tokens."""
     if not usage:
@@ -94,6 +101,7 @@ def _record_usage(provider: str, model: str, usage: dict) -> None:
         model,
         usage.get("prompt_tokens") or usage.get("input_tokens"),
         usage.get("completion_tokens") or usage.get("output_tokens"),
+        stop_reason=stop_reason,
     )
 
 

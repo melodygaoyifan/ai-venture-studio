@@ -3,13 +3,13 @@
 # the hermetic suite enforces it (tests/test_editions_platform.py).
 claims:
   - id: PC-1
-    text: "1982 hermetic tests pass via uv run pytest at the current tag"
+    text: "2004 hermetic tests pass via uv run pytest at the current tag"
     kind: demand
     source_type: primary_measured
-    n: 1982
+    n: 2004
     evidence:
       - {method: pytest_run, locator: "repo://tests (uv run pytest)",
-         retrieved_at: "2026-08-14T04:00:00Z"}
+         retrieved_at: "2026-08-14T08:30:00Z"}
     falsifier: "the suite collecting or passing a different count at this tag"
   - id: PC-2
     text: "review benchmark: recall 100%, precision 67% on 13 labeled cases against bars of 40% and 50%"
@@ -137,3 +137,12 @@ claims:
       - {method: product_bench_run, locator: "repo://benchmarks/results/result-2026-08-14-0139.yaml (cases_measured 4 of 4)",
          retrieved_at: "2026-08-14T01:39:00Z"}
     falsifier: "the preserved run-14 result containing different rates, or a cases_measured below its cases_total"
+  - id: PC-16
+    text: "product benchmark, real cases run 15 (2026-08-14, n=3 of 4 cases measured — 04-direction-workbench never ran, excluded not scored zero): build 83%, probe pass 100%, clean review 55%"
+    kind: demand
+    source_type: primary_measured
+    n: 3
+    evidence:
+      - {method: product_bench_run, locator: "repo://benchmarks/results/result-2026-08-14-0702.yaml (cases_measured 3 of 4)",
+         retrieved_at: "2026-08-14T07:02:00Z"}
+    falsifier: "the preserved run-15 result containing different rates, or a cases_measured other than the 3 of 4 this claim names"

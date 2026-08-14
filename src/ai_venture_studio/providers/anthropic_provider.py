@@ -222,6 +222,7 @@ class AnthropicProvider(Provider):
                 model,
                 getattr(usage, "input_tokens", None),
                 getattr(usage, "output_tokens", None),
+                stop_reason=getattr(response, "stop_reason", None),
             )
 
         text = "".join(

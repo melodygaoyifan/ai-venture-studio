@@ -66,6 +66,13 @@ class SpendEntry(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
     stage: str = ""  # review | build | product | ... , for attribution
+    # Why the model stopped. "max_tokens" here means the answer was CUT OFF,
+    # and the ledger is the only place that fact survives the run: diagnosing
+    # bench run 15's empty specs meant inferring truncation from output_tokens
+    # sitting exactly on a cap, which cannot distinguish a capped answer from
+    # a complete one that happened to be that long. Optional so every existing
+    # ledger line still loads.
+    stop_reason: str = ""
 
 
 class MonthSpend(BaseModel):
@@ -85,7 +92,7 @@ class MonthSpend(BaseModel):
 
 def record(
     model: str, input_tokens: int | None, output_tokens: int | None,
-    *, stage: str = "",
+    *, stage: str = "", stop_reason: str | None = "",
 ) -> None:
     """Buffer one provider call. Never raises: a metering failure must not
     take down the work being metered."""
@@ -96,6 +103,7 @@ def record(
             input_tokens=int(input_tokens or 0),
             output_tokens=int(output_tokens or 0),
             stage=stage,
+            stop_reason=str(stop_reason or ""),
         )
     except (TypeError, ValueError):
         return
