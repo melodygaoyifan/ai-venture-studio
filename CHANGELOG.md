@@ -4,13 +4,20 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
-## v0.93.0 — the scoreboard was two runs behind, and nothing noticed
+## v0.93.0 — the scoreboard was two runs behind
 
 `benchmarks/results/HISTORY.md` says of itself that "the table below is
 authoritative for the headline numbers". It had no row for **run 14 or run
 15**. `save_summary` dual-writes every result file there automatically; the
 table is written by hand, and a hand-maintained ledger has no way to notice
-it is behind. Both runs are now recorded from their result files — run 14
+it is behind.
+
+To be exact about the size of this, because the first draft of this entry
+was not: both runs *were* recorded at the time, in three places — the
+commit log (`ab7d8c8`, `f81d1ec`), the claim ledger (PC-15, PC-16) and the
+README. One of four records was missing them, and it was the one a person
+reads as a series. That is worth fixing and is not the same as a run going
+unrecorded. Both runs are now in the table, from their result files — run 14
 at build 100% · probes 100% · clean 38% over four cases, run 15 at build
 83% · probes 100% · clean 55% over three of four — and three older rows
 that identified their file as `…0259, reconstructed (full)` now name it in
