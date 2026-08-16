@@ -875,3 +875,69 @@ def test_a_complete_bench_does_not_carry_a_scope_note(tmp_path):
     _bench_result(tmp_path, "2026-08-13")
     status = cadence.assess(tmp_path, today=dt.date(2026, 8, 13), only=["bench"]).loops[0]
     assert "of" not in status.produced.replace("probes", "")
+
+
+# --- when does it run again? --------------------------------------------
+#
+# A row reading `last run 2026-08-14 | cadence 7d | ok (1d)` holds the
+# answer only as a sum the reader has to perform, and the scheduler that
+# fires every morning invites the wrong one: "daily wake-up, so tomorrow".
+# The wake-up is daily and the cadence is weekly, and the row showed the
+# consequence of neither.
+
+
+def test_a_loop_within_cadence_says_when_it_next_comes_due():
+    status = cadence.LoopStatus(
+        name="bench", last_run="2026-08-14", age_days=1, state="ok"
+    )
+    assert status.next_due == "2026-08-21"
+    assert "next 2026-08-21" in status.describe()
+
+
+def test_the_next_due_date_follows_the_loop_s_own_cadence():
+    """Not every loop is weekly; the date is arithmetic on its own period."""
+    fortnightly = cadence.LoopStatus(
+        name="bench", last_run="2026-08-14", cadence_days=14, age_days=1, state="ok"
+    )
+    assert fortnightly.next_due == "2026-08-28"
+
+
+def test_an_empty_window_still_says_when_it_next_comes_due():
+    status = cadence.LoopStatus(
+        name="compound", last_run="2026-08-12", age_days=3, state="ok", vacuous=True
+    )
+    assert status.describe() == "ok, empty (3d, next 2026-08-19)"
+
+
+def test_a_loop_that_needs_running_is_not_given_a_date_instead():
+    """DUE already says what to do; a date beside it competes with the
+    instruction rather than adding to it."""
+    for state in ("due", "overdue"):
+        status = cadence.LoopStatus(
+            name="bench", last_run="2026-08-01", age_days=14, state=state
+        )
+        assert status.describe() == f"{state.upper()} (14d)"
+
+
+def test_a_loop_that_never_ran_states_no_date():
+    status = cadence.LoopStatus(name="sweep", state="never_run")
+    assert status.next_due == ""
+    assert status.describe() == "never run"
+
+
+def test_an_unparseable_last_run_yields_no_date_rather_than_a_guess():
+    status = cadence.LoopStatus(
+        name="bench", last_run="last Tuesday", age_days=1, state="ok"
+    )
+    assert status.next_due == ""
+    assert status.describe() == "ok (1d)"
+
+
+def test_the_date_a_real_assessment_reports_is_the_one_a_reader_can_check(tmp_path):
+    _bench_cases(tmp_path)
+    _bench_result(tmp_path, "2026-08-14")
+    status = cadence.assess(
+        tmp_path, today=dt.date(2026, 8, 15), only=["bench"]
+    ).loops[0]
+    assert status.state == "ok"
+    assert status.next_due == "2026-08-21"

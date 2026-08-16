@@ -4,6 +4,42 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.93.0 — the scoreboard was two runs behind, and nothing noticed
+
+`benchmarks/results/HISTORY.md` says of itself that "the table below is
+authoritative for the headline numbers". It had no row for **run 14 or run
+15**. `save_summary` dual-writes every result file there automatically; the
+table is written by hand, and a hand-maintained ledger has no way to notice
+it is behind. Both runs are now recorded from their result files — run 14
+at build 100% · probes 100% · clean 38% over four cases, run 15 at build
+83% · probes 100% · clean 55% over three of four — and three older rows
+that identified their file as `…0259, reconstructed (full)` now name it in
+full, because an abbreviation nobody can resolve back to a file is not a
+citation.
+
+`tests/test_bench_history.py` is the mechanism: a result file that lands in
+that directory without a row fails the suite, and each row's three rates
+are compared against the file it names (within a point — the table's
+rounding is not consistent, and pinning a convention retroactively would
+mean editing recorded history to satisfy a test).
+
+The table also carries a **comparability break after run 15**. ADR-039
+shipped in v0.89.0 and run 15 ran on 0.88.0, so its 55% clean rate still
+contains the location-keyed dedupe that turned one finding across nine
+files into nine blocking findings against an eight-finding cap. Run 16's
+clean rate is that change first and product quality second, and the note
+says so where the number is read.
+
+**A loop within cadence now states when it next comes due** —
+`ok (1d, next 2026-08-21)` rather than `ok (1d)`. The scheduler wakes daily
+and the loops are weekly; a row that showed the last run, the period and
+the age held the next date only as a sum the reader had to perform, and the
+obvious wrong answer ("it fires every morning, so tomorrow") is six days
+off. Only for loops that need no run: a `DUE` row is already an
+instruction, and a date beside it would compete with it. Loops that never
+ran, or whose recorded date will not parse, state nothing rather than a
+guess.
+
 ## v0.92.0 — a failure must arrive as a fact
 
 Bench run 15's third finding: case 01 lost a task to a build that failed

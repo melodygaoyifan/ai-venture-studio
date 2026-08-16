@@ -137,13 +137,40 @@ class LoopStatus(BaseModel):
         """Overdue or never run — a gate should fail."""
         return self.state in {"overdue", "never_run"}
 
+    @property
+    def next_due(self) -> str:
+        """The date this loop next comes due — stated, not left as arithmetic.
+
+        A row reading `last run 2026-08-14 | cadence 7d | ok (1d)` contains
+        the answer to "so when does it run again?" only as a sum the reader
+        has to perform. A reader who skips the sum sees a scheduler that
+        fires every morning and concludes "tomorrow" — which is how the
+        answer came out six days wrong. The scheduler's daily wake-up and
+        the loop's weekly cadence are different periods, and the row showed
+        neither the second one's consequence.
+
+        Empty when the loop has never run, or when `last_run` is not a date
+        this can add to — a stated date that was guessed is worse than none.
+        """
+        if not self.last_run:
+            return ""
+        try:
+            last = dt.date.fromisoformat(self.last_run)
+        except ValueError:
+            return ""
+        return (last + dt.timedelta(days=self.cadence_days)).isoformat()
+
     def describe(self) -> str:
         if self.state == "never_run":
             return "never run"
         if self.state == "ok":
-            return f"ok, empty ({self.age_days}d)" if self.vacuous else (
-                f"ok ({self.age_days}d)"
-            )
+            # Only when nothing needs doing: that is exactly the state whose
+            # reader asks "when, then?". A due loop is already being told to
+            # run now, and a date beside that would only compete with it.
+            inside = f"{self.age_days}d"
+            if self.next_due:
+                inside += f", next {self.next_due}"
+            return f"ok, empty ({inside})" if self.vacuous else f"ok ({inside})"
         return f"{self.state.upper()} ({self.age_days}d)"
 
 
