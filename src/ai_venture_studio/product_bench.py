@@ -353,9 +353,14 @@ class CaseResult(BaseModel):
 
 class BenchSummary(BaseModel):
     cases: list[CaseResult]
-    build_rate: float
-    probe_pass_rate: float
-    clean_review_rate: float
+    # None when no build-axis case produced the denominator, matching
+    # `CaseResult`'s own convention rather than contradicting it one level
+    # up. `gate_rate` below was already typed this way; these three were the
+    # holdout, and the type is what let a run that measured nothing be read
+    # as a run that scored zero.
+    build_rate: float | None
+    probe_pass_rate: float | None
+    clean_review_rate: float | None
     # Named, not just absent: a rate averaged over 3 of 4 cases and one
     # averaged over 4 are different measurements, and the reader cannot
     # tell them apart from the percentages alone.
@@ -1017,11 +1022,19 @@ def _run_product_bench(
             # re-run, which is the cost of the world before this existed.
             pass
 
-    def _avg(values: list[float | None]) -> float:
+    def _avg(values: list[float | None]) -> float | None:
         # Only cases that produced the denominator count. A case with no
         # data is dropped from that rate, never entered as a zero.
+        #
+        # And when NOTHING produced the denominator, the rate is None — not
+        # 0.0. `CaseResult` has returned None for exactly this since ADR-035;
+        # this function flattened it back to a zero one level up, which is
+        # the same defect the ADR was written about. It matters most in the
+        # path nobody had taken: a run of increment cases only has an empty
+        # build axis, and a 0.0 here is read by `bench_criterion` as a run
+        # that scored zero rather than one that never asked.
         measured = [v for v in values if v is not None]
-        return sum(measured) / len(measured) if measured else 0.0
+        return sum(measured) / len(measured) if measured else None
 
     # The headline three are averaged over BUILD-axis cases only, so the
     # run-13..17 series stays comparable when increment cases are added
@@ -1051,6 +1064,10 @@ def _run_product_bench(
     )
 
 
+def _round_rate(value: float | None) -> float | None:
+    return round(value, 3) if value is not None else None
+
+
 def save_summary(summary: BenchSummary, repo_dir: str | Path) -> Path:
     out_dir = Path(repo_dir) / ".mas" / "product-bench"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1066,9 +1083,13 @@ def save_summary(summary: BenchSummary, repo_dir: str | Path) -> Path:
 
     payload["avs_version"] = __version__
     payload["rates"] = {
-        "build_rate": round(summary.build_rate, 3),
-        "probe_pass_rate": round(summary.probe_pass_rate, 3),
-        "clean_review_rate": round(summary.clean_review_rate, 3),
+        # `null`, not omitted, when the rate had nothing to average: a key
+        # that is present and null says this run considered the rate and
+        # found no denominator, where an absent key is indistinguishable
+        # from a file written before the field existed.
+        "build_rate": _round_rate(summary.build_rate),
+        "probe_pass_rate": _round_rate(summary.probe_pass_rate),
+        "clean_review_rate": _round_rate(summary.clean_review_rate),
         # The denominator travels with the numbers into the series the kill
         # criterion reads — "75%" over three of four cases is not the same
         # reading as "75%" over four, and a later reader has only this file.

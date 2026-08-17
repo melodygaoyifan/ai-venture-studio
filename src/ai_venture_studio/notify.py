@@ -264,10 +264,15 @@ def bench_alert(
 
     Typed loosely on the summary for the same reason `build_alert` is.
     """
+    # "not measured", never 0% — a rate with no denominator in an alert is
+    # the reader's worst case: they act on a number nothing produced.
+    def _rate(value) -> str:
+        return f"{value:.0%}" if value is not None else "not measured"
+
     rates = (
-        f"build {summary.build_rate:.0%} · probes "
-        f"{summary.probe_pass_rate:.0%} · clean reviews "
-        f"{summary.clean_review_rate:.0%}"
+        f"build {_rate(summary.build_rate)} · probes "
+        f"{_rate(summary.probe_pass_rate)} · clean reviews "
+        f"{_rate(summary.clean_review_rate)}"
     )
     unmeasured = list(getattr(summary, "unmeasured", []) or [])
     cases = list(getattr(summary, "cases", []) or [])

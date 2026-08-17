@@ -1513,10 +1513,18 @@ def product_bench(
         f" (over {summary.cases_measured} of {summary.cases_total} cases)"
         if summary.unmeasured else ""
     )
+    # Same idiom as the increment gate below: a rate with no denominator
+    # prints as "not measured", never as 0%.
+    def _rate(value: float | None) -> str:
+        return (
+            f"[bold]{value:.0%}[/bold]" if value is not None
+            else "[bold]not measured[/bold]"
+        )
+
     console.print(
-        f"build rate [bold]{summary.build_rate:.0%}[/bold] · "
-        f"probe pass [bold]{summary.probe_pass_rate:.0%}[/bold] · "
-        f"clean reviews [bold]{summary.clean_review_rate:.0%}[/bold]{scope}"
+        f"build rate {_rate(summary.build_rate)} · "
+        f"probe pass {_rate(summary.probe_pass_rate)} · "
+        f"clean reviews {_rate(summary.clean_review_rate)}{scope}"
     )
     # The increment axis is reported on its own line, never folded into the
     # three above: it has its own cases and its own denominator, and a

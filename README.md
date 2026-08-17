@@ -211,7 +211,7 @@ is in [claims/platform.yaml](claims/platform.yaml).
 - **Perf-lane calibration**: 5 of 5 seeded defects caught (catch rate 100%)
   at the 3x relative-detection factor, loopback low-parity environment,
   2026-07-26 ([manifest](benchmarks/perf_seeded/calibration.yaml)).
-- **2206 hermetic tests** (`uv run pytest`, no network, no keys); every PR
+- **2219 hermetic tests** (`uv run pytest`, no network, no keys); every PR
   in this repo was reviewed by avs itself, and five of those reviews caught
   real bugs.
 - **A hermetic suite is not enough, and this repo says so.** Twelve real
@@ -461,6 +461,16 @@ cause it
 ([ADR-043](docs/adr/043-a-case-is-measured-or-it-is-not.md)). The build
 rate's comparability breaks here; run 17 is the first number on the new
 denominator.
+
+**Run 16 is the newest reading, and it is not a reading of this build.** It
+ran on v0.93.0. Everything since — ADR-044 through ADR-053 — is unmeasured
+by this series: run 17 fired early on 2026-08-17, measured one case, and
+lost the account to credit exhaustion mid-way through the second
+([ADR-052](docs/adr/052-a-measurement-is-bought-once.md) is what came of
+that). So the rates above are true and they are stale, and the two are not
+the same complaint. Every bench claim in `claims/platform.yaml` now names
+the build that produced it, so the gap is visible from the claim rather
+than only from the result file.
 
 ---
 

@@ -111,7 +111,14 @@ def load_runs(repo_dir: str | pathlib.Path) -> list[BenchRun]:
             continue
         if not isinstance(data, dict):
             continue
-        if "build_rate" not in data or "probe_pass_rate" not in data:
+        # Absent OR null. A run whose build axis was empty writes the keys
+        # with `null` (a rate over no cases is not a rate), and such a run
+        # must not reach `below_floor` — it made no claim about build
+        # capability, and reading it as 0% would advance the streak toward a
+        # criterion that asks a human to consider killing the project. The
+        # null case used to be caught only by `float(None)` raising into the
+        # handler below, which is accidental correctness, not a rule.
+        if data.get("build_rate") is None or data.get("probe_pass_rate") is None:
             continue
         rates = data.get("rates") if isinstance(data.get("rates"), dict) else {}
         try:

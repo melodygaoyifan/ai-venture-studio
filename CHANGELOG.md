@@ -4,6 +4,63 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.102.0 — a rate over no cases is not a rate
+
+Found while pricing a cheaper alternative to a full five-case bench run:
+run only the increment case, pay ~2h instead of ~5h, and get the `gate_rate`
+that has never been measured. That run is well-formed — but its build axis is
+empty, and `_avg([])` returned `0.0` rather than `None`.
+
+Which meant it would have been recorded as `build_rate: 0.0,
+probe_pass_rate: 0.0`, entered the capability ledger `bench_criterion` reads
+(`save_summary` dual-writes to `benchmarks/results/` automatically), come out
+**below floor**, and left the project one run from firing a criterion whose
+consequence is a human decision at Gate PL5 about whether to continue — over
+a run that never asked whether anything builds. `cadence._bench_rates` would
+have reported it as a flat, unqualified "build 0%, probes 0%", because its
+"over N of M cases" qualifier only appears when `measured < total` and `0 < 0`
+is false.
+
+This is ADR-035's rule broken one level above where ADR-035 enforced it.
+`CaseResult.build_rate` has returned `None` for a case with no denominator
+since that record; `BenchSummary` was typed `float` and flattened it back to a
+zero. `gate_rate` was already `float | None` for exactly this reason.
+
+- `_avg` returns `None` for an empty set; `BenchSummary`'s three headline
+  rates are `float | None`; the saved file writes `null`, not an omitted key
+  (an absent key is indistinguishable from a pre-field file, and the tracked
+  scoreboard holds reconstructions back to run 4).
+- `bench_criterion.load_runs` and `cadence._bench_rates` check for null
+  explicitly. Both were already correct — but only because `float(None)`
+  raises `TypeError` into a handler written for malformed files. Accidental
+  correctness is not protected by anything.
+- A rate with no denominator prints as "not measured" in the CLI table and in
+  the alert, the idiom `gate_rate` already used four lines away.
+- Floors, streak length and `below_floor` are untouched. What changes is which
+  runs are eligible to be judged, never the judgement.
+- Every bench claim in `claims/platform.yaml` now names the build that
+  produced it (run 13 = v0.83.0, 14 = v0.86.0, 15 = v0.88.0, 16 = v0.93.0),
+  and PC-17, README and `benchmarks/results/HISTORY.md` record that run 16 is
+  the newest reading and is **not** a reading of this build: the 16 → 17 gap
+  spans eight releases, so ADR-044 through ADR-053 all move at once and no
+  single record can be credited or blamed for the delta.
+- Every aggregate in `src/` that divides by a count was audited for the same
+  shape, the way ADR-050 followed ADR-048. Nine were already safe and mostly
+  safe on purpose; one was not. `product/loop_metrics.py` returned `0.0` from
+  `evidence_quality_ratio` for a stage with no claims and from
+  `hypothesis_resolution_rate` for a loop with no hypotheses — while
+  `kill_rate` and `attention_cost_per_resolved_hypothesis`, in the same file,
+  returned `None` and said why. Both now return `None`. Both defects sit one
+  layer *above* per-item code that already got it right, which is the finding.
+
+`tests/test_empty_axis_is_not_a_zero.py`, 13 tests in three groups. The
+second group is the one that matters — a fix that blinded the criterion would
+be worse than the defect: a case that built nothing still scores a real `0.0`,
+a genuine 0% still fires the floor, and a mixed run keeps the build rate it
+earned. 5 of the first 9 fail against the deployed 0.101.0 as a control; the 4
+that pass are that group plus the cadence check this makes explicit. No
+historical rate moves — every run 1–17 had at least one build case.
+
 ## v0.101.0 — a measurement is bought once
 
 Run 17 measured one bench case over 3438 seconds of real spend, lost its

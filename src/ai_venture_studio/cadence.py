@@ -436,6 +436,11 @@ def _bench_rates(path: str) -> str:
         return ""
     if not isinstance(data, dict):
         return ""
+    # A rate over no cases is null, not zero (ADR-053). Saying nothing is
+    # the right report for a run with an empty build axis — "build 0%,
+    # probes 0%" would be this module deciding something it did not measure.
+    if data.get("build_rate") is None or data.get("probe_pass_rate") is None:
+        return ""
     try:
         build = float(data["build_rate"])
         probes = float(data["probe_pass_rate"])

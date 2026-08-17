@@ -19,32 +19,48 @@ _STRONG_TYPES = frozenset({"primary_measured", "primary_cited"})
 
 
 class LoopMetrics(BaseModel):
-    evidence_quality_ratio: dict[str, float]  # by stage; watch the trend
-    hypothesis_resolution_rate: float
+    # Every rate here is None when its denominator was empty, never 0.0
+    # (ADR-053). `kill_rate` and `attention_cost_per_resolved_hypothesis`
+    # were written this way from the start and say why; the two above them
+    # were not, in the same file, for the same kind of number.
+    evidence_quality_ratio: dict[str, float | None]  # by stage; watch the trend
+    hypothesis_resolution_rate: float | None
     decision_latency_days: dict[str, float]  # per gate
     kill_rate: float | None  # None until anything was decided at PL5
     attention_cost_per_resolved_hypothesis: float | None
 
 
-def evidence_quality_ratio(ledgers_by_stage: dict[str, dict]) -> dict[str, float]:
+def evidence_quality_ratio(ledgers_by_stage: dict[str, dict]) -> dict[str, float | None]:
     """Share of claims that are primary_measured or primary_cited, by
-    stage — the outer loop's analogue of test coverage."""
-    ratios = {}
+    stage — the outer loop's analogue of test coverage.
+
+    A stage with no claims scores None. It has no evidence quality either
+    way, and 0.0 would read as "every claim in this stage is weak" about a
+    stage that made none — the reading this metric exists to make possible.
+    """
+    ratios: dict[str, float | None] = {}
     for stage, ledger in sorted(ledgers_by_stage.items()):
         claims = [c for c in ledger.get("claims") or [] if isinstance(c, dict)]
         if not claims:
-            ratios[stage] = 0.0
+            ratios[stage] = None
             continue
         strong = sum(1 for c in claims if c.get("source_type") in _STRONG_TYPES)
         ratios[stage] = strong / len(claims)
     return ratios
 
 
-def hypothesis_resolution_rate(verdicts: list[HypothesisVerdict]) -> float:
+def hypothesis_resolution_rate(verdicts: list[HypothesisVerdict]) -> float | None:
     """Falsified-or-confirmed ÷ total open, per loop. A loop that resolves
-    nothing is a ratchet."""
+    nothing is a ratchet.
+
+    None when there were no hypotheses — which is exactly why: the docstring
+    above is an indictment, and a loop that has not opened one yet has not
+    earned it. `kill_rate` next door already draws this line ("a stated rate
+    near zero over many loops is itself the finding"), and a near-zero rate
+    can only be a finding if zero-from-nothing cannot reach it.
+    """
     if not verdicts:
-        return 0.0
+        return None
     resolved = sum(1 for v in verdicts if v.verdict in ("supported", "not_supported"))
     return resolved / len(verdicts)
 

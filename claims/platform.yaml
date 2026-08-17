@@ -3,10 +3,10 @@
 # the hermetic suite enforces it (tests/test_editions_platform.py).
 claims:
   - id: PC-1
-    text: "2206 hermetic tests pass via uv run pytest at the current tag"
+    text: "2219 hermetic tests pass via uv run pytest at the current tag"
     kind: demand
     source_type: primary_measured
-    n: 2206
+    n: 2219
     evidence:
       - {method: pytest_run, locator: "repo://tests (uv run pytest)",
          retrieved_at: "2026-08-17T02:40:00Z"}
@@ -120,7 +120,7 @@ claims:
          retrieved_at: "2026-08-01T21:30:00Z"}
     falsifier: "fewer than twelve distinct defects traceable to those entries, or none of them at the provider/SDK boundary"
   - id: PC-14
-    text: "product benchmark, real cases run 13 (2026-08-13, n=4 cases, all four measured): build 94%, probe pass 92%, clean review 75%"
+    text: "product benchmark, real cases run 13 (2026-08-13, v0.83.0, n=4 cases, all four measured): build 94%, probe pass 92%, clean review 75%"
     kind: demand
     source_type: primary_measured
     n: 4
@@ -129,7 +129,7 @@ claims:
          retrieved_at: "2026-08-13T08:37:00Z"}
     falsifier: "the preserved run-13 result containing different rates, or a cases_measured below its cases_total"
   - id: PC-15
-    text: "product benchmark, real cases run 14 (2026-08-14, n=4 cases, all four measured): build 100%, probe pass 100%, clean review 38%"
+    text: "product benchmark, real cases run 14 (2026-08-14, v0.86.0, n=4 cases, all four measured): build 100%, probe pass 100%, clean review 38%"
     kind: demand
     source_type: primary_measured
     n: 4
@@ -138,7 +138,7 @@ claims:
          retrieved_at: "2026-08-14T01:39:00Z"}
     falsifier: "the preserved run-14 result containing different rates, or a cases_measured below its cases_total"
   - id: PC-16
-    text: "product benchmark, real cases run 15 (2026-08-14, n=3 of 4 cases measured — 04-direction-workbench never ran, excluded not scored zero): build 83%, probe pass 100%, clean review 55%"
+    text: "product benchmark, real cases run 15 (2026-08-14, v0.88.0, n=3 of 4 cases measured — 04-direction-workbench never ran, excluded not scored zero): build 83%, probe pass 100%, clean review 55%"
     kind: demand
     source_type: primary_measured
     n: 3
@@ -147,7 +147,7 @@ claims:
          retrieved_at: "2026-08-14T07:02:00Z"}
     falsifier: "the preserved run-15 result containing different rates, or a cases_measured other than the 3 of 4 this claim names"
   - id: PC-17
-    text: "product benchmark, real cases run 16 (2026-08-16, n=3 of 4 cases measured — 02-shortener-api produced no plan and is excluded): build 100%, probe pass 75%, clean review 31%"
+    text: "product benchmark, real cases run 16 (2026-08-16, v0.93.0, n=3 of 4 cases measured — 02-shortener-api produced no plan and is excluded): build 100%, probe pass 75%, clean review 31%"
     kind: demand
     source_type: primary_measured
     n: 3
@@ -165,3 +165,12 @@ claims:
       is build 75%, probes 75%, clean 31% over 4 of 4 cases. ADR-043 makes
       measured one per-case decision; the recorded numbers above are not
       rewritten, and run 17 is the first comparable build rate.
+
+      CURRENCY: this is the newest bench reading and it is NOT a reading of
+      the current build. Run 16 ran on v0.93.0; every release since —
+      ADR-044 through ADR-053 — is unmeasured by this series, because run 17
+      aborted on credit exhaustion (2026-08-17) after measuring one case.
+      Nothing here is wrong; what would be wrong is reading it as the state
+      of today's system. The claim ids carry the build for exactly this
+      reason, and a reader comparing run 17 to run 16 is comparing across
+      that whole span, not across one release.
