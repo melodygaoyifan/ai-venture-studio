@@ -102,7 +102,11 @@ product already has.
   `benchmarks/products-real`. The nightly series is what run 17 uses to
   measure ADR-044; changing its denominator in the same release would put two
   changes in one run and make neither readable. The real-series case is worth
-  authoring, after run 17 reports.
+  authoring, after run 17 reports. **Authored in ADR-049** —
+  `05-increment-repairs` carries `axis: increment`, so it does not change this
+  series' denominator at all: the four build-axis cases stay the whole of it,
+  and the gate is scored separately. 0.98.0 is deployed after run 17 for the
+  same one-change-per-run reason this paragraph gives.
 - **A second model call to double-check the first.** The stakes are asymmetric
   and already handled: a false `extends` costs one redundant feature that the
   reviewer may catch, while a false `duplicate` blocks real work — which is
