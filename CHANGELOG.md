@@ -4,6 +4,75 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.94.0 — a case is measured or it is not
+
+Bench run 16 reported **build 100% · probes 75% · clean 31% over 3 of 4
+cases** and closed with the line the harness prints for every exclusion:
+*excluded from the rates above, not scored as zero*. That sentence was true
+of two rates out of three, and the third rate was the headline.
+
+`02-shortener-api` planned for 6.4 minutes, revised twice, came back with
+no tasks, and was named in `unmeasured`. Its two probes ran anyway —
+against a workspace with no product in it — and entered the probe average
+as a real `0.0`. Exclusion was decided per *rate* (`unmeasured` came from
+`build_rate is None`; each rate averaged whatever it happened to have), so
+one summary could exclude a case from two rates and count it in the third.
+This is run 12's error, in the same file, after ADR-035 was written to fix
+it.
+
+**The larger half is wrong the other way, and it moves the headline.** Case
+02 did not crash — it ran, and the machine failed to produce a product.
+ADR-035 already said in words what that is worth ("a case that ran and
+built nothing still scores a real 0.0"); the code read `tasks_total == 0`
+as "no denominator". So `build 100%` was the rate over the cases that got a
+plan, not over the cases that were asked for a product. **Read honestly,
+run 16 is `build 75% · probes 75% · clean 31%` over 4 of 4.** Its recorded
+numbers are not rewritten; `HISTORY.md` and PC-17 carry the corrected
+reading beside them, and the build rate's comparability breaks at run 17.
+
+`measured` is now one decision on the case — `not
+autopilot_status.startswith("error")`, only the harness dying counts — and
+every rate reads it. `clean_review_rate` stays `None` when nothing was
+built: unlike the build rate it has no denominator to be a zero *of*, and
+entering it as 0.0 would charge the same failure twice.
+
+Two defects follow from the same run, and they are what keep the new `0.0`
+from being an unexplained zero:
+
+- **A blocked plan carried no reason.** `run_planning` came back `blocked`
+  and the autopilot turned that into `status="failed"` and nothing else —
+  six minutes, no product, the single word *failed*. The cause was on disk
+  in `product/plan.yaml` the whole time. Worse, the parse branch in
+  `plan.py` kept only `type(exc).__name__`: a `ScannerError` carrying
+  "line 3, column 9: expected alphabetic or numeric character but found
+  '*'" reached the revision prompt as the word `ScannerError`, so the model
+  was asked to fix a break it was never shown, and failed the same way
+  twice. `AutopilotResult.blocked_reason` is now set at every failed
+  return, travels into `CaseResult.failure_reason` and the result YAML, and
+  the CLI prints one line per case that produced nothing.
+- **Three of eleven rejections were not about the code.** `01-t4`, `03-t3`
+  and `04-t6` had nothing but LOW findings — a severity that cannot block.
+  They were rejected by `leader.synthesize`'s *other* trigger, two voters
+  that returned no verdict, and the row beside them named the low findings
+  instead. Every one of those rows also carried an empty
+  `blocking_by_voter`, so the evidence was in the record and the sentence a
+  person reads said something else. A non-clean detail now names the silent
+  voters and states whether they merely contributed to the rejection or
+  *are* it.
+
+The mechanisms are two test files that pin invariants rather than run 16's
+instance: `tests/test_unmeasured_is_one_decision.py` asserts an excluded
+case is excluded from every rate over three crash shapes and that
+`unmeasured` equals the cases whose own decision says so;
+`tests/test_a_refusal_names_its_own_cause.py` walks `autopilot.py`'s AST
+and rejects any `AutopilotResult(status="failed")` without a
+`blocked_reason`, so a fourth failure site cannot be added silently, and
+checks the revision prompt against the exception the fixture actually
+raises rather than a hard-coded message.
+
+ADR-043. No product or case was changed: the case is fair and the failure
+was real.
+
 ## v0.93.0 — the scoreboard was two runs behind
 
 `benchmarks/results/HISTORY.md` says of itself that "the table below is

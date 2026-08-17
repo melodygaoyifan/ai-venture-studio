@@ -3,13 +3,13 @@
 # the hermetic suite enforces it (tests/test_editions_platform.py).
 claims:
   - id: PC-1
-    text: "2032 hermetic tests pass via uv run pytest at the current tag"
+    text: "2049 hermetic tests pass via uv run pytest at the current tag"
     kind: demand
     source_type: primary_measured
-    n: 2032
+    n: 2049
     evidence:
       - {method: pytest_run, locator: "repo://tests (uv run pytest)",
-         retrieved_at: "2026-08-15T10:10:00Z"}
+         retrieved_at: "2026-08-17T05:40:00Z"}
     falsifier: "the suite collecting or passing a different count at this tag"
   - id: PC-2
     text: "review benchmark: recall 100%, precision 67% on 13 labeled cases against bars of 40% and 50%"
@@ -156,9 +156,12 @@ claims:
          retrieved_at: "2026-08-16T06:12:00Z"}
     falsifier: "the preserved run-16 result containing different rates, or a cases_measured other than the 3 of 4 this claim names"
     note: >-
-      The 75% is the file's recorded value and is read against a denominator
-      of four: the excluded case's two probes failed against a product that
-      was never built and were averaged in as 0.0, because `unmeasured` is
-      derived per-rate rather than per-case. Over the three measured cases
-      probes were 16/16. HISTORY.md carries the corrected reading beside the
-      row; the recorded number is not rewritten.
+      These are the file's recorded values and they are internally
+      inconsistent: `unmeasured` is derived per-rate rather than per-case, so
+      02-shortener-api was dropped from build and clean while its two probes
+      — run against a product that was never built — were averaged in as
+      0.0. The exclusion itself was the error: the case ran and produced
+      nothing, which ADR-035 already calls a real 0.0. Read honestly the run
+      is build 75%, probes 75%, clean 31% over 4 of 4 cases. ADR-043 makes
+      measured one per-case decision; the recorded numbers above are not
+      rewritten, and run 17 is the first comparable build rate.

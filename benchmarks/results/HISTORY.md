@@ -58,26 +58,28 @@ for the headline numbers.
 > (`_avg`, :461–471) — so the case was dropped from build and clean, and its
 > probes were kept: two probes ran against a product that was never built,
 > failed `AssertionError: no runnable entry point`, and entered the average
-> as a real `0.0`. Over the three cases actually measured the run scored
-> **build 100% · probes 100% · clean 31%**. Those probes measured nothing
-> about any product's behaviour; they measured the absence of a product,
-> which is what the exclusion already says.
+> as a real `0.0`. A case that is unmeasured is unmeasured in *every* rate;
+> this is **run 12's error, in the same file, after the ADR written to fix
+> it**, because ADR-035 asked "did this case produce a denominator?" and a
+> case's probe list produces one whether or not there is anything to run it
+> against.
 >
-> This is **run 12's error, in the same file, after the ADR written to fix
-> it**. ADR-035 asked "did this case produce a denominator?" — and a case's
-> probe list produces a denominator whether or not there is anything to run
-> it against. A case that is unmeasured is unmeasured in *every* rate.
+> **But the fix is not to drop the probes — it is to stop excluding the
+> case.** Case 02 was not a crash: it planned for 6.4 minutes and
+> `run_planning` came back `blocked`, which `autopilot.py:302` turns into
+> `status="failed"` **carrying no reason at all** — the same shape as
+> ADR-041's empty spec and ADR-042's banner art, one stage further up. Zero
+> tasks then read as "never ran", so a case where the machine produced no
+> product at all was excluded from the build rate rather than scoring the
+> `0.0` ADR-035 explicitly reserves for exactly that ("a case that ran and
+> built nothing still scores a real 0.0"). Its two probes failing were
+> *correct*: there was no product, and that is a fact about the run.
 >
-> **And the other half is wrong the other way.** Case 02 was not a crash: it
-> planned for 6.4 minutes and `run_planning` came back `blocked`, which
-> `autopilot.py:302` turns into `status="failed"` **carrying no reason at
-> all** — the same shape as ADR-041's empty spec and ADR-042's banner art,
-> one stage further up. Zero tasks then reads as "never ran", so a case where
-> the machine produced no product at all is excluded from the build rate
-> rather than scoring the `0.0` ADR-035 explicitly reserves for exactly that
-> ("a case that ran and built nothing still scores a real 0.0"). **Build
-> 100% is therefore the rate over the cases that got a plan, not over the
-> cases that were asked for a product.**
+> **The honest reading of run 16 is `build 75% · probes 75% · clean 31%`
+> over 4 of 4 cases** — 100% was the rate over the cases that got a plan,
+> not over the cases that were asked for a product. Under ADR-043 the run
+> would have reported those numbers with case 02 named as a 0.0 that says
+> why, and `unmeasured` empty.
 
 > **Run 16, the three rejections that were not about the code.** `01-t4`
 > (`1 low — B310: blacklist`), `03-t3` (`1 low`) and `04-t6` (`2 low`) were

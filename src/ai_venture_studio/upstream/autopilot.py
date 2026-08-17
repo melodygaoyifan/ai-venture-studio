@@ -117,6 +117,14 @@ class AutopilotResult(BaseModel):
     outcomes: list[TaskOutcome] = Field(default_factory=list)
     report_path: str = ""
     auto_approvals: list[str] = Field(default_factory=list)
+    #: WHY a `failed` run failed, in the run's own words. `status` alone
+    #: cannot tell a planner whose output would not parse from a scope lock
+    #: from a model that ran out of budget, and every one of those returned
+    #: the bare string "failed" — the caller then reported a case that
+    #: produced nothing and could say nothing about it (ADR-043). Empty on
+    #: any status that is not a failure, and on results built before it
+    #: existed.
+    blocked_reason: str = ""
 
 
 #: Section headings for the confirmation, per language. They are shown to
@@ -213,7 +221,8 @@ def run_autopilot(
     try:
         locked = None if replan else reusable_plan(root, fdr_text)
     except ScopeLocked as exc:
-        return AutopilotResult(status="failed", confirmation=str(exc))
+        return AutopilotResult(status="failed", confirmation=str(exc),
+                               blocked_reason=f"scope locked: {exc}")
     if replan:
         auto_approvals.append(
             "Gate U2: --replan given — the locked plan (if any) is discarded "
@@ -301,6 +310,12 @@ def run_autopilot(
         return AutopilotResult(
             status="failed", assessment=assessment,
             confirmation=confirmation, auto_approvals=auto_approvals,
+            # `dag_check` wrote down what was wrong and this line threw it
+            # away, so a run that spent six minutes and produced no product
+            # reported the single word "failed". The reason was on disk in
+            # `product/plan.yaml` the whole time.
+            blocked_reason="planning blocked: "
+            + ("; ".join(plan.dag_issues) or "dag_check gave no reason"),
         )
     approve_plan(root)
     auto_approvals.append("Gate U2 (scope lock): auto — dag_check passed")
@@ -1141,7 +1156,10 @@ def review_and_repair(
     # stage over: a reviewer rejecting everything correctly and one rejecting
     # everything spuriously produce byte-identical records.
     if verdict not in CLEAN_VERDICT_VALUES:
-        why = _findings_summary(final_review.findings if final_review else [])
+        why = " ".join(filter(None, (
+            _blocked_voter_note(final_review),
+            _findings_summary(final_review.findings if final_review else []),
+        )))
         if why:
             detail = (detail + " " if detail else "") + why
     return verdict, detail, approvals, _blocking_by_voter(final_review)
@@ -1165,6 +1183,40 @@ def _blocking_by_voter(review) -> dict[str, int]:
         if f.severity in ACTIONABLE_SEVERITIES
     )
     return dict(counts.most_common())
+
+
+def _blocked_voter_note(review) -> str:
+    """A REVIEWER THAT NEVER ANSWERED IS A REASON, AND THE ROW MUST SAY SO.
+
+    `leader.synthesize` rejects on two triggers, not one: a finding at an
+    actionable severity, **or** `len(blocked) == 2` — two voters whose
+    status came back anything but OK. Nothing downstream knew about the
+    second one. So a task whose every finding was LOW — a severity that
+    cannot block on its own — reached the scoreboard as REQUEST_CHANGES
+    with `[review: 1 low — B310: blacklist]` beside it, naming the finding
+    that did not reject it and omitting the two reviewers that did.
+
+    Run 16 had three of those in eleven rejections: three tasks that would
+    otherwise have been clean, charged to the products. The tell was there
+    to read — all three rows carry no `blocking_by_voter` at all — but the
+    sentence a person actually reads said something else. That is the exact
+    failure ADR-037's detail line was added to end, so this is that fix
+    finished rather than a new one.
+    """
+    blocked = list(getattr(review, "blocked_voters", None) or [])
+    if not blocked:
+        return ""
+    # Whether these voters merely contributed to the rejection or ARE the
+    # rejection is knowable, so state which. Without the distinction a
+    # reader has to re-derive the leader's trigger order from the findings.
+    decisive = not any(
+        f.severity in ACTIONABLE_SEVERITIES for f in (review.findings or [])
+    )
+    return (
+        f"[{len(blocked)} voter(s) returned no verdict: {', '.join(blocked)}"
+        + (" — this is what rejected the task, not the findings below]"
+           if decisive else "]")
+    )
 
 
 def _findings_summary(findings, limit: int = 3, width: int = 240) -> str:
@@ -1462,7 +1514,8 @@ def run_feature(
     issues = dag_check(tasks)
     if issues:
         return AutopilotResult(status="failed", assessment=assessment,
-                               confirmation=f"plan dag_check failed: {issues}")
+                               confirmation=f"plan dag_check failed: {issues}",
+                               blocked_reason=f"planning blocked: {issues}")
     (feature_dir / "plan.yaml").write_text(
         yaml.safe_dump([t.model_dump() for t in tasks], sort_keys=False, allow_unicode=True),
         encoding="utf-8",

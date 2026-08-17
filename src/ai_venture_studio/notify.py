@@ -290,7 +290,15 @@ def bench_alert(
     for case in cases:
         status = str(getattr(case, "autopilot_status", "") or "")
         if status and status != "completed":
-            lines.append(f"  `{getattr(case, 'name', '?')}` — {error_tail(status, 200)}")
+            # `failed` is a category. The pipeline knows the fact and used to
+            # drop it here too: run 16's case 02 would have been announced as
+            # "`02-shortener-api` — failed", six minutes and no product, with
+            # the planner's parse error left on disk (ADR-043).
+            why = str(getattr(case, "failure_reason", "") or "")
+            lines.append(
+                f"  `{getattr(case, 'name', '?')}` — {error_tail(status, 200)}"
+                + (f": {why[:200]}" if why else "")
+            )
     if saved:
         lines.append(f"  saved: `{saved}`")
     flag = "⚠ " if (unmeasured or concern) else ""

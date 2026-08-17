@@ -433,14 +433,25 @@ def run_planning(
             # model that answered in prose, and the plan is where ~42% of MAS
             # failures enter.
             opening = " ".join(str(raw).split())[:160]
+            # THE PARSER SAID WHERE IT BROKE AND WE KEPT ONLY THE WORD FOR
+            # WHAT KIND OF BREAK IT WAS. A yaml ScannerError carries "line 3,
+            # column 9: expected alphabetic or numeric character but found
+            # '*'"; `type(exc).__name__` reduces that to "ScannerError", and
+            # the revision prompt then asked the model to fix something it
+            # was never shown. Run 16's case 02 revised twice on this
+            # feedback, failed to parse both times, and cost the run a whole
+            # product — the same shape as ADR-041 (the writer never told what
+            # was wrong with its answer) and ADR-042 (a cause recorded as
+            # decoration instead of a fact).
+            why = " ".join(str(exc).split())[:200]
             feedback = (
-                f"Your previous response failed to parse ({type(exc).__name__}). "
-                "Respond with ONLY the YAML schema given, double-quoting every "
-                "string value."
+                f"Your previous response failed to parse. {type(exc).__name__}: "
+                f"{why}. Fix that exact problem. Respond with ONLY the YAML "
+                "schema given, double-quoting every string value."
             )
             tasks, dag_issues, critics = [], [
-                f"unparseable planner output ({type(exc).__name__}); response "
-                f"began: {opening!r}"
+                f"unparseable planner output ({type(exc).__name__}: {why}); "
+                f"response began: {opening!r}"
             ], []
             continue
         for task in tasks:

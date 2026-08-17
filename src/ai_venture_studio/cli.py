@@ -1309,6 +1309,15 @@ def product_bench(
             concern=bench_criterion.concern(repo_dir),
             movement=bench_criterion.movement(repo_dir),
         ))
+    # A case that RAN and produced nothing scores a real 0.0 (ADR-035/043),
+    # so it never appears in `unmeasured` and the rate is all anyone sees.
+    # The rate says how badly; only this says why, and the pipeline knew.
+    for case in summary.cases:
+        if case.measured and case.failure_reason:
+            console.print(
+                f"[yellow]{case.name} produced nothing and scores 0.0 — "
+                f"{case.failure_reason}[/yellow]"
+            )
     if summary.unmeasured:
         # Not a capability finding — the harness broke, and nothing else
         # will say so. The rates above are honest about their scope and

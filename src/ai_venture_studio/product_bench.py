@@ -124,18 +124,54 @@ class CaseResult(BaseModel):
     preserved_workspace: str = ""
     probes: list[ProbeResult] = Field(default_factory=list)
     duration_s: float = 0.0
+    #: Why this case produced nothing, when it ran and produced nothing.
+    #: The rate says how badly; only this says why, and without it a 0.0
+    #: from a refused plan is indistinguishable from a 0.0 from a pipeline
+    #: that tried everything (ADR-043). Empty on cases that built.
+    failure_reason: str = ""
 
-    # Each rate is None when the case produced no denominator for it — a
-    # case that crashed before planning has no build rate, and averaging a
-    # 0.0 in its place records "the machine failed" where the truth is "we
-    # did not measure". The kill criterion reads these averages, so that
-    # substitution lets an infrastructure crash fire a capability verdict.
+    # WHETHER A CASE WAS MEASURED IS ONE DECISION, MADE HERE, READ BY EVERY
+    # RATE. It used to be made per rate — `unmeasured` was derived from
+    # `build_rate is None` while each rate averaged independently — so one
+    # summary could exclude a case from two rates and count it in the third.
+    # Run 16 did exactly that: `02-shortener-api` was named as excluded and
+    # its two probes were averaged in as a real 0.0 anyway.
+    @property
+    def measured(self) -> bool:
+        """Did the pipeline get to answer at all?
+
+        No only when the harness itself died — `run_product_bench` records
+        `error: <Type>: ...` for that, and a crash (a provider 529, a hung
+        suite) says nothing about whether the machine can build software.
+
+        A case that RAN and produced nothing IS measured, and scores zero.
+        ADR-035 said so in words — "a case that ran and built nothing still
+        scores a real 0.0" — and the code disagreed with it for any case
+        that decomposed to no tasks at all: `tasks_total` 0 read as "no
+        denominator" rather than as the failure it is. Run 16's case 02
+        planned for six minutes, came back with no tasks, and was dropped
+        from the build rate, which then reported 100% for a run that was
+        asked for four products and delivered three.
+        """
+        return not self.autopilot_status.startswith("error")
+
     @property
     def build_rate(self) -> float | None:
-        return self.tasks_built / self.tasks_total if self.tasks_total else None
+        if not self.measured:
+            return None
+        # No tasks is not "no denominator". The founder asked for a product
+        # and the pipeline produced nothing to build — the most complete
+        # build failure available.
+        return self.tasks_built / self.tasks_total if self.tasks_total else 0.0
 
     @property
     def probe_pass_rate(self) -> float | None:
+        if not self.measured:
+            return None
+        # A measured case that declares no probes has no probe denominator
+        # — the instrument is absent, which is not the same as the case
+        # being excluded. `probegen` failing to produce any appends a
+        # failing probe rather than reaching here (see run_case).
         return (
             sum(1 for p in self.probes if p.passed) / len(self.probes)
             if self.probes
@@ -144,6 +180,12 @@ class CaseResult(BaseModel):
 
     @property
     def clean_review_rate(self) -> float | None:
+        if not self.measured:
+            return None
+        # Deliberately NOT the zero that build_rate now returns: a case that
+        # built nothing has no review to be clean, and the failure is already
+        # fully counted one column left. Pinned by
+        # `test_a_real_zero_is_still_a_zero`.
         return self.clean_reviews / self.tasks_built if self.tasks_built else None
 
 
@@ -373,6 +415,11 @@ def run_case(
             tasks_total=len(result.outcomes),
             tasks_built=len(built),
             clean_reviews=len(clean),
+            # The pipeline knows why it stopped; the scoreboard used to be
+            # the place that forgot. Run 16's case 02 came back `failed`
+            # with no tasks, and the reason — the planner's output would not
+            # parse, twice — was sitting in `product/plan.yaml` unread.
+            failure_reason=result.blocked_reason,
             # 200 chars cut the diagnosis mid-word in the scoreboard ("does not
             # match any EAR"), and the row is the durable record of the run —
             # the workspace it points at is gitignored and has been lost before.
@@ -469,7 +516,10 @@ def _run_product_bench(
         build_rate=_avg([r.build_rate for r in results]),
         probe_pass_rate=_avg([r.probe_pass_rate for r in results]),
         clean_review_rate=_avg([r.clean_review_rate for r in results]),
-        unmeasured=[r.name for r in results if r.build_rate is None],
+        # Read from the case's own one decision, never re-derived from a
+        # rate — deriving it from `build_rate is None` is what let the list
+        # disagree with the averages it was describing.
+        unmeasured=[r.name for r in results if not r.measured],
     )
 
 

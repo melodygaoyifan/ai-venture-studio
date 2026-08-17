@@ -195,7 +195,7 @@ is in [claims/platform.yaml](claims/platform.yaml).
 - **Perf-lane calibration**: 5 of 5 seeded defects caught (catch rate 100%)
   at the 3x relative-detection factor, loopback low-parity environment,
   2026-07-26 ([manifest](benchmarks/perf_seeded/calibration.yaml)).
-- **2032 hermetic tests** (`uv run pytest`, no network, no keys); every PR
+- **2049 hermetic tests** (`uv run pytest`, no network, no keys); every PR
   in this repo was reviewed by avs itself, and five of those reviews caught
   real bugs.
 - **A hermetic suite is not enough, and this repo says so.** Twelve real
@@ -422,6 +422,29 @@ the row, an analyzer finding on a test file is a note rather than a blocker,
 and a rejection records which voter made it
 ([ADR-039](docs/adr/039-one-issue-is-one-finding.md)). Run 15, the first run
 with the thresholds joined, is the number that supersedes both.
+
+Run 16 recorded **build 100% · probes 75% · clean 31% over 3 of 4** — and
+that headline was the harness charged to the product for a fifth time,
+this time in the arithmetic. One case ran for six minutes, came back with
+no tasks, and was dropped from the build rate while its two probes, run
+against a workspace with no product in it, were averaged in as zeros:
+exclusion was decided per *rate* instead of per *case*, so one summary
+excluded a case from two rates and counted it in the third. The exclusion
+itself was the error — ADR-035 already said "a case that ran and built
+nothing still scores a real 0.0" and the code read zero tasks as no
+denominator. **Read honestly the run is build 75% · probes 75% · clean 31%
+over 4 of 4**, and 100% was the rate over the cases that got a plan, not
+over the cases that were asked for a product. Since v0.94.0 measured is one
+decision per case that every rate reads, a blocked plan carries its
+reason — the failing case's was `unparseable planner output`, sitting
+unread in `product/plan.yaml`, and the parser's message had been dropped
+from the revision prompt so both retries were asked to fix a break they
+were never shown — and a rejection caused by reviewers that returned no
+verdict says so instead of naming the low-severity findings that did not
+cause it
+([ADR-043](docs/adr/043-a-case-is-measured-or-it-is-not.md)). The build
+rate's comparability breaks here; run 17 is the first number on the new
+denominator.
 
 ---
 

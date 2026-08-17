@@ -3,12 +3,12 @@ metric:
   id: product_bench_build_rate
   definition: "fraction of product-bench cases whose generated product BUILDS (every planned task reaching built with its suite green) in one run; companion series in the same run are the probe pass rate and the clean-review rate"
   numerator_event: product_bench.case_built
-  denominator: "cases in the run's corpus (benchmarks/products-real/) that PRODUCED the rate's denominator — a case that never ran is dropped, not entered as a zero; each result YAML records cases_measured / cases_total / unmeasured (ADR-035)"
+  denominator: "cases in the run's corpus (benchmarks/products-real/) that RAN — a case dropped by harness noise is excluded from every rate alike, a case that ran and produced nothing scores a real 0.0; each result YAML records cases_measured / cases_total / unmeasured (ADR-035, ADR-043)"
   window_days: 7
   cohort_basis: bench_run
   exclusions: ["cases that died on harness noise rather than on the product under test (run 4 KeyError, run 5 budget exhaustion, run 12 pytest timeout) — enforced mechanically since v0.83.0, stated here since 2026-07-27", "runs whose corpus differs — comparability resets when a case is added or edited"]
   owner: melody
-  changed_at: "2026-08-12"
+  changed_at: "2026-08-16"
 ---
 
 # product-bench capability (build / probes / clean)
@@ -68,9 +68,35 @@ the exclusion must never become a way to drop bad runs. And run 12's
 recorded numbers are not rewritten; `benchmarks/results/` is a record, with
 the recomputed reading noted beside it in `HISTORY.md`.
 
-`changed_at` moves to 2026-08-12 because the denominator changed, so
+`changed_at` moved to 2026-08-12 because the denominator changed, so
 comparisons straddling it are flagged (F-22.1). The floors are unaffected:
 runs 1–11 hold no crashed cases except run 4, already excluded as noise.
+
+## The denominator, second correction (2026-08-16 definition change, ADR-043)
+
+The paragraph above says a case that ran and built nothing still scores a
+real `0.0`. **The code did not do that**, and run 16 is where it showed:
+`02-shortener-api` ran for 6.4 minutes, came back with no tasks, and was
+dropped from the build rate — which reported 100% while one of four cases
+had produced no product at all. The same case's probes were kept and
+averaged in as 0.0, because the exclusion was decided per *rate* rather
+than per *case*, so one summary excluded a case from two rates and counted
+it in the third.
+
+Since v0.94.0 `measured` is one decision on the case (`not
+autopilot_status.startswith("error")`), every rate reads it, and zero tasks
+is the most complete build failure available rather than an absence of
+measurement. The clean-review rate is the one exception and stays `None`
+when nothing was built: it has no denominator to be a zero *of*, and
+entering it as 0.0 would charge the same failure twice.
+
+**The build rate's comparability breaks here.** Runs 4–16 measured cases
+that got a plan; run 17 is the first that measures cases that were asked
+for a product. Run 16 read honestly under the new definition is `build 75%
+· probes 75% · clean 31%` over 4 of 4 — its recorded numbers are not
+rewritten. The 60% floor is read off runs 10–11, which hold no
+produced-nothing cases, so it is unaffected in level; but a run 17 build
+rate is not directly comparable to run 16's recorded 100%.
 
 ## Falsifier
 
