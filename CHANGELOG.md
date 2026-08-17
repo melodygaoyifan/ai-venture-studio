@@ -4,6 +4,44 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.99.0 — one tokenizer, imported everywhere
+
+v0.98.0's changelog recorded a gate that was inert in Chinese. That entry
+treated it as one bug. It was seven.
+
+Auditing the repo turned up **seven** places that split text into tokens.
+Four had independently learned that Chinese has no spaces and an ASCII-letter
+rule therefore finds nothing in it — two of them carrying their own `[一-鿿]`
+range, written from scratch, neither covering the Unicode extension blocks.
+Three had not, and their state was measured rather than guessed:
+
+- `textsim.similarity(x, x)` returned **0.0** for two identical Chinese
+  strings where identical English returned 1.0. All three consumers compare
+  `>= threshold`, so it failed **open**: opportunity dedup never deduplicated,
+  the kill registry's Novelty match never fired, and the marketing
+  near-duplicate rule never tripped. A gate reporting success while doing
+  nothing is worse than the one ADR-048 found.
+- The incident-to-commit correlator scored the empty set on Chinese incidents.
+- The claim-register match found no content words, so substantiated Chinese
+  copy was reported as unsubstantiated.
+- The thin-page check counted a Chinese page as **zero** words, so a batch of
+  substantial copy tripped the ratio at 100%.
+
+`ai_venture_studio/lexicon.py` is now the only place in this system a
+tokenizer is written, and all seven sites import it. CJK is detected by
+Unicode name rather than a range literal. Stopword lists and length floors
+stay per-caller, because those are genuinely different jobs and merging them
+is ADR-038's scar — but the length floor never applies to CJK, since four
+characters of English is a word and four characters of Chinese is two.
+
+Guarded structurally: an AST walk over `src/` fails on any new
+`findall`/`finditer`/`split` whose pattern is bare character classes, and —
+because a guard that cannot fire is exactly the defect this release is about —
+the detector is itself driven against the five patterns that shipped blind and
+the four format-parsers it must leave alone.
+
+ADR-050. 2163 hermetic tests.
+
 ## v0.98.0 — the refusal is measured, on its own axis
 
 ADR-046 gave this product its only refusal: a new request is read against what

@@ -38,6 +38,8 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field
 
+from ai_venture_studio.lexicon import content
+
 # Statuses a requirement can hold. `retired` and `superseded` differ on
 # purpose and the difference is load-bearing: DERIVATION may retire a
 # criterion (it left its spec and nothing is known to have replaced it),
@@ -48,7 +50,9 @@ LIVE_STATUSES = ("proposed", "approved", "built")
 
 _ID = re.compile(r"^R-(\d+)$")
 
-# A SECOND tokenizer, deliberately not `maintenance.correlate._tokens`.
+# The POLICY half — the part that is genuinely this caller's and stays
+# here. The tokenizer itself is `lexicon` (ADR-050); what differs is the
+# stopword list, which is deliberately not `maintenance.correlate`'s.
 # That one scores incident text against commits and stops words like
 # "error" and "traceback". This one scores EARS criteria against each
 # other, where the stopwords are the grammar itself — every criterion
@@ -56,7 +60,7 @@ _ID = re.compile(r"^R-(\d+)$")
 # words that appear in all of them ranks nothing. Two jobs, two lists;
 # collapsing them because both are called "tokenize" is how one of them
 # quietly stops working (ADR-038).
-_TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}")
+_MIN_LATIN = 3
 _STOPWORDS = {
     "shall", "the", "and", "for", "with", "that", "this", "when", "while",
     "where", "then", "system", "user", "users", "must", "will", "not",
@@ -65,50 +69,31 @@ _STOPWORDS = {
 }
 
 
-# Chinese has no spaces, so `_TOKEN` — which requires an ASCII letter —
-# found NOTHING in a Chinese criterion. Every score was zero, `relevant`
-# returned an empty slice, and the ADR-046 gate therefore reported "no
-# existing requirement matched this request" for every request in the
-# language this product's founder actually writes in: the templates are
-# bilingual, the Studio shipped Chinese by default, and every case in
-# `benchmarks/products` is Chinese. The gate was not wrong, it was inert,
-# and an inert gate is the hardest kind of broken to notice — it never
-# fires and never errors.
-#
-# Character bigrams rather than a segmenter: no new runtime dependency, no
-# dictionary to go stale, and the failure mode is symmetric noise (a bigram
-# straddling two words scores equally against every candidate) instead of a
-# missed match. Ranking is comparative and capped, so noise costs a little
-# precision where the alternative cost everything.
-_CJK = re.compile(r"[㐀-䶿一-鿿豈-﫿]+")
-# The grammar itself, same role as `_STOPWORDS`: a bigram made only of
-# these ranks nothing because it appears in every criterion.
-_CJK_FUNCTION = set("的了是在和与及也都很就把被对从为以要能会有个之其所并且或者")
-
-
-def _cjk_tokens(text: str) -> set[str]:
-    found: set[str] = set()
-    for run in _CJK.findall(text):
-        if len(run) == 1:
-            if run not in _CJK_FUNCTION:
-                found.add(run)
-            continue
-        for index in range(len(run) - 1):
-            gram = run[index : index + 2]
-            if all(char in _CJK_FUNCTION for char in gram):
-                continue
-            found.add(gram)
-    return found
-
-
 def tokens(text: str) -> set[str]:
-    """Content words of a requirement — see `_STOPWORDS` for why this is
-    not the correlator's tokenizer, and `_CJK` for why a second rule is
-    needed at all."""
-    latin = {
-        t.lower() for t in _TOKEN.findall(text) if t.lower() not in _STOPWORDS
-    }
-    return latin | _cjk_tokens(text)
+    """Content words of a requirement.
+
+    The CJK half of this used to live here, written from scratch, because
+    `_TOKEN` required an ASCII letter and therefore found NOTHING in a
+    Chinese criterion — every score zero, `relevant` an empty slice, and
+    ADR-046's gate reporting "no existing requirement matched" for every
+    request in the language the templates, the Studio default and every
+    benchmark case use. It never fired and never errored (ADR-048).
+
+    It now comes from `lexicon`, which is the only place in this system a
+    tokenizer is written, because the same defect was living in three
+    other modules at the same time (ADR-050). What stays here is the part
+    that is genuinely this caller's: `_STOPWORDS`, which is NOT the
+    correlator's list — every EARS criterion contains "shall", most
+    contain "system", and a similarity score built on words that appear in
+    all of them ranks nothing. Two jobs, two lists; collapsing them
+    because both are called "tokenize" is how one of them quietly stops
+    working (ADR-038).
+
+    `unigrams=False`: retrieval here must DISCRIMINATE. A single Chinese
+    character appears in too many unrelated words, and the slice this
+    feeds is capped — noise costs the gate the one candidate that mattered.
+    """
+    return content(text, stopwords=_STOPWORDS, min_latin=_MIN_LATIN)
 
 
 class Requirement(BaseModel):

@@ -18,6 +18,7 @@ import re
 from pydantic import BaseModel
 
 from ai_venture_studio.marketing.register import RegisteredClaim, ReleaseContract
+from ai_venture_studio.lexicon import content
 from ai_venture_studio.superlatives import compile_gate
 
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n{2,}")
@@ -51,10 +52,19 @@ def split_sentences(text: str) -> list[str]:
 
 
 def _content_words(text: str) -> set[str]:
+    """Content words of a sentence, for the register match.
+
+    Was `[a-z0-9']+`, which found nothing in a Chinese claim: the register
+    match scored 0.0 overlap for every sentence, so a registered claim was
+    never recognised as registered and the finding fired on substantiated
+    copy. Tokenizer from `lexicon` (ADR-050); the stopwords and the
+    digit-drop stay here — numbers are `_numbers`' job, and counting them
+    twice would let a bare figure carry the overlap.
+    """
     return {
         w
-        for w in re.findall(r"[a-z0-9']+", text.lower())
-        if w not in _STOPWORDS and not w.isdigit()
+        for w in content(text, stopwords=_STOPWORDS)
+        if not w.isdigit()
     }
 
 

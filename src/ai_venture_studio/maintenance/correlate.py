@@ -8,11 +8,10 @@ evidence, not from its priors (charter rule 3).
 
 from __future__ import annotations
 
-import re
 import subprocess
 from dataclasses import dataclass
 
-_TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_]{3,}")
+from ai_venture_studio.lexicon import content
 _STOPWORDS = {
     "error", "exception", "traceback", "failed", "failure", "none", "true",
     "false", "line", "file", "call", "recent", "most", "when", "after",
@@ -29,11 +28,16 @@ class Suspect:
 
 
 def _tokens(text: str) -> set[str]:
-    return {
-        t.lower()
-        for t in _TOKEN.findall(text)
-        if t.lower() not in _STOPWORDS
-    }
+    """Symbol-shaped words from incident text, plus CJK.
+
+    The four-character floor is deliberate and stays: this tokenizer is
+    hunting identifiers and filenames in a stack trace, where short words
+    are noise. It applies to Latin only — four characters of Chinese is
+    two words, and a floor over CJK grams would drop every one of them,
+    which is how a founder reporting "订单页面报错" got an empty suspect
+    list and no explanation (ADR-050).
+    """
+    return content(text, stopwords=_STOPWORDS, min_latin=4)
 
 
 def recent_commits(repo_dir: str, days: int = 7, limit: int = 30) -> list[dict]:

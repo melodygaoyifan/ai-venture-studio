@@ -53,6 +53,8 @@ import re
 
 from pydantic import BaseModel, Field
 
+from ai_venture_studio.lexicon import content
+
 # The MVP tier is `thin` (product/prd.py SCOPE_TIERS). Named here so callers
 # read intent rather than a magic string.
 MVP_TIER = "thin"
@@ -228,15 +230,19 @@ _STEM = 4
 
 def _stems(text: str) -> set[str]:
     """Latin stems plus CJK bigrams — a Chinese FDR has no [a-z] words at
-    all, and word-level matching would silently pass everything."""
-    latin = {
-        word[:_STEM]
-        for word in re.findall(r"[a-z0-9]+", (text or "").lower())
-        if len(word) > 2 and word not in _MVP_STOPWORDS
+    all, and word-level matching would silently pass everything.
+
+    This module was one of the four that learned the CJK half on its own,
+    with its own `[一-鿿]` range that missed the extension blocks. The
+    tokenizer is now `lexicon` (ADR-050); the stemming and `_MVP_STOPWORDS`
+    stay here because they are this check's policy. Truncation is applied
+    to Latin tokens only — four characters of Chinese is two words, and a
+    bigram is already at its floor.
+    """
+    return {
+        t[:_STEM] if t.isascii() else t
+        for t in content(text or "", stopwords=_MVP_STOPWORDS, min_latin=3)
     }
-    cjk = re.findall(r"[一-鿿]", text or "")
-    bigrams = {cjk[i] + cjk[i + 1] for i in range(len(cjk) - 1)}
-    return latin | bigrams
 
 
 def _hypothesis_covered(hypothesis: str, increments: list[str]) -> bool:

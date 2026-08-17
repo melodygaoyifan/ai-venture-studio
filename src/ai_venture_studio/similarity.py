@@ -11,33 +11,17 @@ provider lands later it slots behind `rank()` without touching callers.
 from __future__ import annotations
 
 import math
-import re
-import unicodedata
 from collections import Counter
 
-_WORD = re.compile(r"[a-z0-9_]+")
+from ai_venture_studio.lexicon import tokenize
 
-
-def _is_cjk(ch: str) -> bool:
-    return "CJK" in unicodedata.name(ch, "")
-
-
-def tokenize(text: str) -> list[str]:
-    """Latin words lowercased; CJK runs as unigrams AND bigrams (bigrams
-    carry meaning, unigrams catch one-char overlap like 付 in 付款/付钱)."""
-    tokens: list[str] = []
-    lowered = text.lower()
-    tokens += _WORD.findall(lowered)
-    run: list[str] = []
-    for ch in lowered + " ":
-        if _is_cjk(ch):
-            run.append(ch)
-            continue
-        if run:
-            tokens += run
-            tokens += ["".join(run[i : i + 2]) for i in range(len(run) - 1)]
-            run = []
-    return tokens
+# This module's tokenizer was the one that got CJK right first, and it
+# stayed here where nothing else could import it while three other call
+# sites shipped blind to Chinese. It now lives in `lexicon` and this is a
+# re-export so `from ai_venture_studio.similarity import tokenize` keeps
+# working; ranking wants `unigrams=True`, which is the default, because
+# it must tolerate paraphrase rather than discriminate (ADR-050).
+__all__ = ["tokenize", "rank"]
 
 
 def rank(query: str, docs: list[str]) -> list[tuple[int, float]]:

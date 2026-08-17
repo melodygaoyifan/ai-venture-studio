@@ -18,10 +18,9 @@ skipped when no model is present — never silently absent.
 
 from __future__ import annotations
 
-import re
-
 from pydantic import BaseModel
 
+from ai_venture_studio.lexicon import content_length
 from ai_venture_studio.marketing.artifacts import Page
 from ai_venture_studio.textsim import jaccard as _jaccard
 from ai_venture_studio.textsim import shingles as _shingles
@@ -113,10 +112,12 @@ def spam_policy_check(
                 )
             )
 
+    # `content_length`, not a regex: `[a-z0-9']+` measured every Chinese
+    # page as ZERO words, so a whole batch of substantial Chinese copy
+    # tripped the thin-page ratio at 100% (ADR-050). Characters, not grams
+    # — grams would report the same page as twice its length.
     thin = [
-        p.path
-        for p in batch
-        if len(re.findall(r"[a-z0-9']+", p.text.lower())) < config.thin_page_words
+        p.path for p in batch if content_length(p.text) < config.thin_page_words
     ]
     if batch and len(thin) / len(batch) > config.max_thin_ratio:
         findings.append(

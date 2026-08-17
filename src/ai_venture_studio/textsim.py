@@ -8,13 +8,18 @@ implementation so the thresholds mean the same thing everywhere.
 
 from __future__ import annotations
 
-import re
+from ai_venture_studio.lexicon import tokenize
 
 DEFAULT_K = 5
 
 
 def shingles(text: str, k: int = DEFAULT_K) -> set[tuple[str, ...]]:
-    words = re.findall(r"[a-z0-9']+", text.lower())
+    # Was `[a-z0-9']+`, which found nothing in Chinese: two IDENTICAL
+    # Chinese strings scored 0.0 where identical English scored 1.0, and
+    # all three callers compare `>= threshold`, so it failed OPEN —
+    # nothing was ever near-duplicate, everything was always novel. Never
+    # fired, never errored (ADR-050, the family ADR-048 opened).
+    words = tokenize(text)
     if len(words) < k:
         return {tuple(words)} if words else set()
     return {tuple(words[i : i + k]) for i in range(len(words) - k + 1)}
