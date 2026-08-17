@@ -1,0 +1,241 @@
+cases:
+- name: 01-groupbuy-api
+  autopilot_status: completed
+  tasks_total: 4
+  tasks_built: 4
+  clean_reviews: 2
+  outcomes:
+  - task_id: t1
+    title: Persistence layer and group-buy creation endpoint
+    status: built
+    review: APPROVE_WITH_NOTES
+    detail: (after fix iteration)
+    test_summary: 13 passed in 1.66s
+    iterations: 2
+  - task_id: t2
+    title: Fetch group-buy by id
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(a fix was attempted and rolled back — it did not clear the review) [review:
+      1 medium — Duplicated inline HTTP-test harness (FakeRfile/TestHandler) instead
+      of a shared helper]'
+    test_summary: 19 passed in 1.68s
+    iterations: 1
+    blocking_by_voter:
+      context: 1
+  - task_id: t3
+    title: Create order against a group-buy
+    status: built
+    review: APPROVE
+    detail: ''
+    test_summary: 33 passed in 1.26s
+    iterations: 1
+  - task_id: t4
+    title: Group-buy order summary aggregation
+    status: built
+    review: REQUEST_CHANGES
+    detail: '[review: 1 low — B310: blacklist]'
+    test_summary: 38 passed in 3.37s
+    iterations: 1
+  preserved_workspace: ''
+  probes:
+  - name: create-and-read
+    passed: true
+    detail: create/read ok
+  - name: order-summary-math
+    passed: true
+    detail: summary math ok
+  - name: unknown-id-is-client-error
+    passed: true
+    detail: 404 ok
+  duration_s: 2128.3
+- name: 02-shortener-api
+  autopilot_status: failed
+  tasks_total: 0
+  tasks_built: 0
+  clean_reviews: 0
+  outcomes: []
+  preserved_workspace: .mas/product-bench/workspaces/02-shortener-api
+  probes:
+  - name: shorten-and-redirect
+    passed: false
+    detail: 'AssertionError: no runnable entry point (app/main.py, main.py, app.py)'
+  - name: click-counting
+    passed: false
+    detail: 'AssertionError: no runnable entry point (app/main.py, main.py, app.py)'
+  duration_s: 386.6
+- name: 03-groupbuy-auto
+  autopilot_status: completed
+  tasks_total: 5
+  tasks_built: 5
+  clean_reviews: 0
+  outcomes:
+  - task_id: t1
+    title: 数据库连接与持久化基础
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(a fix was attempted and rolled back — it did not clear the review) [review:
+      1 medium, 1 low — Committed default database file contradicts the new .gitignore
+      rule; B310: blacklist]'
+    test_summary: 12 passed in 1.51s
+    iterations: 3
+    blocking_by_voter:
+      context: 1
+  - task_id: t2
+    title: 创建团购端点
+    status: built
+    review: REQUEST_CHANGES
+    detail: (recovered on auto-retry)
+    test_summary: 35 passed in 4.18s
+    iterations: 1
+  - task_id: t3
+    title: 查看团购端点
+    status: built
+    review: REQUEST_CHANGES
+    detail: '[review: 1 low — Three-fold copy-pasted id-parse-and-error-return block
+      in do_GET/do_POST]'
+    test_summary: 15 passed in 1.83s
+    iterations: 1
+  - task_id: t4
+    title: 住户下单端点
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(a fix was attempted and rolled back — it did not clear the review) [review:
+      1 medium — Redundant existence check duplicates logic already provided by store.create_order]'
+    test_summary: 21 passed in 2.54s
+    iterations: 1
+    blocking_by_voter:
+      context: 1
+  - task_id: t5
+    title: 汇总端点
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(a fix was attempted and rolled back — it did not clear the review) [review:
+      2 medium — Unused alias function diverges from spec''s stated call path; Comment
+      contradicts regex after edit]'
+    test_summary: 27 passed in 3.19s
+    iterations: 3
+    blocking_by_voter:
+      context: 1
+      style: 1
+  preserved_workspace: ''
+  probes:
+  - name: create-and-read-back
+    passed: true
+    detail: ''
+  - name: orders-and-summary-math
+    passed: true
+    detail: ''
+  - name: summary-empty-orders
+    passed: true
+    detail: ''
+  - name: not-found-and-invalid-id
+    passed: true
+    detail: ''
+  - name: invalid-input-rejected
+    passed: true
+    detail: ''
+  duration_s: 4078.4
+- name: 04-direction-workbench
+  autopilot_status: completed
+  tasks_total: 7
+  tasks_built: 7
+  clean_reviews: 3
+  outcomes:
+  - task_id: t1
+    title: Candidate creation with persistent storage
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(a fix was attempted and rolled back — it did not clear the review) [review:
+      3 critical, 2 high, 2 low — Shared sqlite3 connection reused across ThreadingHTTPServer
+      worker threads without check_same_thread=False; Shared sqlite3 connection used
+      across threads without check_same_thread; Shared sqlite3 connect'
+    test_summary: 11 passed in 0.08s
+    iterations: 1
+    blocking_by_voter:
+      correctness: 2
+      context: 1
+      repo_graph: 1
+      performance: 1
+  - task_id: t2
+    title: Score submission with scoring rule enforcement
+    status: built
+    review: APPROVE
+    detail: ''
+    test_summary: 28 passed in 8.95s
+    iterations: 2
+  - task_id: t3
+    title: Candidate detail with per-round qualification
+    status: built
+    review: ESCALATE_SECURITY_RISK
+    detail: '(a fix was attempted and rolled back — it did not clear the review) [review:
+      1 critical, 3 medium — Input validation removed for non-integer candidate IDs
+      on GET /api/candidates/<id>; Removed integer-validation guard; non-integer candidate
+      id now silently returns 404 instead of 400; GET /api/candidates/<non'
+    test_summary: 28 passed in 8.96s
+    iterations: 1
+    blocking_by_voter:
+      security: 1
+      correctness: 1
+      repo_graph: 1
+      style: 1
+  - task_id: t4
+    title: Round-filtered candidate listing
+    status: built
+    review: APPROVE
+    detail: ''
+    test_summary: 37 passed in 8.98s
+    iterations: 1
+  - task_id: t5
+    title: Candidate elimination with archived reason
+    status: built
+    review: APPROVE_WITH_NOTES
+    detail: ''
+    test_summary: 45 passed in 10.19s
+    iterations: 1
+  - task_id: t6
+    title: Eliminated candidates archive listing
+    status: built
+    review: REQUEST_CHANGES
+    detail: '[review: 2 low — B310: blacklist; Near-identical test boilerplate duplicated
+      across four new test files instead of a shared fixture/helper]'
+    test_summary: 53 passed in 14.23s
+    iterations: 1
+  - task_id: t7
+    title: Round comparison with biggest change
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(a fix was attempted and rolled back — it did not clear the review) [review:
+      2 medium, 1 low — Test boilerplate (_post/_get helpers, server fixture) duplicated
+      verbatim across six new test files instead of a shared fixture/helper — the
+      exact anti-pattern a prior task in this repo was already dinged for; Cop'
+    test_summary: 62 passed in 19.08s
+    iterations: 1
+    blocking_by_voter:
+      context: 2
+  preserved_workspace: ''
+  probes:
+  - name: score-veto-qualify-sort
+    passed: true
+    detail: score/veto/sort ok
+  - name: score-validation-and-evidence-downgrade
+    passed: true
+    detail: validation ok
+  - name: eliminate-and-two-round-compare
+    passed: true
+    detail: eliminate/compare ok
+  duration_s: 4098.5
+build_rate: 1.0
+probe_pass_rate: 0.75
+clean_review_rate: 0.30952380952380953
+unmeasured:
+- 02-shortener-api
+avs_version: 0.93.0
+rates:
+  build_rate: 1.0
+  probe_pass_rate: 0.75
+  clean_review_rate: 0.31
+  cases_measured: 3
+  cases_total: 4
+  unmeasured:
+  - 02-shortener-api

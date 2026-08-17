@@ -146,3 +146,19 @@ claims:
       - {method: product_bench_run, locator: "repo://benchmarks/results/result-2026-08-14-0702.yaml (cases_measured 3 of 4)",
          retrieved_at: "2026-08-14T07:02:00Z"}
     falsifier: "the preserved run-15 result containing different rates, or a cases_measured other than the 3 of 4 this claim names"
+  - id: PC-17
+    text: "product benchmark, real cases run 16 (2026-08-16, n=3 of 4 cases measured — 02-shortener-api produced no plan and is excluded): build 100%, probe pass 75%, clean review 31%"
+    kind: demand
+    source_type: primary_measured
+    n: 3
+    evidence:
+      - {method: product_bench_run, locator: "repo://benchmarks/results/result-2026-08-16-0612.yaml (cases_measured 3 of 4)",
+         retrieved_at: "2026-08-16T06:12:00Z"}
+    falsifier: "the preserved run-16 result containing different rates, or a cases_measured other than the 3 of 4 this claim names"
+    note: >-
+      The 75% is the file's recorded value and is read against a denominator
+      of four: the excluded case's two probes failed against a product that
+      was never built and were averaged in as 0.0, because `unmeasured` is
+      derived per-rate rather than per-case. Over the three measured cases
+      probes were 16/16. HISTORY.md carries the corrected reading beside the
+      row; the recorded number is not rewritten.

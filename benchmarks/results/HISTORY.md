@@ -24,6 +24,7 @@ for the headline numbers.
 | 12 | result-2026-08-13-0347.yaml | ddad6f2 | 75% | 65% | 48% | **first run ever driven by the scheduler** (v0.82.0 bench cadence loop, 16 days after the series stopped). Cases 01/02/03 ALL completed, 11/11 tasks built — the first three-case sweep; clean reviews 48%, the best recorded. Case 03 is **measured again after five runs unmeasured** (the 4a77fd3 probegen fallback works: 5 probes generated, 3 passed) and both its failures read `no error field: {}` — **which was the harness, not the product** (see the correction below). Case 04 did not run: `pytest -q` timed out at 300s and the case errored, scoring **0/0 → counted as 0.0** in all three aggregates, so the headline understates the three cases that ran (11/11 built = 100%) and the probe drop 75%→65% is that zero, not a capability regression |
 | 13 | result-2026-08-13-0837.yaml | c3aa2e3 | **94%** | **92%** | **75%** | **best composite by a wide margin, and the first run where all four cases were measured** (`cases_measured: 4` of 4). The two v0.83.0 fixes were judged in anger: case 03 went **5/5 on probes**, up from 3/5 — both of its old failures were the `{}` error-body pair, now readable; case 04 **completed 6/6 with no timeout at all**, so `_run_and_classify` never fired and run 12's hang remains unexplained rather than fixed. Case 02 is the one real failure: the build gate never went green on *database-backed short-link store with atomic CLI* (first attempt an `ImportError` loading conftest, auto-retry `test_create_returns_201_with_code`), nothing committed, workspace reset — the system refusing to ship broken work. Case 04's single probe failure was `URLError: Connection refused` — **the harness again, fixed below** |
 | 14 | result-2026-08-14-0139.yaml | f05f69d (v0.86.0) | **100%** | **100%** | 38% | **every task in every case built, and every probe passed** — 17/17 and 13/13, four of four cases measured. The composite's ceiling moved to the review: 37.5% clean, *down* from run 13's 75% on a run that built strictly more. That gap is what ADR-037 was written from — the repair pass filtered by a hard-coded severity list while the leader blocked on its own wider one, so MEDIUM could block a verdict that nothing would ever try to fix. Case 03 (0 of 3) and case 04 (0 of 6) took no clean review at all despite building everything. The file carries **no `avs_version`** — the run predates ADR-037's rule that a result names the build that produced it, which is why "which code scored this" had to be recovered from commit times |
+| 16 | result-2026-08-16-0612.yaml | 08d8ba9 (v0.93.0) | **100%** | 75% | 31% | 3 of 4 cases measured — `02-shortener-api` is **excluded**, and both halves of that exclusion are wrong in opposite directions (see the note below). Every task in every case that ran was built: **16/16**, and **16/16 probes passed**. The ceiling is the review again: 5 clean of 16 tasks. **ADR-039 did what it was built to do and it did not move this number** — reviews now arrive at one or two findings each rather than one issue wearing nine hats, and a repair pass fires on all of them, but **6 of the 11 rejections read "a fix was attempted and rolled back — it did not clear the review"**. Two rejections are the reviewer earning its keep: `04-t1` held a shared `sqlite3` connection across `ThreadingHTTPServer` worker threads without `check_same_thread=False` (3 critical), and `04-t3` removed the non-integer id guard, answering 404 where it owed 400 — `ESCALATE_SECURITY_RISK`. Three more were not about severity at all (see below) |
 | 15 | result-2026-08-14-0702.yaml | 9807c32 (v0.88.0) | 83% | **100%** | 55% | 3 of 4 cases measured — **04-direction-workbench died on a provider `529 Overloaded` and is excluded, not scored `0.0`** (ADR-035). Probes stayed perfect on everything that shipped. Two independent cases were blocked by a spec containing *nothing* — no criteria, no skeletons — reported as the flat sentence "no acceptance criteria"; an empty spec passed every quality check by having nothing to check, so the revision loop's good-enough break fired on it (ADR-041). Case 01 also lost a task to a build that failed `1 failed, 27 passed` three times, whose recorded cause was 240 characters of pytest banner art naming no assertion (ADR-042); re-running the preserved workspace showed a genuine product defect — a 40-digit id matching the spec's own `^[0-9]+$` criterion answered 400 where it owed 404 |
 
 > **Comparability break after run 15 — read run 16's clean rate against
@@ -47,6 +48,50 @@ for the headline numbers.
 >
 > ADR-040 (v0.90.0) changes neither — it is the alert path, and run 15 was
 > the first result it ever announced.
+
+> **Run 16, corrected reading — the exclusion is per-rate, and it should be
+> per-case.** The numbers above stand as recorded. But `02-shortener-api` is
+> named in `unmeasured`, the run's own closing line says these "are excluded
+> from the rates above, not scored as zero", and **that sentence is true of
+> two rates out of three**. `unmeasured` is derived from `build_rate is None`
+> (product_bench.py:472) while each rate is averaged independently
+> (`_avg`, :461–471) — so the case was dropped from build and clean, and its
+> probes were kept: two probes ran against a product that was never built,
+> failed `AssertionError: no runnable entry point`, and entered the average
+> as a real `0.0`. Over the three cases actually measured the run scored
+> **build 100% · probes 100% · clean 31%**. Those probes measured nothing
+> about any product's behaviour; they measured the absence of a product,
+> which is what the exclusion already says.
+>
+> This is **run 12's error, in the same file, after the ADR written to fix
+> it**. ADR-035 asked "did this case produce a denominator?" — and a case's
+> probe list produces a denominator whether or not there is anything to run
+> it against. A case that is unmeasured is unmeasured in *every* rate.
+>
+> **And the other half is wrong the other way.** Case 02 was not a crash: it
+> planned for 6.4 minutes and `run_planning` came back `blocked`, which
+> `autopilot.py:302` turns into `status="failed"` **carrying no reason at
+> all** — the same shape as ADR-041's empty spec and ADR-042's banner art,
+> one stage further up. Zero tasks then reads as "never ran", so a case where
+> the machine produced no product at all is excluded from the build rate
+> rather than scoring the `0.0` ADR-035 explicitly reserves for exactly that
+> ("a case that ran and built nothing still scores a real 0.0"). **Build
+> 100% is therefore the rate over the cases that got a plan, not over the
+> cases that were asked for a product.**
+
+> **Run 16, the three rejections that were not about the code.** `01-t4`
+> (`1 low — B310: blacklist`), `03-t3` (`1 low`) and `04-t6` (`2 low`) were
+> all `REQUEST_CHANGES` on findings that **cannot block on severity** —
+> `leader.py:125` blocks on `ACTIONABLE_SEVERITIES` (critical/high/medium)
+> or on `len(blocked) == 2`, and `blocked` is voters whose status is not OK,
+> i.e. reviewers that never returned a verdict. All three rows carry no
+> `blocking_by_voter` at all, which is the tell. So three of eleven
+> rejections — and three tasks that would otherwise have been clean — were
+> caused by two reviewers failing to run, while the row's own recorded reason
+> names low-severity findings that had nothing to do with it. **ADR-037's
+> detail line exists so a rejection has a readable cause, and here it reports
+> a cause that is not the cause.** Run 16 is the first run able to show this:
+> the detail line only started populating in v0.87.0.
 
 > **Run 12, recomputed reading (ADR-035).** The numbers above stand as
 > recorded — this table is a record, not a document — but two of them were
