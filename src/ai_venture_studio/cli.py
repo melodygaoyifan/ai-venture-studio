@@ -1431,14 +1431,52 @@ def product_bench(
         help="Post the result to Discord when the run ends, however it ends. "
         "The scheduler is not the only thing that runs this.",
     ),
+    resume: bool = typer.Option(
+        False, "--resume",
+        help="Reuse cases already measured on THIS build, from the last run's "
+        "checkpoints. Without it every case is measured again.",
+    ),
+    model: str = typer.Option(
+        "claude-opus-4-8", help="Model under test (also what the preflight checks)"
+    ),
+    preflight: bool = typer.Option(
+        True, "--preflight/--no-preflight",
+        help="Spend one token confirming the account works before spending "
+        "hours discovering it does not.",
+    ),
 ):
     """Built-product quality, end to end: full autopilot per case, then
     INDEPENDENT probes against the built product (WebGen-Bench pattern)."""
-    from ai_venture_studio.product_bench import run_product_bench, save_summary
+    from ai_venture_studio.product_bench import (
+        preflight_provider,
+        run_product_bench,
+        save_summary,
+    )
 
+    # THE PREFLIGHT LIVES HERE, not in `run_product_bench`. The library
+    # function is what the hermetic suite drives, and a network call inside it
+    # would either break that or need a flag defaulting to off — which is the
+    # ADR-051 shape exactly: a guard wired into the path nobody takes. This
+    # command is the only entry point that spends money, including the one the
+    # cadence agent invokes, so it is the one place the check belongs.
+    if preflight:
+        dead = preflight_provider(provider, model)
+        if dead:
+            console.print(f"[red]refusing to start: {dead}[/red]")
+            console.print(
+                "  Nothing was run. Run 17 (2026-08-17) found this out 3438 "
+                "seconds and one full case into a five-case run."
+            )
+            if notify:
+                _bench_notify(repo_dir, _notifier().bench_failed_alert(
+                    f"preflight refused the run: {dead}",
+                    workspace=Path(repo_dir).resolve().name,
+                ))
+            raise typer.Exit(3)
     try:
         summary = run_product_bench(
-            cases_dir, provider=provider, limit=limit, repo_dir=repo_dir
+            cases_dir, provider=provider, limit=limit, repo_dir=repo_dir,
+            resume=resume,
         )
     except RuntimeError as exc:
         console.print(f"[red]{exc}[/red]")
@@ -1452,7 +1490,11 @@ def product_bench(
         table.add_column(col)
     for c in summary.cases:
         table.add_row(
-            c.name,
+            # Marked in the table for the same reason it is marked in the file:
+            # a reused row is indistinguishable from a measured one otherwise,
+            # and the person reading a 12-second five-case run deserves to know
+            # why it was quick.
+            f"{c.name} [dim](resumed)[/dim]" if c.resumed else c.name,
             c.autopilot_status,
             f"{c.tasks_built}/{c.tasks_total}",
             f"{sum(1 for p in c.probes if p.passed)}/{len(c.probes)}",
@@ -1460,6 +1502,13 @@ def product_bench(
             str(c.duration_s),
         )
     console.print(table)
+    if summary.aborted:
+        console.print(
+            f"[red]run aborted: {summary.aborted}[/red]\n"
+            "  The cases below it were never asked — they are unmeasured, not "
+            "failures. Fix the cause and rerun with --resume to keep what was "
+            "already measured."
+        )
     scope = (
         f" (over {summary.cases_measured} of {summary.cases_total} cases)"
         if summary.unmeasured else ""
@@ -1517,6 +1566,15 @@ def product_bench(
             "  These are excluded from the rates above, not scored as zero — "
             "so this run measured less of the machine than it looks like."
         )
+        # The measured cases are banked; say so, or the next operator repeats
+        # the hours this whole mechanism exists to stop them repeating.
+        banked = [c.name for c in summary.cases if c.measured and not c.resumed]
+        if banked:
+            console.print(
+                f"  {len(banked)} measured case(s) are checkpointed "
+                f"({', '.join(banked)}) — rerun with [bold]--resume[/bold] and "
+                "they will not be paid for again."
+            )
         raise typer.Exit(3)
 
 

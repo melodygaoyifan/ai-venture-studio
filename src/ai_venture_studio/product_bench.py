@@ -81,6 +81,80 @@ def release_bench_lock(pidfile: Path) -> None:
         pass
 
 
+#: Provider wording that means the ACCOUNT is dead, not the case. Matched
+#: case-insensitively against the whole exception text.
+#:
+#: The first entry is quoted from the run that made this necessary: run 17
+#: (2026-08-17) exhausted its credit during case 02 and the harness carried on,
+#: spending 1541s on a dead account and then producing four identical
+#: `error: BadRequestError: ... 'Your credit balance is too lo` rows in 0.3s
+#: each. Four cases were recorded as unmeasured one at a time, when one look at
+#: the first failure would have said all four were unmeasurable.
+#:
+#: A string table against someone else's error messages is a check that stops
+#: firing the day they reword it, and nothing would say so — which is why it is
+#: the FAST path and not the only one. `_repeated_failure` below is the
+#: backstop, and it needs no vocabulary.
+_ENVIRONMENT_MARKERS = (
+    "credit balance is too low",
+    "insufficient_quota",
+    "exceeded your current quota",
+    "billing",
+    "invalid x-api-key",
+    "authentication_error",
+    "permission_error",
+    "could not resolve authentication",
+)
+
+#: HTTP statuses that are about the caller, not the request. 429 is NOT here:
+#: it is transient and the provider adapter already retries it six times with
+#: backoff, so a 429 that reaches us has outlived a real overload event and the
+#: next case deserves its own chance.
+_ENVIRONMENT_STATUSES = (401, 402, 403)
+
+#: How many consecutive cases must fail identically before the run is declared
+#: environmental. Two, not one: one case failing is what the per-case error row
+#: is FOR (a hung suite, a 529 that outlived its retries), and aborting on it
+#: would turn one lost case into five. Two in a row with the same exception type
+#: and the same message is not a property of either case.
+_REPEAT_ABORT_THRESHOLD = 2
+
+
+def _error_signature(exc: BaseException) -> str:
+    """What makes two failures 'the same failure'.
+
+    Type plus the first line of the message. The first line only, because
+    provider errors embed a request id and a truncated body — two identical
+    credit failures differ in their tails and would never compare equal.
+    """
+    first = str(exc).splitlines()[0] if str(exc).splitlines() else ""
+    return f"{type(exc).__name__}: {first[:160]}"
+
+
+def environment_failure(exc: BaseException) -> str:
+    """Why every REMAINING case will fail too — or "" if this is just a case.
+
+    The distinction the bench did not draw. `_run_product_bench`'s handler is
+    commented "one case never kills the bench", which is right for a case that
+    crashed and wrong for an account with no credit: the first is a finding
+    about the machine, the second is a finding about the environment, and only
+    the first belongs in a per-case row.
+
+    Unrecognised failures return "" and keep the old behaviour. That direction
+    is deliberate — a false positive here aborts a run that could have carried
+    on, which is a NEW way to lose measurement, and this function exists to
+    stop losing it.
+    """
+    status = getattr(exc, "status_code", None)
+    if status in _ENVIRONMENT_STATUSES:
+        return f"provider returned {status} — the API key is not usable"
+    text = str(exc).lower()
+    for marker in _ENVIRONMENT_MARKERS:
+        if marker in text:
+            return f"provider rejected the call: {marker}"
+    return ""
+
+
 class Probe(BaseModel):
     name: str
     script: str  # python source, exit 0 = behavior works
@@ -199,6 +273,12 @@ class CaseResult(BaseModel):
     #: from a refused plan is indistinguishable from a 0.0 from a pipeline
     #: that tried everything (ADR-043). Empty on cases that built.
     failure_reason: str = ""
+    #: True when this row was REUSED from a checkpoint rather than measured
+    #: in this run. A resumed run that did not say so would be a scoreboard
+    #: claiming to have measured what it actually read off disk — the same
+    #: class of lie as averaging an unmeasured case in as 0.0 (ADR-035), and
+    #: harder to catch, because every number in the row is real.
+    resumed: bool = False
 
     # WHETHER A CASE WAS MEASURED IS ONE DECISION, MADE HERE, READ BY EVERY
     # RATE. It used to be made per rate — `unmeasured` was derived from
@@ -289,6 +369,12 @@ class BenchSummary(BaseModel):
     # four that have always been in it.
     gate_rate: float | None = None
     gate_unmeasured: list[str] = Field(default_factory=list)
+    #: Set when the run stopped early because the ENVIRONMENT died rather
+    #: than because the cases finished. The rates below it are still honest
+    #: about their own scope — that is what `unmeasured` is for — but a
+    #: reader needs to know the difference between "these four cases failed"
+    #: and "this run was never able to ask them".
+    aborted: str = ""
 
     def _axis(self, axis: str) -> list[CaseResult]:
         return [c for c in self.cases if c.axis == axis]
@@ -319,6 +405,172 @@ def load_cases(cases_dir: str | Path) -> list[ProductCase]:
     if not cases:
         raise FileNotFoundError(f"no product cases in {cases_dir}")
     return cases
+
+
+# ---------------------------------------------------------------------------
+# CHECKPOINTS — never buy the same measurement twice.
+#
+# `save_summary` runs once, after every case returns. So a run that dies gets
+# nothing: run 17 measured case 01 over 3438 seconds of real spend, then lost
+# the account, and that hour is currently unrecoverable — the row exists only
+# in the aborted result because the loop happened to reach the end. Kill the
+# process instead (ADR-036 kills the whole group at BENCH_TIMEOUT_S = 8h, and
+# run 16 already used 2.97h of it before a fifth case was added) and every
+# finished case dies with it.
+#
+# This is the same rule the rest of the system already keeps, one level up.
+# `autopilot._todo_and_skipped` skips tasks that were already built;
+# `deploy.score_node` is "the expensive super-step a resume must never re-pay
+# when it already completed"; `cli.py:1837` says it plainest — "a resumed run
+# would rebuild these and charge you again". A bench case is the most
+# expensive unit in the system and the only one with no such rule.
+#
+# What a resume may NOT do is quietly mix builds. Reusing a row measured on
+# 0.97.0 inside a run of 0.100.0 produces a scoreboard averaging two different
+# machines — the exact confound ADR-049 narrowed `cases_total` to prevent,
+# arriving through the optimisation meant to save money. So a checkpoint
+# carries its key and is refused unless all of it matches, and
+# `autopilot._todo_and_skipped`'s lesson applies verbatim: it keys on
+# `(task_id, title)` rather than the id, because "skipping work is only safe
+# when we can say what work it was."
+# ---------------------------------------------------------------------------
+
+
+#: How far back a `--resume` may reach. The key already refuses a checkpoint
+#: from another build or another version of the case file, so an old one is
+#: not *wrong* — but "the same build and the same case, three weeks ago" is a
+#: claim about a machine nobody has run since, and a scoreboard should not be
+#: able to quietly assemble itself out of last month.
+#:
+#: The bound is here rather than in a cleanup pass on purpose. Deleting inside
+#: `.mas/` is the one thing this repo does not do: it holds unrecoverable run
+#: history and forensics, and it was wiped once (2026-07-26, runs 1-8's
+#: originals lost). Refusing to READ a stale checkpoint gets the whole benefit
+#: and destroys nothing — the file stays for whoever is diagnosing the run it
+#: came from.
+_CHECKPOINT_MAX_AGE_DAYS = 14
+
+
+def checkpoint_dir(repo_dir: str | Path) -> Path:
+    return Path(repo_dir) / ".mas" / "product-bench" / "checkpoints"
+
+
+def case_key(case: ProductCase, *, provider: str | None) -> dict:
+    """Everything that must be identical for a saved row to still be true."""
+    import hashlib
+    import json
+
+    from ai_venture_studio import __version__
+
+    payload = json.dumps(case.model_dump(mode="json"), sort_keys=True)
+    return {
+        "case": case.name,
+        # The case FILE, not just its name. An FDR edited between runs is a
+        # different question, and a row measured against the old one is not
+        # an answer to it.
+        "case_digest": hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16],
+        # The build under test. This is the field that stops a resume from
+        # doing what the deploy hold was invented to prevent.
+        "avs_version": __version__,
+        "provider": provider or "anthropic",
+    }
+
+
+def write_checkpoint(
+    result: CaseResult, case: ProductCase, *, provider: str | None,
+    repo_dir: str | Path,
+) -> Path | None:
+    """Bank a finished case immediately, so a later death cannot spend it.
+
+    Only MEASURED cases are banked. A case that crashed is exactly the one a
+    resume must retry — banking it would make the resume permanent, turning a
+    transient 529 into a case this bench never measures again.
+    """
+    if not result.measured:
+        return None
+    out = checkpoint_dir(repo_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / f"{case.name}.yaml"
+    payload = {
+        "key": case_key(case, provider=provider),
+        "saved_at": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
+        "result": result.model_dump(mode="json"),
+    }
+    # Write-then-rename: a checkpoint half-written when the process group is
+    # killed would be read back as a corrupt case on the next resume, which is
+    # a worse failure than having no checkpoint at all.
+    tmp_path = path.with_suffix(".yaml.partial")
+    tmp_path.write_text(
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    tmp_path.replace(path)
+    return path
+
+
+def read_checkpoint(
+    case: ProductCase, *, provider: str | None, repo_dir: str | Path
+) -> CaseResult | None:
+    """The saved row for this exact case on this exact build, or None.
+
+    Every rejection is silent-but-safe: an unreadable, stale or mismatched
+    checkpoint means the case runs, which is what would have happened anyway.
+    The only outcome this function must never produce is a row that does not
+    match the key it was asked for.
+    """
+    path = checkpoint_dir(repo_dir) / f"{case.name}.yaml"
+    if not path.exists():
+        return None
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return None
+    if not isinstance(payload, dict) or payload.get("key") != case_key(
+        case, provider=provider
+    ):
+        return None
+    try:
+        saved_at = datetime.datetime.fromisoformat(str(payload.get("saved_at")))
+        age = datetime.datetime.now(datetime.UTC) - saved_at
+    except (TypeError, ValueError):
+        # A checkpoint that cannot say when it was written cannot be shown to
+        # be recent, and this function's whole job is refusing what it cannot
+        # verify.
+        return None
+    if age.days >= _CHECKPOINT_MAX_AGE_DAYS:
+        return None
+    try:
+        result = CaseResult.model_validate(payload.get("result") or {})
+    except Exception:  # noqa: BLE001 — a checkpoint we cannot parse is no checkpoint
+        return None
+    result.resumed = True
+    return result
+
+
+def preflight_provider(provider: str | None, model: str) -> str:
+    """One cheap call before the expensive ones. "" when the account works.
+
+    Run 17 spent 3438 seconds building case 01 and 1541 more against an
+    account that had already stopped accepting calls. A single-token request
+    up front turns that into a two-second refusal, and it is the only check
+    here that costs anything at all — which is why it is worth having: every
+    other guard in this module can only tell you afterwards.
+
+    Errors that are NOT recognisably environmental are swallowed. This is a
+    preflight, not a gate: refusing to start a three-hour run over an
+    unrecognised blip would be the check causing the outage.
+    """
+    from ai_venture_studio.providers.base import get_provider
+
+    name = provider or "anthropic"
+    if name == "mock":
+        return ""
+    try:
+        get_provider(name).complete(
+            model=model, system="reply with ok", user="ok", max_tokens=1
+        )
+    except Exception as exc:  # noqa: BLE001 — classified, not handled
+        return environment_failure(exc)
+    return ""
 
 
 def workspace_python(workspace: Path) -> str:
@@ -668,27 +920,72 @@ def run_case(
 
 def run_product_bench(
     cases_dir: str | Path, *, provider: str | None = None, limit: int | None = None,
-    repo_dir: str | Path = ".",
+    repo_dir: str | Path = ".", resume: bool = False,
 ) -> BenchSummary:
     pidfile = acquire_bench_lock(repo_dir)
     try:
-        return _run_product_bench(cases_dir, provider=provider, limit=limit)
+        return _run_product_bench(
+            cases_dir, provider=provider, limit=limit, repo_dir=repo_dir,
+            resume=resume,
+        )
     finally:
         release_bench_lock(pidfile)
 
 
 def _run_product_bench(
-    cases_dir: str | Path, *, provider: str | None = None, limit: int | None = None
+    cases_dir: str | Path, *, provider: str | None = None, limit: int | None = None,
+    repo_dir: str | Path = ".", resume: bool = False,
 ) -> BenchSummary:
     import time
 
     cases = load_cases(cases_dir)[: limit or None]
     results = []
+    aborted = ""
+    recent: list[str] = []
     for case in cases:
+        if aborted:
+            # THE REST OF THE RUN IS NOT FIVE SEPARATE FAILURES. Once the
+            # account is gone, every remaining case fails for one reason, and
+            # recording them one at a time — as run 17 did, four times, in
+            # 0.3s each — spends the wall-clock to rediscover what the first
+            # failure already said. They are unmeasured (`error:` prefix), so
+            # ADR-035 keeps them out of every rate and names them in scope.
+            results.append(
+                CaseResult(
+                    name=case.name,
+                    autopilot_status=f"error: environment: {aborted}",
+                    axis=case.axis,
+                )
+            )
+            continue
+        if resume:
+            banked = read_checkpoint(case, provider=provider, repo_dir=repo_dir)
+            if banked is not None:
+                results.append(banked)
+                continue
         start = time.monotonic()
         try:
-            results.append(run_case(case, provider=provider))
+            result = run_case(case, provider=provider)
         except Exception as exc:  # noqa: BLE001 — one case never kills the bench
+            # ...but one ENVIRONMENT does. The comment above stayed true for
+            # eleven runs and was wrong for exactly one kind of failure, which
+            # is the kind run 17 hit.
+            reason = environment_failure(exc)
+            recent.append(_error_signature(exc))
+            if not reason and len(recent) >= _REPEAT_ABORT_THRESHOLD and (
+                len(set(recent[-_REPEAT_ABORT_THRESHOLD:])) == 1
+            ):
+                # The backstop, and the half that cannot rot: whatever this
+                # is, two cases in a row dying with a byte-identical error is
+                # not a property of either case. It needs no vocabulary and
+                # keeps working after the provider rewords its messages,
+                # which the table above will not.
+                reason = (
+                    f"{_REPEAT_ABORT_THRESHOLD} consecutive cases failed "
+                    f"identically ({recent[-1]}) — this is not case-specific"
+                )
+            if reason:
+                aborted = reason
             # A crashed case still spent real wall-clock — a 0.0s error row
             # reads as "died instantly" when the failure may be an hour in.
             results.append(
@@ -705,6 +1002,20 @@ def _run_product_bench(
                     duration_s=round(time.monotonic() - start, 1),
                 )
             )
+            continue
+        recent.clear()
+        results.append(result)
+        # BANKED BEFORE THE NEXT CASE STARTS, not at the end of the run. The
+        # next case is the one that can take the process down, and everything
+        # measured before it is worth more than the run that is still going.
+        try:
+            write_checkpoint(result, case, provider=provider, repo_dir=repo_dir)
+        except OSError:  # noqa: PERF203 — a bank that fails must not lose the run
+            # Deliberately not fatal and deliberately not silent-forever: the
+            # measurement in hand is worth more than the optimisation, and
+            # `save_summary` still has it. The cost of losing this is one
+            # re-run, which is the cost of the world before this existed.
+            pass
 
     def _avg(values: list[float | None]) -> float:
         # Only cases that produced the denominator count. A case with no
@@ -736,6 +1047,7 @@ def _run_product_bench(
         gate_unmeasured=[
             r.name for r in increment if not r.measured or r.gate_rate is None
         ],
+        aborted=aborted,
     )
 
 
@@ -766,7 +1078,17 @@ def save_summary(summary: BenchSummary, repo_dir: str | Path) -> Path:
         # every row above this one (ADR-049).
         "cases_total": summary.cases_total,
         "unmeasured": list(summary.unmeasured),
+        # Which rows this run MEASURED and which it read back off disk. A
+        # resumed run whose result file does not distinguish them is a
+        # scoreboard claiming work it did not do, and every number in the
+        # reused row is real enough to hide it.
+        "resumed": [c.name for c in summary.cases if c.resumed],
     }
+    if summary.aborted:
+        # Above the rates in the file, because it changes how to read them:
+        # "four cases failed" and "this run never got to ask them" are
+        # different findings and the percentages look the same.
+        payload["aborted"] = summary.aborted
     if summary.gate_cases_total:
         payload["rates"]["increment"] = {
             "gate_rate": (

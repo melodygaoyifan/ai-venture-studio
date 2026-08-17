@@ -9,7 +9,7 @@ resolution-markers = [
 
 [[package]]
 name = "ai-venture-studio"
-version = "0.100.0"
+version = "0.101.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },

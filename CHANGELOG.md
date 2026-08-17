@@ -4,6 +4,55 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.101.0 — a measurement is bought once
+
+Run 17 measured one bench case over 3438 seconds of real spend, lost its
+account mid-case-02, and left nothing a later run could use. ADR-052 fixes
+the three reasons why.
+
+**A finished case is banked before the next one starts.** `save_summary` runs
+once, at the end, from the CLI — so run 17 kept its case-01 row only because
+the loop happened to reach the end. ADR-036 kills the whole process group at
+`BENCH_TIMEOUT_S = 8h` and run 16 already used 2.97h of it before a fifth case
+was added, so a timeout destroys every finished case with it. Each measured
+case now lands in `.mas/product-bench/checkpoints/` immediately,
+write-then-rename so a kill mid-write leaves nothing half-read. Crashed cases
+are deliberately not banked: that would make a transient 529 permanent.
+
+**`--resume` reuses a banked row only when it is still true** — case name, a
+digest of the case file's whole content, `avs_version` and provider must all
+match, and every rejection path ends in the case simply running.
+`autopilot._todo_and_skipped` keys on `(task_id, title)` rather than the id for
+the same reason, and already said why: *"skipping work is only safe when we can
+say what work it was."* Cross-build reuse is refused outright rather than
+offered behind a flag — reusing a 0.97.0 row inside a 0.100.0 run would average
+two machines into one scoreboard, which is the confound ADR-049 narrowed
+`cases_total` to prevent, arriving through the optimisation meant to save
+money. A resumed row says so in the table, in the row and in the result file's
+`rates.resumed`, because every number in it is real enough to hide it. A resume
+reaches back at most 14 days, enforced as a **read** rule rather than a cleanup
+pass — deleting inside `.mas/` is the one thing this repo does not do, and
+refusing to read a stale checkpoint gets the whole benefit while leaving the
+file for whoever is diagnosing the run it came from.
+
+**"One case never kills the bench" is narrowed for the first time.** True for
+a hung suite or a 529 that outlived its retries; false for an account with no
+credit, which killed cases 03, 04 and 05 at 0.3s each after case 02 spent 1541
+seconds finding out. A terminal environment failure now aborts the run and the
+untried cases are recorded under one shared reason. Two detectors: a table of
+provider wording and statuses 401/402/403, pinned against the verbatim string
+from the aborted result; and **two consecutive cases failing identically**,
+which needs no vocabulary and keeps working after the provider rewords its
+errors. 429 stays excluded — it is transient and already retried six times.
+
+**A preflight spends one token before the run spends hours.** It lives in the
+CLI, not in `run_product_bench`: the library function is what the hermetic
+suite drives, and a network call inside it would need a flag defaulting to off
+— the ADR-051 shape, a guard on the path nobody takes.
+
+Verified end to end on the mock provider: a one-case run measured in 48.8s
+returned the identical row in 0.62s under `--resume`. 2206 hermetic tests.
+
 ## v0.100.0 — a second path is not a weaker one
 
 v0.99.0 found one job written seven times. This one found two controls
