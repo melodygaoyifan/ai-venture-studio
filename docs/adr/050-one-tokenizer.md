@@ -124,6 +124,13 @@ deliberate:
 - **A lint rule instead of a test.** `ruff` is not in this repo's verify job;
   the hermetic suite is. A guard that only runs where the release check does
   not is a guard that does not run.
+- **Deploying before run 17.** ADR-049 held 0.98.0 back so a new case and a
+  new axis would not land inside the one run that first measures ADR-044–048.
+  0.99.0 *contains* that undeployed increment axis, so the same hold applies to
+  it and supersedes it: the installed `avs` stays 0.97.0 until run 17 reports,
+  and run 18 is the first run carrying both this and ADR-049. Nothing here
+  changes that arithmetic — the fixes are to checks that were doing nothing, so
+  a run measuring the old build is measuring their absence either way.
 - **Backfilling a bench case for this.** The behaviour it protects is already
   measured by the increment axis ADR-049 added — `05-increment-repairs` is a
   Chinese case whose correct first outcome is `already_satisfied`, which is
