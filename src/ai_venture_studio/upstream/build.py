@@ -684,7 +684,17 @@ def _write_files(
     validated: list[tuple[str, str]] = []
     kept: list[str] = []
     profile = _workspace_profile(repo)
-    for f in files[:_MAX_FILES]:
+    batch = list(files[:_MAX_FILES])
+    # The weakening guard below judges the BATCH, not one file at a time: an
+    # assert hoisted out of a test and into a shared helper written in the
+    # same response has moved, not vanished. Keyed by path so a file is never
+    # compared against its own new body.
+    batch_contents = {
+        str(f["path"]).lstrip("/"): str(f["new_content"])
+        for f in batch
+        if isinstance(f, dict) and f.get("path") and "new_content" in f
+    }
+    for f in batch:
         # A malformed entry must surface as ValueError — the build loop's
         # feedback channel — not KeyError, which escapes it and kills the
         # whole run (product-bench run 4, case 01: one entry without
@@ -733,7 +743,9 @@ def _write_files(
             from ai_venture_studio.tools.integrity import assertion_delta
 
             weakened = assertion_delta(
-                (repo / rel).read_text(encoding="utf-8", errors="replace"), content
+                (repo / rel).read_text(encoding="utf-8", errors="replace"),
+                content,
+                elsewhere=[c for p, c in batch_contents.items() if p != rel],
             )
             if weakened:
                 kept.append(

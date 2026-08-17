@@ -8,7 +8,7 @@ metric:
   cohort_basis: bench_run
   exclusions: ["cases that died on harness noise rather than on the product under test (run 4 KeyError, run 5 budget exhaustion, run 12 pytest timeout) — enforced mechanically since v0.83.0, stated here since 2026-07-27", "runs whose corpus differs — comparability resets when a case is added or edited"]
   owner: melody
-  changed_at: "2026-08-16"
+  changed_at: "2026-08-17"
 ---
 
 # product-bench capability (build / probes / clean)
@@ -97,6 +97,24 @@ for a product. Run 16 read honestly under the new definition is `build 75%
 rewritten. The 60% floor is read off runs 10–11, which hold no
 produced-nothing cases, so it is unaffected in level; but a run 17 build
 rate is not directly comparable to run 16's recorded 100%.
+
+## The clean rate's comparability breaks here too (ADR-044)
+
+Six of run 16's eleven rejections were the repair pass failing, not the
+product: the reviewer's most common request — hoist duplicated test
+boilerplate into a shared helper — was impossible to perform, because
+`assertion_delta` judged one file at a time and read every assert moving
+into the helper as a deletion. The rewritten call sites were dropped, the
+new helper was kept, and the half-change was committed; the re-review then
+flagged the orphan the pass had just created. Run 17 is the first run in
+which that repair can land, so its clean rate is not comparable with runs
+13–16 in either direction — the earlier numbers measured a pass that could
+not perform its most-requested fix.
+
+This does not move the kill criterion, which is read off build and probes.
+It is recorded here because the clean rate is the number this metric is most
+often asked about, and because run 16's evidence for it was deleted by the
+preservation rule — now fixed, so run 17's rejections keep their workspaces.
 
 ## Falsifier
 

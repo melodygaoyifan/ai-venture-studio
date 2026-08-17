@@ -182,7 +182,7 @@ def test_a_repair_cap_that_drops_findings_says_so(monkeypatch, tmp_path):
         lambda root, provider: _review("REQUEST_CHANGES", many),
     )
     monkeypatch.setattr(
-        autopilot, "_fix_iteration", lambda *a, **k: (False, None)
+        autopilot, "_fix_iteration", lambda *a, **k: (False, None, "")
     )
     _verdict, detail, _approvals, _by_voter = autopilot.review_and_repair(
         tmp_path, provider="mock", model="m", label="task-1",
@@ -204,7 +204,7 @@ def test_a_file_cap_that_hides_a_site_says_so_too(monkeypatch, tmp_path):
         autopilot, "_review_head",
         lambda root, provider: _review("REQUEST_CHANGES", [folded]),
     )
-    monkeypatch.setattr(autopilot, "_fix_iteration", lambda *a, **k: (False, None))
+    monkeypatch.setattr(autopilot, "_fix_iteration", lambda *a, **k: (False, None, ""))
     _verdict, detail, _approvals, _by_voter = autopilot.review_and_repair(
         tmp_path, provider="mock", model="m", label="task-1",
     )
@@ -243,7 +243,7 @@ def test_a_rejection_records_which_voter_rejected(monkeypatch, tmp_path):
         autopilot, "_review_head",
         lambda root, provider: _review("REQUEST_CHANGES", [tool, other, note]),
     )
-    monkeypatch.setattr(autopilot, "_fix_iteration", lambda *a, **k: (False, None))
+    monkeypatch.setattr(autopilot, "_fix_iteration", lambda *a, **k: (False, None, ""))
     _verdict, _detail, _approvals, by_voter = autopilot.review_and_repair(
         tmp_path, provider="mock", model="m", label="task-1",
     )

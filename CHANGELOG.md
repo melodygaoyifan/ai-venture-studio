@@ -4,6 +4,54 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.95.0 — a repair lands whole, or lands nothing and says why
+
+Run 16's clean-review rate fell to **31%** from run 15's 55%, and six of its
+eleven rejections read *"a fix was attempted and rolled back — it did not
+clear the review"*. The sentence was usually false: `_fix_iteration` could
+fail six ways and printed that one line for all of them, four of which never
+reached a review. So "the reviewer got stricter" and "the repair pass stopped
+working" were identical in the record.
+
+It was the second one, and the cause is reproducible in three files. Run 16's
+blocking findings are dominated by duplication complaints against test files
+(*"test boilerplate duplicated verbatim across six new test files instead of a
+shared fixture/helper"*). The repair is always the same — hoist it into a
+helper, call it from the sites — and `assertion_delta` judged one file at a
+time, so every assert moving into the helper read as `removed_assert`.
+`_write_files` dropped all six call sites and kept the new helper. `written`
+was non-empty so nothing noticed, the untouched originals still passed the
+suite gate, and the half-change was committed. The re-review then saw the
+duplication still there **plus an orphan helper nothing called** — *"Unused
+alias function diverges from spec's stated call path"* (03-t5). The repair
+pass was manufacturing the findings that rejected it.
+
+- **The write-guard judges the batch.** `assertion_delta(..., elsewhere=)`:
+  an assert that leaves one file and lands unchanged in another written in the
+  same response has moved, not been deleted. An assert that appears nowhere in
+  the batch is still a removal, and `added_skip` is never forgiven by
+  relocation — the reward-hacking defence is intact.
+- **A partly-refused repair is applied to none.** `_write_files`' `kept` list
+  was discarded on the line that produced it; it now reverts the batch and
+  names the refused files.
+- **Seven failure paths, seven reasons.** `_fix_iteration` returns
+  `(landed, after, why)`, and an AST walk rejects any `return False` without
+  one. It also checks `last_response_truncated()` — every other writer stage
+  has since ADR-041; this was the one that never did.
+- **A discarded repair no longer sets the verdict.** `04-t3` was recorded
+  ESCALATE_SECURITY_RISK for *"input validation removed"*: the repair removed
+  the guard, the rollback restored it, and it was in the delivered code the
+  whole time the scoreboard said it was gone.
+- **A case with a rejected task keeps its workspace.** All six rolled-back
+  tasks sat in cases that completed with every probe passing, so not one
+  review survived to be read.
+
+Checked and wrong, recorded because it was checked: the repair pass was *not*
+truncating. Preserved ledgers from runs 14–15 top out near 8k output tokens
+against a 16384 cap.
+
+ADR-044. `ROLLBACK_SEVERITIES` is untouched.
+
 ## v0.94.0 — a case is measured or it is not
 
 Bench run 16 reported **build 100% · probes 75% · clean 31% over 3 of 4

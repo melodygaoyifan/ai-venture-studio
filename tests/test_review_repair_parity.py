@@ -65,7 +65,7 @@ def _run(monkeypatch, tmp_path, review, after=None, landed=False):
 
     def _fake_fix(root, provider, model, findings):
         calls.append(list(findings))
-        return landed, after
+        return landed, after, ""
 
     monkeypatch.setattr(autopilot, "_fix_iteration", _fake_fix)
     verdict, detail, approvals, by_voter = autopilot.review_and_repair(

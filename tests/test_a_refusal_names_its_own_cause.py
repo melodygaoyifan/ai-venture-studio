@@ -256,7 +256,7 @@ def test_a_rejection_by_silence_says_so_and_names_the_silent(
     review = _blocked_review([_finding(Severity.LOW, "B310: blacklist")])
     monkeypatch.setattr(autopilot, "_review_head", lambda root, provider: review)
     monkeypatch.setattr(
-        autopilot, "_fix_iteration", lambda *a, **k: (False, None)
+        autopilot, "_fix_iteration", lambda *a, **k: (False, None, "")
     )
     _verdict, detail, _approvals, by_voter = autopilot.review_and_repair(
         tmp_path, provider="mock", model="m", label="t4",
@@ -284,7 +284,7 @@ def test_a_finding_that_blocks_keeps_the_note_but_not_the_claim(
     review = _blocked_review([_finding(Severity.HIGH, "sql injection")])
     monkeypatch.setattr(autopilot, "_review_head", lambda root, provider: review)
     monkeypatch.setattr(
-        autopilot, "_fix_iteration", lambda *a, **k: (False, None)
+        autopilot, "_fix_iteration", lambda *a, **k: (False, None, "")
     )
     _v, detail, _a, _bv = autopilot.review_and_repair(
         tmp_path, provider="mock", model="m", label="t1",

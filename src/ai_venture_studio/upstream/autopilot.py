@@ -48,7 +48,12 @@ ROLLBACK_SEVERITIES = frozenset({Severity.CRITICAL, Severity.HIGH})
 MAX_REPAIR_FINDINGS = 8
 MAX_REPAIR_FILES = 12
 
-from ai_venture_studio.providers import get_provider
+#: Output cap for the repair pass. Named so the refusal below can quote it —
+#: an unnamed 16384 sat inline while this was the one writer stage that never
+#: asked whether its response had been cut off.
+_FIX_MAX_TOKENS = 16384
+
+from ai_venture_studio.providers import get_provider, last_response_truncated
 from ai_venture_studio.upstream import progress
 from ai_venture_studio.upstream.discover import approve_brief, run_discovery
 from ai_venture_studio.upstream.fdr import Assessment, assess_fdr
@@ -1109,8 +1114,8 @@ def review_and_repair(
         )
     final_review = review
     if serious:
-        landed, after = _fix_iteration(root, provider, model, serious)
-        if after:
+        landed, after, why_not = _fix_iteration(root, provider, model, serious)
+        if landed and after:
             verdict = after.verdict.value
             # The verdict comes from the re-review, so the reasons must too.
             # Reporting the PRE-fix findings next to a POST-fix verdict would
@@ -1124,9 +1129,22 @@ def review_and_repair(
             )
             detail = (detail + " " if detail else "") + "(after fix iteration)"
         else:
+            # THE VERDICT DESCRIBES THE CODE THAT SURVIVED. When a repair is
+            # rolled back, `git reset --hard` puts the PRE-fix tree back — and
+            # this branch used to keep the post-fix review anyway, so the row
+            # reported findings about a diff that no longer existed and hid
+            # the ones that described what shipped. Run 16's `04-t3` was
+            # recorded ESCALATE_SECURITY_RISK for *"input validation removed
+            # for non-integer candidate IDs"*: the repair had removed it, the
+            # rollback had put it back, and the guard was in the delivered
+            # code the whole time the scoreboard said it was gone.
+            #
+            # The discarded attempt is still evidence — about the repair pass,
+            # not about the product — so it rides in the reason, not in the
+            # verdict.
             detail = (detail + " " if detail else "") + (
-                "(a fix was attempted and rolled back — it did not clear "
-                "the review)"
+                f"(repair attempted, not applied: {why_not})" if why_not
+                else "(repair attempted, not applied)"
             )
         # SAY WHAT THE CAPS DROPPED. A repair pass shown 8 of 11 findings
         # cannot clear a re-review that checks all 11, and until now that read
@@ -1288,9 +1306,19 @@ def _fix_iteration(root: Path, provider: str, model: str, findings):
     """One bounded repair pass: findings → implementer → suite must pass
     → commit → RE-REVIEW, rolled back if it made things worse.
 
-    Returns (landed, review_after). `review_after` is handed back so the
-    caller records the post-fix verdict without paying for a second
-    review.
+    Returns (landed, review_after, why). `review_after` is handed back so the
+    caller records the post-fix verdict without paying for a second review.
+
+    `why` exists because this function can fail in five different ways and
+    every one of them used to reach the scoreboard as the same sentence —
+    *"a fix was attempted and rolled back — it did not clear the review"* —
+    which names the only one of the five that involves a review at all. Six
+    of bench run 16's eleven rejections carried that sentence, so "the
+    reviewer got stricter" and "the repair pass stopped working" were
+    indistinguishable in the record, and the clean rate fell from 55% to 31%
+    with nothing able to say which had happened. A pass that can fail five
+    ways and report one is not a repair pass with a bug, it is an
+    unobservable one.
     """
     import subprocess
 
@@ -1329,15 +1357,45 @@ def _fix_iteration(root: Path, provider: str, model: str, findings):
         "file contents back, no drive-by edits.\n\nRespond with ONLY YAML:\n"
         "files:\n  - path: ...\n    new_content: |\n      ...",
         user=f"<review_findings>\n{listing}</review_findings>\n\n{file_blocks}",
-        max_tokens=16384,
+        max_tokens=_FIX_MAX_TOKENS,
     )
+    if last_response_truncated():
+        # Every other writer stage refuses a truncated batch (ADR-041); this
+        # one silently handed the partial YAML to the parser and reported
+        # whatever fell out as a failed review.
+        return False, None, (
+            f"the repair model's response was cut off at the "
+            f"{_FIX_MAX_TOKENS}-token output cap; nothing was written"
+        )
     try:
         data = extract_mapping(raw, ("files",))
-        written, _kept = _write_files(root, data.get("files") or [])
-    except ValueError:
-        return False, None
+        written, kept = _write_files(root, data.get("files") or [])
+    except ValueError as exc:
+        return False, None, (
+            f"the repair model's response did not parse "
+            f"({' '.join(str(exc).split())[:160]}); nothing was written"
+        )
     if not written:
-        return False, None
+        return False, None, "the repair wrote no files"
+    if kept:
+        # A PARTLY-APPLIED REPAIR IS NOT A REPAIR. `kept` names the files the
+        # write-guard dropped, and it used to be discarded on this line — the
+        # single fact that explains the outcome, thrown away at the moment it
+        # was produced. What survived was the rest of the batch: in run 16
+        # that meant the new shared helper landed while the call sites that
+        # were supposed to use it did not, the suite still passed, the
+        # half-change was committed, and the re-review flagged the orphan the
+        # repair pass had just created. Undo it and say which files were
+        # refused, so the next reviewer sees the original code and the row
+        # names the wall instead of blaming the product.
+        subprocess.run(["git", "checkout", "--", "."], cwd=root,
+                       capture_output=True, timeout=60)
+        subprocess.run(["git", "clean", "-qfd", "--", *written],
+                       cwd=root, capture_output=True, timeout=60)
+        return False, None, (
+            f"{len(kept)} file(s) of the repair were refused by the "
+            f"write-guard, so it was applied to none: {'; '.join(kept[:2])}"
+        )
     # The SAME gate the build loop uses. This used to run bare pytest, which
     # on a 小程序 returns "no_tests" — so a fix iteration on a JS product
     # committed without the JavaScript suite ever executing. One did exactly
@@ -1357,7 +1415,9 @@ def _fix_iteration(root: Path, provider: str, model: str, findings):
             ["git", "clean", "-qfd", "--", *written],
             cwd=root, capture_output=True, timeout=60,
         )
-        return False, None
+        return False, None, (
+            f"the repair broke the suite ({verdict.status}) and was discarded"
+        )
     before = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True,
         timeout=60, text=True,
@@ -1369,7 +1429,10 @@ def _fix_iteration(root: Path, provider: str, model: str, findings):
         cwd=root, capture_output=True, timeout=60, text=True,
     )
     if committed.returncode != 0:
-        return False, None
+        return False, None, (
+            "the repair could not be committed: "
+            + " ".join((committed.stderr or committed.stdout or "").split())[:160]
+        )
 
     # THE FIX IS REVIEWED BEFORE IT STANDS. This review used to run in the
     # caller, after the commit, purely to record a verdict — so a "fix" that
@@ -1388,8 +1451,15 @@ def _fix_iteration(root: Path, provider: str, model: str, findings):
             ["git", "reset", "--hard", before or "HEAD~1"],
             cwd=root, capture_output=True, timeout=60,
         )
-        return False, after
-    return True, after
+        worse = ", ".join(sorted({
+            f.severity.value for f in (after.findings if after else [])
+            if f.severity in ROLLBACK_SEVERITIES
+        }))
+        return False, after, (
+            f"the repair was reviewed, found {worse} findings of its own, "
+            "and was discarded"
+        )
+    return True, after, ""
 
 
 def _should_roll_back(after) -> bool:

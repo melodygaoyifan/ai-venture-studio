@@ -79,7 +79,7 @@ def test_a_fix_that_still_has_criticals_is_rolled_back(repo, monkeypatch):
         verdict=Verdict.REQUEST_CHANGES, summary="broke core feature",
         findings=[_finding(Severity.CRITICAL)]))
 
-    landed, after = autopilot._fix_iteration(repo, "mock", "m", [_finding(Severity.HIGH)])
+    landed, after, _why = autopilot._fix_iteration(repo, "mock", "m", [_finding(Severity.HIGH)])
 
     assert landed is False
     assert after is not None and after.verdict == Verdict.REQUEST_CHANGES
@@ -93,7 +93,7 @@ def test_a_clean_fix_lands(repo, monkeypatch):
     (repo / "cart.js").write_text("onAdd(){}\n// repaired\n", encoding="utf-8")
     _patch(monkeypatch, LeaderResult(verdict=Verdict.APPROVE, summary="clean"))
 
-    landed, after = autopilot._fix_iteration(repo, "mock", "m", [_finding(Severity.HIGH)])
+    landed, after, _why = autopilot._fix_iteration(repo, "mock", "m", [_finding(Severity.HIGH)])
 
     assert landed is True
     assert after.verdict == Verdict.APPROVE
@@ -110,7 +110,7 @@ def test_a_medium_finding_does_not_veto_the_fix(repo, monkeypatch):
         verdict=Verdict.APPROVE_WITH_NOTES, summary="notes",
         findings=[_finding(Severity.MEDIUM)]))
 
-    landed, _ = autopilot._fix_iteration(repo, "mock", "m", [_finding(Severity.HIGH)])
+    landed, _after, _why = autopilot._fix_iteration(repo, "mock", "m", [_finding(Severity.HIGH)])
     assert landed is True
 
 

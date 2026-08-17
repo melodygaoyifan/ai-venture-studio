@@ -405,9 +405,24 @@ def run_case(
                         + ("; ".join(gen_notes[:3]) if gen_notes else "no notes"))[:400],
             ))
         preserved = ""
-        if result.status != "completed" or not all(p.passed for p in probes):
+        if (
+            result.status != "completed"
+            or not all(p.passed for p in probes)
+            or len(clean) < len(built)
+        ):
             # Failure forensics: the temp workspace would vanish with the
             # scoreboard's most important evidence.
+            #
+            # `len(clean) < len(built)` is here because the clean-review rate
+            # is the number this bench most often has to explain, and it was
+            # the one whose evidence was deleted by design. Run 16's clean
+            # rate fell 55% → 31%; every rejected task lived in a case that
+            # completed with all probes passing, so not one of their reviews
+            # was kept, and diagnosing the fall had to proceed from the
+            # truncated `detail` strings in the result YAML. A rejection is a
+            # finding about the machine, not just about the product, and it
+            # deserves the same forensics a crash gets. (ADR-036's family:
+            # the run that could have proved what happened deleted itself.)
             preserved = _preserve_workspace(workspace, case.name, keep_dir)
         return CaseResult(
             name=case.name,

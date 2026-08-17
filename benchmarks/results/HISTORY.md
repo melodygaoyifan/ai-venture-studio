@@ -95,6 +95,40 @@ for the headline numbers.
 > a cause that is not the cause.** Run 16 is the first run able to show this:
 > the detail line only started populating in v0.87.0.
 
+> **Run 16, the six rejections that were the repair pass, not the product
+> (ADR-044).** The other six of the eleven read *"a fix was attempted and
+> rolled back — it did not clear the review"*. `_fix_iteration` could fail in
+> six ways and printed that one sentence for all of them; four of the six
+> never reach a review at all. The dominant one is reproducible in three
+> files: run 16's blocking findings are mostly test-duplication complaints
+> (`01-t2`, `04-t6`, `04-t7` — *"instead of a shared fixture/helper"*), whose
+> only repair is to hoist boilerplate into a helper, and `assertion_delta`
+> judged one file at a time — so every assert moving into the helper read as
+> `removed_assert` and `_write_files` dropped exactly the files carrying the
+> fix while keeping the new helper. `written` was non-empty so nothing
+> noticed; the untouched originals still passed the suite gate; the half was
+> committed. The re-review then saw the duplication still present **plus an
+> orphan helper nothing called** — which is `03-t5`'s recorded finding,
+> *"Unused alias function diverges from spec's stated call path"*. The repair
+> pass was manufacturing the findings that rejected it.
+>
+> Two more of the six are not repair failures at all: `04-t3`'s
+> ESCALATE_SECURITY_RISK for *"input validation removed for non-integer
+> candidate IDs"* describes the **discarded** diff — the rollback restored
+> the guard, and it was in the delivered code the whole time the row said it
+> was gone.
+>
+> None of this could be read from a preserved workspace, because there were
+> none: all six tasks sat in cases that completed with every probe passing,
+> and preservation fired only on a failed case or a failed probe. The clean
+> rate is the number this bench most often has to explain and it was the only
+> one whose evidence was deleted by design. Checked and refuted along the
+> way: the repair pass was **not** truncating — the preserved run-14/15
+> ledgers top out near 8k output tokens against a 16384 cap.
+>
+> **Run 17 is the first run in which the reviewer's most common request is
+> performable.** Its clean rate is not comparable with anything above it.
+
 > **Run 12, recomputed reading (ADR-035).** The numbers above stand as
 > recorded — this table is a record, not a document — but two of them were
 > read wrong on the day, and both readings are corrected here rather than
