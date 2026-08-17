@@ -92,6 +92,13 @@ class MockProvider(Provider):
             return self._fixpr(user)
         from ai_venture_studio.upstream.autopilot import REPORTER_MARKER
         from ai_venture_studio.upstream.fdr import FDR_ASSESSOR_MARKER
+        from ai_venture_studio.upstream.reconcile import RECONCILER_MARKER
+
+        if RECONCILER_MARKER in system:
+            # `extends` for everything unless the request asks for a
+            # relation by name. A mock that reported duplicates by default
+            # would make every feature test refuse to build.
+            return self._reconcile(user)
 
         if FDR_ASSESSOR_MARKER in system:
             if "just an idea" in user:
@@ -559,6 +566,38 @@ class MockProvider(Provider):
                 "notes": "mock implementation",
             },
             sort_keys=False,
+        )
+
+    def _reconcile(self, user: str) -> str:
+        """Every shown requirement `extends`, unless the request text asks
+        for a different relation by name.
+
+        A test drives this by writing MOCK_DUPLICATE / MOCK_CONTRADICTS into
+        the FDR. The default has to be `extends`: a mock that found conflicts
+        on its own would turn every existing feature test into a refusal,
+        and the fixture would then be asserting the mock's opinion.
+        """
+        import re as _re
+
+        ids = _re.findall(r"\bR-\d+\b", user)
+        relation = "extends"
+        if "MOCK_DUPLICATE" in user:
+            relation = "duplicate"
+        elif "MOCK_CONTRADICTS" in user:
+            relation = "contradicts"
+        seen: list[str] = []
+        for rid in ids:
+            if rid not in seen:
+                seen.append(rid)
+        return yaml.safe_dump(
+            {
+                "relations": [
+                    {"requirement_id": rid, "relation": relation,
+                     "reason": f"mock {relation}"}
+                    for rid in seen
+                ]
+            },
+            sort_keys=False, allow_unicode=True,
         )
 
     def _fixpr(self, user: str) -> str:

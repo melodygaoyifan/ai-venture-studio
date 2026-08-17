@@ -865,6 +865,13 @@ def finalize_build_bookkeeping(repo_dir: str | Path, slug: str, files: list[str]
     _save_spec(repo, spec)
     _append_design_memory(repo, spec, files)
     _write_changelog_fragment(repo, spec, files)
+    # The ledger follows the specs (ADR-045). Derived here rather than at
+    # spec-write time because this is the one place a criterion's status
+    # actually changes, and a ledger that only ever says "proposed" is a
+    # list of intentions rather than of promises the product keeps.
+    from ai_venture_studio.upstream.requirements import sync_ledger
+
+    sync_ledger(repo)
 
 
 def run_build(

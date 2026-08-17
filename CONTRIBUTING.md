@@ -32,8 +32,10 @@ Telemetry schema changes are a major-version review with a
 ## Versioning (the contract surface, §74.2)
 
 SemVer over an enumerated surface: FDR schema · `.mas/*` schemas ·
-CLI commands and exit codes · gate names and record schemas · skill
-frontmatter · the telemetry payload schema. Breaking any of these bumps
+`product/requirements.yaml` (the requirement ledger, ADR-045 — ids are
+permanent and referenced from outside the file) · CLI commands and exit
+codes · gate names and record schemas · skill frontmatter · the telemetry
+payload schema. Breaking any of these bumps
 major with a migration note; deprecations live ≥1 minor with a loud
 runtime warning. Design docs change via errata, never silent edits.
 

@@ -24,8 +24,15 @@ def _no_docker(monkeypatch):
 
 
 def test_cases_load():
+    """Every case file on disk parses into a case with probes.
+
+    The count is read from the directory rather than typed here: a
+    hand-maintained number only ever records that someone remembered to
+    edit it, while this fails if a case file stops loading.
+    """
     cases = load_cases(CASES)
-    assert len(cases) == 5
+    assert len(cases) == len(list(CASES.glob("*.yaml")))
+    assert len(cases) >= 5
     assert all(c.probes for c in cases)
 
 

@@ -116,7 +116,12 @@ class TaskOutcome(BaseModel):
 class AutopilotResult(BaseModel):
     #: halted = stopped at the token termination bound with its work intact
     #: and resumable — distinct from `failed`, where something went wrong.
-    status: str  # needs_answers | awaiting_confirmation | completed | failed | halted
+    #: already_satisfied = the request duplicates a promise the product
+    #: already keeps, so nothing was built and nothing went wrong.
+    #: needs_decision = it contradicts one, and only a person can choose
+    #: which promise survives (ADR-046).
+    status: str  # needs_answers | awaiting_confirmation | completed | failed
+    #        | halted | already_satisfied | needs_decision
     assessment: Assessment | None = None
     confirmation: str = ""
     outcomes: list[TaskOutcome] = Field(default_factory=list)
@@ -1483,6 +1488,15 @@ Rules:
 - 1-6 tasks; each is one spec+build cycle. Small features are ONE task.
 - You see the existing file tree and prior features: plan integration with
   what exists — never plan rebuilding existing surfaces.
+- <existing_requirements> lists promises this product ALREADY makes, with
+  ids. Plan around them: never plan a task that re-delivers one, and where
+  a task changes what an existing requirement promises, say which id in the
+  task description ("changes R-012: ..."). If the list is truncated, the
+  requirements you were not shown still exist.
+- <conflicts_to_plan_around> names requirements this request clashes with.
+  A task touching one must CHANGE it in place, never add a second rule
+  beside it — two live rules that contradict each other is the state this
+  section exists to prevent.
 - depends_on only within this feature's tasks; no cycles.
 
 Respond with ONLY YAML:
@@ -1496,6 +1510,81 @@ tasks:
 """
 
 
+def _requirement_lines(root: Path, relations) -> str:
+    """The clash in the founder's terms: the promise, and the test that
+    proves the product keeps it. An id alone is not something a
+    non-technical person can act on."""
+    from ai_venture_studio.upstream.requirements import load_ledger
+
+    ledger = {r.id: r for r in load_ledger(root)}
+    lines = []
+    for rel in relations:
+        req = ledger.get(rel.requirement_id)
+        if req is None:
+            continue
+        proof = f" (checked by {req.verified_by[0]})" if req.verified_by else ""
+        lines.append(f"- **{req.id}** — {req.text}{proof}\n  {rel.reason}")
+    return "\n".join(lines)
+
+
+def _write_already_built(root: Path, feature_dir: Path, duplicates) -> None:
+    (root / "FDR-ALREADY-BUILT.md").write_text(
+        "# 这个功能已经有了 / You already have this\n\n"
+        "系统没有重复建造，因为产品已经承诺了下面这些：\n"
+        "Nothing was built, because the product already promises this:\n\n"
+        f"{_requirement_lines(root, duplicates)}\n\n"
+        "如果你想要的不一样，请把区别写清楚再试一次。\n"
+        "If you wanted something different, say what is different and "
+        "try again.\n",
+        encoding="utf-8",
+    )
+    (feature_dir / "REPORT.md").write_text(
+        "# Already satisfied\n\nThis feature was not built: it duplicates "
+        f"{', '.join(d.requirement_id for d in duplicates)}.\n",
+        encoding="utf-8",
+    )
+
+
+def _write_decision(root: Path, conflicts) -> None:
+    ids = " ".join(c.requirement_id for c in conflicts)
+    (root / "FDR-DECISION.md").write_text(
+        "# 需要你决定 / One decision needed\n\n"
+        "这个新需求和你之前提过的要求冲突了。两个不能同时成立：\n"
+        "This request contradicts something you asked for earlier. Both "
+        "cannot be true at once:\n\n"
+        f"{_requirement_lines(root, conflicts)}\n\n"
+        "**用新的替换旧的** / **Replace the old with the new**:\n\n"
+        f"    avs add <fdr> --replace {ids} --yes\n\n"
+        "**保留旧的** / **Keep the old one**: 改写你的需求文档再试一次 / "
+        "reword the request and try again.\n",
+        encoding="utf-8",
+    )
+
+
+def _propose_conflict_scrs(root: Path, conflicts) -> list[Path]:
+    """Record the clash against each affected spec, unapproved.
+
+    Raised but never approved: `--yes` means the founder does not want to
+    be asked about the BUILD, and reading it as consent to retire an
+    earlier promise would put words in their mouth (ADR-U02).
+    """
+    from ai_venture_studio.upstream.requirements import load_ledger
+    from ai_venture_studio.upstream.spec import raise_scr
+
+    ledger = {r.id: r for r in load_ledger(root)}
+    raised = []
+    for rel in conflicts:
+        req = ledger.get(rel.requirement_id)
+        if req is None:
+            continue
+        raised.append(raise_scr(
+            root, req.spec_slug,
+            f"unapproved: a later feature contradicts {req.id} "
+            f"({rel.reason or 'no reason given'})",
+        ))
+    return raised
+
+
 def run_feature(
     workspace: str | Path,
     fdr_path: str | Path,
@@ -1503,10 +1592,16 @@ def run_feature(
     provider: str = "anthropic",
     model: str = "claude-opus-4-8",
     yes: bool = False,
+    replace: list[str] | None = None,
 ) -> AutopilotResult:
     """Per-feature FDR on an existing product (granularity contract: one
     FDR = one feature change). Same gates, feature-scoped artifacts under
-    product/features/."""
+    product/features/.
+
+    `replace` carries the founder's answer to a `needs_decision` result:
+    the requirement ids they agreed this feature may retire. Nothing is
+    retired without it, and nothing is retired until the build lands.
+    """
     from ai_venture_studio.upstream.build import _file_tree
     from ai_venture_studio.upstream.plan import Task, dag_check
 
@@ -1550,6 +1645,64 @@ def run_feature(
     from ai_venture_studio.upstream.plan import blast_radius
 
     radius = blast_radius(root, fdr_text)
+    # The planner used to see prior features as a list of DIRECTORY NAMES,
+    # which tells it that seven things happened and nothing about what the
+    # product promises. The ledger is synced first so a spec built by an
+    # earlier feature in this same session is already in it (ADR-045).
+    from ai_venture_studio.upstream.requirements import (
+        attribute_origin,
+        load_ledger,
+        relevant,
+        render_slice,
+        sync_ledger,
+    )
+
+    sync_ledger(root)
+    requirements_before = {r.id for r in load_ledger(root)}
+    req_slice = relevant(root, fdr_text, radius=radius)
+
+    # Reconcile BEFORE planning (ADR-046). A request that duplicates a
+    # promise the product already keeps must not reach a planner at all —
+    # planning it produces a task, a spec and a build for work that is
+    # already done and already passing.
+    from ai_venture_studio.upstream import reconcile as _rec
+
+    reconciliation = _rec.reconcile(
+        fdr_text, req_slice, provider=provider, model=model
+    )
+    _rec.save(feature_dir, reconciliation)
+    settled = set(replace or [])
+    duplicates = reconciliation.duplicates
+    conflicts = [c for c in reconciliation.conflicts if c.requirement_id not in settled]
+    if duplicates:
+        _write_already_built(root, feature_dir, duplicates)
+        return AutopilotResult(
+            status="already_satisfied", assessment=assessment,
+            blocked_reason="already promised by "
+            + ", ".join(d.requirement_id for d in duplicates),
+        )
+    if conflicts and not yes:
+        _write_decision(root, conflicts)
+        return AutopilotResult(
+            status="needs_decision", assessment=assessment,
+            blocked_reason="conflicts with "
+            + ", ".join(c.requirement_id for c in conflicts),
+        )
+    if conflicts:
+        # `yes` authorizes the BUILD, not the retirement of a promise the
+        # founder made earlier. The clash is recorded as a PROPOSED SCR —
+        # visible, auditable, and unapproved. Approving it here would forge
+        # the human authorization ADR-U02 exists to require.
+        _propose_conflict_scrs(root, conflicts)
+    # A requirement the founder agreed to replace is superseded only if the
+    # build lands, for the reason `apply_pending_amendment` is deferred: a
+    # product with the old promise retired and the new one unbuilt promises
+    # less than it did before the founder asked for more.
+    to_supersede = [
+        c.requirement_id for c in reconciliation.conflicts
+        if c.requirement_id in settled
+    ]
+
     from ai_venture_studio.upstream.blocks import catalog_summary
     from ai_venture_studio.upstream.workspace import load_project as _lp2
 
@@ -1571,6 +1724,10 @@ def run_feature(
         + ("\n".join(f"- {p}" for p in radius) or "(none matched)")
         + "\n</likely_touched_files>\n\n"
         f"<prior_features>\n{prior or '(first feature)'}\n</prior_features>\n\n"
+        f"<existing_requirements>\n{render_slice(req_slice)}\n"
+        "</existing_requirements>\n\n"
+        f"<conflicts_to_plan_around>\n{_rec.render_for_planner(reconciliation)}\n"
+        "</conflicts_to_plan_around>\n\n"
         f"<feature_fdr>\n{fdr_text}\n</feature_fdr>",
         max_tokens=2048,
     )
@@ -1625,6 +1782,21 @@ def run_feature(
         fdr_text=fdr_text, auto_approvals=auto_approvals,
         marker_for=lambda t: f"{slug}-{t.id}", persist=False,
     )
+
+    # Provenance is recorded HERE because this is the only point that knows
+    # both halves: which requirements are new since planning, and which FDR
+    # asked for them (ADR-045).
+    # The ARCHIVED fdr is the origin, not the path the caller passed: a
+    # correction arrives as `.mas/pending-change.md`, which is overwritten
+    # by the next one, and a provenance link to a file that will hold
+    # something else next week is worse than none.
+    sync_ledger(root)
+    origin = str((feature_dir / "fdr.md").relative_to(root))
+    attribute_origin(root, requirements_before, origin)
+    if to_supersede and outcomes and all(o.status == "built" for o in outcomes):
+        from ai_venture_studio.upstream.requirements import supersede
+
+        supersede(root, to_supersede, origin)
 
     report = provider_impl.complete(
         model=model,

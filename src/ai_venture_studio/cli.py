@@ -1131,15 +1131,33 @@ def add(
     repo_dir: str = typer.Option(".", help="Existing workspace"),
     yes: bool = typer.Option(False, "--yes", help="Confirm and build the feature"),
     provider: str = typer.Option("anthropic", help="Provider (e.g. 'mock')"),
+    replace: list[str] = typer.Option(
+        None, "--replace",
+        help="Requirement ids this feature may retire (answers a "
+        "needs_decision result, e.g. --replace R-012)",
+    ),
 ):
     """Add ONE feature to an existing product from a granular FDR. Keep each
     FDR small: one feature or change per document."""
     from ai_venture_studio.upstream.autopilot import run_feature
 
-    result = run_feature(repo_dir, fdr, provider=provider, yes=yes)
+    result = run_feature(
+        repo_dir, fdr, provider=provider, yes=yes, replace=list(replace or [])
+    )
     if result.status == "needs_answers":
         for i, q in enumerate(result.assessment.questions, 1):
             console.print(f"  {i}. {q}")
+        raise typer.Exit(code=2)
+    if result.status == "already_satisfied":
+        # Exit 0: refusing to build something twice is the system working.
+        # A non-zero code here would train every wrapper to treat a correct
+        # answer as a failure.
+        console.print(f"[green]already satisfied[/green] — {result.blocked_reason}")
+        console.print(f"see {Path(repo_dir) / 'FDR-ALREADY-BUILT.md'}")
+        raise typer.Exit(code=0)
+    if result.status == "needs_decision":
+        console.print(f"[yellow]needs your decision[/yellow] — {result.blocked_reason}")
+        console.print(f"see {Path(repo_dir) / 'FDR-DECISION.md'}")
         raise typer.Exit(code=2)
     if result.status == "awaiting_confirmation":
         console.print(result.confirmation)

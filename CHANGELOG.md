@@ -4,6 +4,78 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.96.0 — a requirement has a name, and a new one is read against the old
+
+The founder asks for one more small thing. Until now `avs add` planned it
+against the *code* and never asked the question a person asks first: **do we
+already promise this, and does it fight something we promised before?** Run
+16 recorded the cost in a reviewer's own words — *"the exact anti-pattern a
+prior task in this repo was already dinged for"*. The reviewer remembered
+across tasks. The builder had no way to: `run_feature` told the planner the
+*names* of the previous feature directories and nothing about what any of
+them promised.
+
+Every mechanism for holding a promise steady stopped at one document.
+`ears.py` grammar-checks a criterion, the SCR channel freezes a built spec,
+`covers` traces a test to a criterion — all inside one spec file. A criterion
+was identified by its position in a list, so nothing outside the spec could
+refer to it at all.
+
+**The ledger (ADR-045).** `product/requirements.yaml` gives every acceptance
+criterion in the product a permanent `R-001`-style id, with its text, spec,
+status, originating FDR, and the test files that verify it.
+
+- **Derived, never hand-maintained.** `sync_ledger` runs from
+  `finalize_build_bookkeeping` — the one place `spec.built = True` happens —
+  so it cannot drift by being forgotten.
+- **Keyed on text, never on index.** Matching on position is the exact defect
+  this exists to prevent: a spec regenerated under an approved SCR would keep
+  `R-007` pointing at slot 7 while slot 7 now holds a different promise.
+- **Append-only.** Ids come from `max(ever seen) + 1` counting retired
+  entries, so an id is never reused and an old reference always resolves. A
+  criterion that returns to its spec is live again under its original id.
+- **`retired` ≠ `superseded`.** Derivation may retire (it observed the text is
+  gone); only an explicit decision may supersede, because a derivation cannot
+  know what replaced something. `superseded_by` names the replacing FDR, not a
+  requirement id — a feature that replaces one promise usually adds several.
+- **The planner is shown what its request touches.** A capped, retrieval-scored
+  slice, which states what it dropped (ADR-039), and a prompt rule saying the
+  requirements it was not shown still exist.
+- **Provenance is attributed after the fact.** The first sync on an existing
+  product backfills hundreds of criteria; stamping the current FDR on them
+  would be a record of a decision nobody made.
+
+**The gate (ADR-046).** Between retrieval and planning, one model call
+classifies the request against only the retrieved slice — so the check does
+not get more expensive or less accurate as the product passes 300 promises.
+
+- **Three relations, no `unclear`.** Uncertainty falls through to `extends`,
+  the pre-existing behaviour. A gate that stops on its own uncertainty stops
+  constantly, and `ears.py` carries that scar.
+- **`checked` is separate from `relations`.** Empty + checked means "nothing
+  conflicts"; empty + unchecked means "nobody looked". Truncated, unparseable,
+  nothing retrieved, and named-no-shown-requirement are all unchecked — the
+  ADR-041 shape, in the one place it would hurt most.
+- **A duplicate refuses the build in both modes**, writes
+  `FDR-ALREADY-BUILT.md` naming the promise *and the test file that proves
+  it*, and **exits 0**: a non-zero code would train every wrapper to read a
+  correct answer as a failure.
+- **A contradiction stops for a person** (exit 2, `FDR-DECISION.md` showing
+  `avs add <fdr> --replace R-0xx --yes`), and under `--yes` proceeds while
+  raising an SCR it deliberately never approves. `--yes` authorizes the build,
+  not the retirement.
+- **Only `--replace` supersedes, and only after every task builds** — mirroring
+  `apply_pending_amendment`: old promise retired plus new one unbuilt is a
+  product that promises strictly less than before.
+- `already_satisfied` is not a bench failure; scoring a correct refusal as one
+  would make redundant work the only way to pass.
+
+`--yes` is narrowed for the first time: "do not stop for me about the *plan*".
+`product/requirements.yaml` joins the enumerated contract surface, and `avs
+add` can now refuse a request it previously always built — minor, not patch.
+
+ADR-045, ADR-046.
+
 ## v0.95.0 — a repair lands whole, or lands nothing and says why
 
 Run 16's clean-review rate fell to **31%** from run 15's 55%, and six of its

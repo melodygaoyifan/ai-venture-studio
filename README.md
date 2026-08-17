@@ -104,6 +104,11 @@ write or edit by hand.
 - **One FDR = one thing.** The first FDR is the smallest usable product;
   every later feature is its own small FDR. Small builds are more accurate
   and fail more debuggably.
+- **If you ask for something your product already does, it tells you instead
+  of building it again** — naming the promise and the test that already
+  proves it. If your new request contradicts something you asked for
+  earlier, it stops and shows you the one command that replaces the old
+  rule, rather than quietly leaving your product promising both.
 - **You confirm intent in plain language before anything is built**, and get
   a build report in your language after — including every automated approval
   the machine made on your behalf.
@@ -195,7 +200,7 @@ is in [claims/platform.yaml](claims/platform.yaml).
 - **Perf-lane calibration**: 5 of 5 seeded defects caught (catch rate 100%)
   at the 3x relative-detection factor, loopback low-parity environment,
   2026-07-26 ([manifest](benchmarks/perf_seeded/calibration.yaml)).
-- **2060 hermetic tests** (`uv run pytest`, no network, no keys); every PR
+- **2097 hermetic tests** (`uv run pytest`, no network, no keys); every PR
   in this repo was reviewed by avs itself, and five of those reviews caught
   real bugs.
 - **A hermetic suite is not enough, and this repo says so.** Twelve real

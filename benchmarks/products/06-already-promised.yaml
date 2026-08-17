@@ -1,0 +1,47 @@
+name: 06-already-promised
+profile: web
+# ADR-046. The base product promises cancellation. The follow-up asks for
+# cancellation again, in the words a founder would actually use a month
+# later — different vocabulary, same promise. The correct outcome is
+# `already_satisfied`: the reconciler recognises the promise, nothing is
+# built, and the probe below is what fails if the system builds it twice.
+#
+# The second follow-up is a real addition against the same wording, and it
+# must NOT be refused. A gate that only ever says no is not measured by a
+# case that only ever asks the same question.
+fdr: 邻里跑腿：住户下单，跑腿员接单，住户可以取消自己的订单。必须有：下单、接单、取消。
+feature_fdrs:
+- 我想让住户能够撤销已经提交的跑腿请求。必须有：撤销入口。
+- 给跑腿加一个功能：住户可以给跑腿员评分。必须有：评分入口。
+probes:
+- name: the-duplicate-was-not-built-twice
+  script: '
+
+    import glob
+
+    modules = sorted(glob.glob("feature_*.py"))
+
+    text = "\n".join(open(m, encoding="utf-8").read() for m in modules)
+
+    cancels = text.lower().count("def cancel")
+
+    assert cancels <= 1, f"cancellation implemented {cancels} times across {modules}"
+
+    print(f"cancellation defined {cancels}x across {len(modules)} modules")
+
+    '
+- name: the-real-addition-still-landed
+  script: '
+
+    import glob
+
+    modules = sorted(glob.glob("feature_*.py"))
+
+    text = "\n".join(open(m, encoding="utf-8").read() for m in modules)
+
+    assert any(w in text.lower() for w in ("rating", "rate", "score", "评分")), \
+      f"the second follow-up added nothing: {modules}"
+
+    print("rating feature present")
+
+    '

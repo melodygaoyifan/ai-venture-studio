@@ -370,7 +370,12 @@ def run_case(
                 statuses.append(feature_result.status)
                 all_outcomes += feature_result.outcomes
             result.outcomes = all_outcomes
-            if any(s != "completed" for s in statuses):
+            # `already_satisfied` is a CORRECT outcome, not a failed build:
+            # the feature FDR asked for a promise the product already keeps
+            # and the system declined to build it twice (ADR-046). Scoring
+            # it as a failure would mean the only way to pass this bench is
+            # to do the redundant work.
+            if any(s not in ("completed", "already_satisfied") for s in statuses):
                 result.status = "failed"
 
         built = [o for o in result.outcomes if o.status == "built"]
