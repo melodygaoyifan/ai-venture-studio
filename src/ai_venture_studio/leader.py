@@ -36,7 +36,9 @@ from ai_venture_studio.state import (
 # the voters raise (89 of ~187 findings across run 13's preserved workspaces,
 # 5x the highs), so the gap was not a corner case — it was most of the
 # unclean rows in bench runs 13 and 14. Import this; never re-list it.
-ACTIONABLE_SEVERITIES = {Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM}
+# frozen: a mutable set that four modules import is a threshold any caller can
+# widen in place, and the one this system most needs to be un-widenable.
+ACTIONABLE_SEVERITIES = frozenset({Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM})
 _ACTIONABLE_SEVERITIES = ACTIONABLE_SEVERITIES  # pre-0.87 name
 
 

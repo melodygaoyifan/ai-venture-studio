@@ -36,6 +36,21 @@ from ai_venture_studio.state import CLEAN_VERDICT_VALUES, Severity, Verdict
 #: `test_a_fix_is_not_rolled_back_for_the_severity_that_prompted_it`.
 ROLLBACK_SEVERITIES = frozenset({Severity.CRITICAL, Severity.HIGH})
 
+if not ROLLBACK_SEVERITIES < frozenset(ACTIONABLE_SEVERITIES):
+    # Checked at import, not only in the suite. The relationship between
+    # these two sets is the whole repair pass: equal sets roll back every
+    # fix (ADR-037's no-op, wearing the shape of a run), and a rollback set
+    # that is not a subset would discard fixes for severities nothing ever
+    # tried to repair. A test catches that at CI; an edit made and run
+    # without the suite is the case a test cannot reach, and this file is
+    # edited by the same machine it drives. Enforcement at load time is the
+    # only reliable form of this control (§11.19).
+    raise RuntimeError(
+        "ROLLBACK_SEVERITIES must stay a STRICT subset of "
+        f"ACTIONABLE_SEVERITIES; got rollback={sorted(s.value for s in ROLLBACK_SEVERITIES)} "
+        f"actionable={sorted(s.value for s in ACTIONABLE_SEVERITIES)}"
+    )
+
 #: How many findings one repair pass is asked to fix, and how many files it may
 #: be shown. Bounded because the fix prompt has to fit in one completion — but
 #: the bound is now NAMED and its overflow is REPORTED, because silently
@@ -1885,10 +1900,15 @@ def _build_wave_parallel(
     root, wave, *, provider, model, auto_approvals, fdr_text="",
     prior_failures=None,
 ):
-    """Each task of the wave builds in its own worktree branch; merges are
-    applied serially afterwards; bookkeeping runs post-merge.
+    """Each task of the wave builds in its own worktree branch; merges,
+    bookkeeping, review and repair are applied serially afterwards.
     `prior_failures` maps task_id → the recorded failure of a previous run's
-    attempt, so a resumed parallel run is no blinder than a sequential one."""
+    attempt, so a resumed parallel run is no blinder than a sequential one.
+
+    Only the BUILD is parallel. Everything after the merge runs one task at a
+    time and through the same `review_and_repair` the sequential path uses:
+    what `--parallel` buys is wall-clock on the writers, never a weaker gate.
+    """
     import subprocess
     from concurrent.futures import ThreadPoolExecutor
 
@@ -1943,24 +1963,74 @@ def _build_wave_parallel(
                             status=result.status, detail=result.detail)
             )
             continue
+        # `--no-commit`, so the bookkeeping lands INSIDE the merge commit.
+        # build.py learned this one commit earlier ("BEFORE the commit, not
+        # after"): `built: true`, the changelog fragment and the ledger sync
+        # are exactly the files `git checkout -- .` throws away, and the
+        # review below can reach that path through a rolled-back repair.
+        # Uncommitted bookkeeping underneath a review is bookkeeping waiting
+        # to be deleted — and the cost is a resumed run re-paying for modules
+        # it already built.
         merged = subprocess.run(
             ["git", "-c", "user.email=autoproduct@local", "-c", "user.name=autoproduct",
-             "merge", "--no-ff", "-m", f"merge build/{result.slug}", f"build/{result.slug}"],
+             "merge", "--no-ff", "--no-commit", f"build/{result.slug}"],
             cwd=root, capture_output=True, timeout=60, text=True,
         )
-        subprocess.run(["git", "branch", "-D", f"build/{result.slug}"],
-                       cwd=root, capture_output=True, timeout=60)
         if merged.returncode != 0:
             subprocess.run(["git", "merge", "--abort"], cwd=root, capture_output=True, timeout=60)
+            subprocess.run(["git", "branch", "-D", f"build/{result.slug}"],
+                           cwd=root, capture_output=True, timeout=60)
             outcomes.append(
                 TaskOutcome(task_id=task.id, title=task.title, status="merge_conflict",
                             detail=merged.stderr[:200] or merged.stdout[:200])
             )
             continue
         finalize_build_bookkeeping(root, result.slug, result.files_written)
+        subprocess.run(["git", "add", "-A"], cwd=root, capture_output=True, timeout=60)
+        committed = subprocess.run(
+            ["git", "-c", "user.email=autoproduct@local", "-c", "user.name=autoproduct",
+             "commit", "-qm", f"merge build/{result.slug}"],
+            cwd=root, capture_output=True, timeout=60, text=True,
+        )
+        subprocess.run(["git", "branch", "-D", f"build/{result.slug}"],
+                       cwd=root, capture_output=True, timeout=60)
+        if committed.returncode != 0:
+            subprocess.run(["git", "merge", "--abort"], cwd=root, capture_output=True, timeout=60)
+            outcomes.append(
+                TaskOutcome(
+                    task_id=task.id, title=task.title, status="error",
+                    detail="the merge could not be committed: "
+                    + " ".join((committed.stderr or committed.stdout or "").split())[:160],
+                )
+            )
+            continue
+        # A PARALLEL BUILD IS NOT A LESSER BUILD. This path used to record
+        # `status="built"` with `review_verdict=None` and stop — so a founder
+        # who passed `--parallel` got modules no reviewer had ever looked at,
+        # sitting in the report beside sequentially-built ones that carried a
+        # real verdict. That is the same hole `retry-task` shipped with and
+        # that `review_and_repair` was extracted to close; it survived here
+        # because the wave loop was hand-written rather than routed through
+        # `_attempt_task`. Serial on purpose: review and repair drive the
+        # working tree, and the merges are already serialized.
+        verdict, review_detail, approvals, by_voter = review_and_repair(
+            root, provider=provider, model=model, label=result.slug,
+            task_id=task.id, detail=f"parallel lane {task.lane}",
+        )
+        auto_approvals.extend(approvals)
         outcomes.append(
-            TaskOutcome(task_id=task.id, title=task.title, status="built",
-                        detail=f"parallel lane {task.lane}")
+            TaskOutcome(
+                task_id=task.id, title=task.title, status="built",
+                review_verdict=verdict, detail=review_detail,
+                # Carried for the same reason: the report's iteration count,
+                # file list and test summary were blank for every parallel
+                # task, so `--parallel` looked like a thinner build in the
+                # record as well as being one.
+                iterations=result.iterations,
+                files_written=result.files_written,
+                test_summary=result.test_summary,
+                blocking_by_voter=by_voter,
+            )
         )
     return outcomes
 

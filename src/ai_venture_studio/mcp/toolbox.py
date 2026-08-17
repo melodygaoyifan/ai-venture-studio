@@ -118,11 +118,19 @@ def build_toolbox(
     transport: str | None = None,
     risk_ceiling: int = 0,
 ):
-    """The one place that decides which transport a voter's tools run on."""
+    """The one place that decides which transport a voter's tools run on.
+
+    Both branches take the same four arguments. They did not: the in-process
+    branch dropped `voter` and `risk_ceiling` on the floor, so choosing the
+    DEFAULT transport silently chose the unguarded one. A switch whose two
+    positions differ in their security properties is not a transport switch.
+    """
     if tool_transport(transport) == "mcp":
         return MCPToolBox(
             repo_dir, allowed, budget, voter=voter, risk_ceiling=risk_ceiling
         )
     from ai_venture_studio.tools.voter_tools import ToolBox
 
-    return ToolBox(repo_dir, allowed, budget)
+    return ToolBox(
+        repo_dir, allowed, budget, voter=voter, risk_ceiling=risk_ceiling
+    )

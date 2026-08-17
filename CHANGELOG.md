@@ -4,6 +4,69 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.100.0 — a second path is not a weaker one
+
+v0.99.0 found one job written seven times. This one found two controls
+written **once**, on the path fewer runs take — the sibling failure, and the
+harder one to see, because nothing is duplicated. The second path simply does
+less, and its output has the same type as the first's. ADR-051.
+
+**`--parallel` builds were never reviewed.** `_attempt_task` runs spec →
+build → `review_and_repair`. `_build_wave_parallel` ran spec → build → merge
+and recorded `TaskOutcome(status="built", review_verdict=None)`. So a founder
+who passed `--parallel` got modules no reviewer had ever looked at, in the
+same report table as sequentially-built ones carrying a real verdict, with
+nothing in the row distinguishing them — and without `iterations`,
+`files_written` or `test_summary`, the three fields ADR-042 added so a row
+carries its own diagnosis. This is the hole `retry-task` shipped with, the one
+`review_and_repair` was extracted to close, whose docstring already says *"A
+retry is not a lesser build."* It survived because the wave loop is
+hand-written rather than routed through `_attempt_task` — the same reason the
+retry paths were wrong before they were merged.
+
+Fixing it made a latent bug reachable: `finalize_build_bookkeeping` ran after
+the merge commit and left `built: true`, the changelog fragment and the ledger
+sync **uncommitted**, and `_fix_iteration`'s rollback runs
+`git checkout -- .`. `build.py` had learned this one commit earlier ("BEFORE
+the commit, not after"), where the cost was a resumed run re-paying for
+modules it had already built. The merge is now `--no-ff --no-commit` with the
+bookkeeping written into the merge commit itself, so `HEAD~1..HEAD` is still
+the whole merged branch — which is what `_review_head` reviews.
+
+**ADR-U03 taint isolation was switched off on the default transport.**
+`build_toolbox` passed `voter` and `risk_ceiling` to `MCPToolBox` and dropped
+both for the in-process `ToolBox`, which constructed no `TaintGuard` at all —
+and `tool_transport()` returns `in_process` unless
+`AUTOPRODUCT_TOOL_TRANSPORT=mcp`. Nothing was exploitable: every tool in
+`VOTER_TOOL_REGISTRY` is L0 read-only and repo-scoped, so a tainted session
+had no L1+ call to make. **That is the finding.** The guarantee held because
+the table was short, not because anything checked it, and the first person to
+add an L1 tool would have removed it without touching a line of security code.
+`mcp/toolbox.py` already carried a comment recording that this exact pair was
+"implemented on both sides and never connected" once before.
+
+`ToolBox` now enforces both at the same two points `MCPHost` does and against
+the same tables: the ceiling filters the allowlist at construction, every call
+is authorized, every result is watched for a research wrapper. A denial comes
+back as data — a voter degrades on one, a raise would take down the review —
+and does not spend the budget, because a refused call is not a call.
+`build_toolbox` passes the same four arguments to both branches.
+
+Also: ADR-038's `ROLLBACK_SEVERITIES ⊂ ACTIONABLE_SEVERITIES` is checked at
+**import**, not only in the suite, and `ACTIONABLE_SEVERITIES` is frozen. A
+test catches drift at CI; an edit made and run without the suite is the case a
+test cannot reach, and this file is edited by the same machine it drives.
+
+Guarded by two new suites, both run against the previously released build as a
+control — 4 of 6 and 7 of 8 fail there and pass here, and the ones that pass
+in both are the negative-path tests, which is what they should do.
+`test_both_build_paths_route_through_the_same_review` scans both loops' source
+so a third build path added later fails a test rather than shipping
+unreviewed; `test_every_voter_tool_is_l0_so_the_default_ceiling_admits_them_all`
+turns the property the old code was accidentally relying on into an assertion.
+
+2177 hermetic tests.
+
 ## v0.99.0 — one tokenizer, imported everywhere
 
 v0.98.0's changelog recorded a gate that was inert in Chinese. That entry

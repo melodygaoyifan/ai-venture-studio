@@ -22,24 +22,74 @@ class ToolBudgetExceeded(Exception):
 
 
 class ToolBox:
-    """Per-voter-invocation toolbox: allowlist + call budget enforced here,
-    at the boundary, not in the prompt."""
+    """Per-voter-invocation toolbox: allowlist, risk ceiling, taint and call
+    budget enforced here, at the boundary, not in the prompt.
 
-    def __init__(self, repo_dir: str | Path, allowed: list[str], budget: int = 10):
+    The risk and taint halves used to exist only on the MCP transport, which
+    is NOT the default (`tool_transport()` returns `in_process` unless
+    `AUTOPRODUCT_TOOL_TRANSPORT=mcp`). So ADR-U03's one-way collapse to L0 —
+    "a run that consumed untrusted research may no longer act" — was written,
+    tested, and switched off on the path almost every run actually takes.
+    Today's registry is all L0, so nothing was reachable that a ceiling would
+    have refused; that is a property of the current tool list, not a control.
+    The comment in `mcp/toolbox.py` records that this exact pair was
+    "implemented on both sides and never connected" once already, and a
+    guarantee that holds only while a table stays short is the shape that
+    breaks quietly the first time someone lengthens it.
+
+    Same two enforcement points as `MCPHost`, reading the same tables: the
+    ceiling filters the allowlist at construction, and the guard authorizes
+    every call and watches every result for a research wrapper.
+    """
+
+    def __init__(
+        self,
+        repo_dir: str | Path,
+        allowed: list[str],
+        budget: int = 10,
+        *,
+        voter: str = "unknown",
+        risk_ceiling: int = 0,
+        taint=None,
+    ):
+        from ai_venture_studio.harness.taint_guard import TaintGuard
+        from ai_venture_studio.mcp.server import SERVER_RISK, server_for
+
         self.root = Path(repo_dir).resolve()
-        self.allowed = set(allowed) & VOTER_TOOL_REGISTRY
+        self.risk_ceiling = risk_ceiling
+        # An unclassified tool is refused, not assumed safe — the same
+        # default `TaintGuard.authorize` applies to a missing risk tier.
+        self.allowed = {
+            t for t in set(allowed) & VOTER_TOOL_REGISTRY
+            if SERVER_RISK.get(server_for(t), 99) <= risk_ceiling
+        }
         self.budget = budget
         self.calls_made = 0
+        # One guard per toolbox: the unit of taint is the run, which is what
+        # a toolbox instance already scopes. Accepted from the caller so a
+        # run that spans several toolboxes can share one.
+        self.taint = taint if taint is not None else TaintGuard(session=voter)
 
     @property
     def remaining(self) -> int:
         return self.budget - self.calls_made
 
     def call(self, tool: str, args: dict) -> str:
+        from ai_venture_studio.harness.taint_guard import ToolDenied
+        from ai_venture_studio.mcp.server import SERVER_RISK, server_for
+
         if tool not in self.allowed:
             return f"error: tool {tool!r} is not in your allowlist {sorted(self.allowed)}"
         if self.calls_made >= self.budget:
             raise ToolBudgetExceeded(f"tool budget of {self.budget} calls exhausted")
+        try:
+            self.taint.authorize(tool, SERVER_RISK.get(server_for(tool)))
+        except ToolDenied as exc:
+            # Returned as data, like every other tool failure here: a denial
+            # the voter can read degrades one finding, a raise takes down the
+            # review. The budget is deliberately NOT spent — a refused call
+            # is not a call.
+            return f"error: {exc}"
         self.calls_made += 1
         try:
             result = getattr(self, f"_{tool}")(**(args or {}))
@@ -47,7 +97,12 @@ class ToolBox:
             return f"error: bad arguments for {tool}: {exc}"
         except Exception as exc:  # noqa: BLE001 — tool errors go back as data
             return f"error: {type(exc).__name__}: {exc}"
-        return result[:_RESULT_CHAR_CAP]
+        result = result[:_RESULT_CHAR_CAP]
+        # Taint on evidence, not on declaration: a repo file that happens to
+        # carry a research wrapper taints this run exactly as a fetched page
+        # would, because the guard cannot tell them apart and must not guess.
+        self.taint.observe_tool_result(result, source_id=f"in_process:{tool}")
+        return result
 
     def _resolve(self, path: str) -> Path:
         resolved = (self.root / path).resolve()
