@@ -1,0 +1,125 @@
+cases:
+- name: 01-groupbuy-api
+  autopilot_status: completed
+  tasks_total: 4
+  tasks_built: 4
+  clean_reviews: 2
+  outcomes:
+  - task_id: t1
+    title: Create group-buy endpoint
+    status: built
+    review: APPROVE
+    detail: (recovered on auto-retry)
+    test_summary: 42 passed in 24.97s
+    iterations: 1
+  - task_id: t2
+    title: Fetch group-buy endpoint
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(repair attempted, not applied: the repair broke the suite (failed) and
+      was discarded) [review: 1 high, 3 medium, 1 low — price > 0 validation missing
+      — accepts zero/negative prices; Unknown top-level field rejection missing on
+      POST /api/groupbuys; New SQLite connection + schema DDL executed on every request
+      (+2 more)]'
+    test_summary: 4 passed in 2.36s
+    iterations: 1
+    blocking_by_voter:
+      correctness: 2
+      performance: 2
+  - task_id: t3
+    title: Create order endpoint
+    status: built
+    review: REQUEST_CHANGES
+    detail: '[2 voter(s) returned no verdict: performance, security — this is what
+      rejected the task, not the findings below] [review: 1 low — Duplicated/malformed
+      "files:" trailer appended in design.md]'
+    test_summary: 19 passed in 11.24s
+    iterations: 2
+  - task_id: t4
+    title: Group-buy summary endpoint
+    status: built
+    review: APPROVE_WITH_NOTES
+    detail: ''
+    test_summary: 25 passed in 14.78s
+    iterations: 1
+  preserved_workspace: .mas/product-bench/workspaces/01-groupbuy-api
+  probes:
+  - name: create-and-read
+    passed: true
+    detail: create/read ok
+  - name: order-summary-math
+    passed: true
+    detail: summary math ok
+  - name: unknown-id-is-client-error
+    passed: true
+    detail: 404 ok
+  duration_s: 3438.3
+  failure_reason: ''
+- name: 02-shortener-api
+  autopilot_status: 'error: BadRequestError: Error code: 400 - {''type'': ''error'',
+    ''error'': {''type'': ''invalid_request_error'', ''message'': ''Your credit balance
+    is too lo'
+  tasks_total: 0
+  tasks_built: 0
+  clean_reviews: 0
+  outcomes: []
+  preserved_workspace: .mas/product-bench/workspaces/02-shortener-api
+  probes: []
+  duration_s: 1541.5
+  failure_reason: ''
+- name: 03-groupbuy-auto
+  autopilot_status: 'error: BadRequestError: Error code: 400 - {''type'': ''error'',
+    ''error'': {''type'': ''invalid_request_error'', ''message'': ''Your credit balance
+    is too lo'
+  tasks_total: 0
+  tasks_built: 0
+  clean_reviews: 0
+  outcomes: []
+  preserved_workspace: .mas/product-bench/workspaces/03-groupbuy-auto
+  probes: []
+  duration_s: 0.3
+  failure_reason: ''
+- name: 04-direction-workbench
+  autopilot_status: 'error: BadRequestError: Error code: 400 - {''type'': ''error'',
+    ''error'': {''type'': ''invalid_request_error'', ''message'': ''Your credit balance
+    is too lo'
+  tasks_total: 0
+  tasks_built: 0
+  clean_reviews: 0
+  outcomes: []
+  preserved_workspace: .mas/product-bench/workspaces/04-direction-workbench
+  probes: []
+  duration_s: 0.4
+  failure_reason: ''
+- name: 05-increment-repairs
+  autopilot_status: 'error: BadRequestError: Error code: 400 - {''type'': ''error'',
+    ''error'': {''type'': ''invalid_request_error'', ''message'': ''Your credit balance
+    is too lo'
+  tasks_total: 0
+  tasks_built: 0
+  clean_reviews: 0
+  outcomes: []
+  preserved_workspace: .mas/product-bench/workspaces/05-increment-repairs
+  probes: []
+  duration_s: 0.3
+  failure_reason: ''
+build_rate: 1.0
+probe_pass_rate: 1.0
+clean_review_rate: 0.5
+unmeasured:
+- 02-shortener-api
+- 03-groupbuy-auto
+- 04-direction-workbench
+- 05-increment-repairs
+avs_version: 0.97.0
+rates:
+  build_rate: 1.0
+  probe_pass_rate: 1.0
+  clean_review_rate: 0.5
+  cases_measured: 1
+  cases_total: 5
+  unmeasured:
+  - 02-shortener-api
+  - 03-groupbuy-auto
+  - 04-direction-workbench
+  - 05-increment-repairs
