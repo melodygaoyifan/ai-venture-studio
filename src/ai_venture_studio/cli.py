@@ -1461,7 +1461,7 @@ def product_bench(
         )
     console.print(table)
     scope = (
-        f" (over {summary.cases_measured} of {len(summary.cases)} cases)"
+        f" (over {summary.cases_measured} of {summary.cases_total} cases)"
         if summary.unmeasured else ""
     )
     console.print(
@@ -1469,6 +1469,18 @@ def product_bench(
         f"probe pass [bold]{summary.probe_pass_rate:.0%}[/bold] · "
         f"clean reviews [bold]{summary.clean_review_rate:.0%}[/bold]{scope}"
     )
+    # The increment axis is reported on its own line, never folded into the
+    # three above: it has its own cases and its own denominator, and a
+    # reader who sees one number cannot tell which question it answered.
+    if summary.gate_cases_total:
+        gate = (
+            f"[bold]{summary.gate_rate:.0%}[/bold]"
+            if summary.gate_rate is not None else "[bold]not measured[/bold]"
+        )
+        console.print(
+            f"increment gate {gate} (over {summary.gate_cases_measured} of "
+            f"{summary.gate_cases_total} increment case(s))"
+        )
     # Save before exiting: a run that measured three cases still measured
     # three cases, and the result is the series the kill criterion reads.
     saved = save_summary(summary, repo_dir)

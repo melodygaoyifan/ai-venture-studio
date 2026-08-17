@@ -271,7 +271,10 @@ def bench_alert(
     )
     unmeasured = list(getattr(summary, "unmeasured", []) or [])
     cases = list(getattr(summary, "cases", []) or [])
-    scope = f" (over {summary.cases_measured} of {len(cases)} cases)" if unmeasured else ""
+    # Build-axis cases: the headline denominator must not move because an
+    # increment case was added beside it (ADR-049).
+    total = getattr(summary, "cases_total", None) or len(cases)
+    scope = f" (over {summary.cases_measured} of {total} cases)" if unmeasured else ""
     lines: list[str] = []
     if unmeasured:
         # First, and named: an unmeasured case is the reason the percentages
@@ -282,6 +285,17 @@ def bench_alert(
         lines.append(
             "  Excluded from the rates, not scored as zero — the harness "
             "broke, and nothing else will say so."
+        )
+    # Its own line, never folded into the three rates above: separate cases,
+    # separate denominator, and a reader shown one number cannot tell which
+    # question it answered (ADR-049).
+    if getattr(summary, "gate_cases_total", 0):
+        gate_rate = getattr(summary, "gate_rate", None)
+        lines.append(
+            "**increment gate:** "
+            + (f"{gate_rate:.0%}" if gate_rate is not None else "not measured")
+            + f" (over {summary.gate_cases_measured} of "
+            f"{summary.gate_cases_total} increment case(s))"
         )
     if concern:
         lines.append(f"**series:** {concern}")

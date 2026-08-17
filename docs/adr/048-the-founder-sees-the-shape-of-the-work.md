@@ -154,7 +154,10 @@ work and it did not.
   series unreadable — the same reason ADR-046's case went to the synthetic set.
   The obligation this creates is named in the plan and stands: after run 17
   reports, a real-series case covering the increment path (ADR-046) and its own
-  metric file.
+  metric file. **Discharged by ADR-049** — `05-increment-repairs` carries
+  `axis: increment`, so it scores a gate rate on its own denominator and the
+  four build-axis cases keep the series they have always produced. The roadmap
+  itself is still off the measured path; that half of this note stands.
 
 ## Mechanism
 

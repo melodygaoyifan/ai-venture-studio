@@ -86,13 +86,42 @@ class Probe(BaseModel):
     script: str  # python source, exit 0 = behavior works
 
 
+#: What a follow-up FDR is expected to do to the system (ADR-049). These are
+#: the three answers the increment path can give, and the case says which one
+#: it is asking for BEFORE the run, because an expectation written after the
+#: fact is not a measurement.
+#:
+#:   already_satisfied — the request duplicates a promise; nothing is built
+#:   raises_scr        — it contradicts one; under `--yes` the build proceeds
+#:                       and the clash is recorded as an UNAPPROVED SCR
+#:   completed         — it is a real addition and must not be refused
+EXPECTATIONS = ("already_satisfied", "raises_scr", "completed")
+
+#: The two things this bench measures. They are separate rates over separate
+#: cases for the reason ADR-035 gives about denominators: "did it build what
+#: was asked" and "did it correctly decline to build" are different questions,
+#: and a case whose CORRECT outcome is that nothing was built would drag a
+#: build rate down for doing the right thing.
+AXES = ("build", "increment")
+
+
 class ProductCase(BaseModel):
     name: str
     profile: str = "web"
     fdr: str
+    axis: str = Field(
+        default="build",
+        description="which rate this case feeds: 'build' (the headline "
+        "build/probe/clean rates) or 'increment' (the gate rate only)",
+    )
     feature_fdrs: list[str] = Field(
         default_factory=list,
         description="granular follow-up FDRs applied via the feature flow",
+    )
+    feature_expectations: list[str] = Field(
+        default_factory=list,
+        description="one EXPECTATIONS value per feature FDR; empty means the "
+        "case makes no claim about the increment path and scores no gate rate",
     )
     probes: list[Probe] = Field(default_factory=list)
     auto_probes: bool = Field(
@@ -104,6 +133,28 @@ class ProductCase(BaseModel):
     def model_post_init(self, _ctx) -> None:
         if not self.probes and not self.auto_probes:
             raise ValueError("case needs probes or auto_probes: true")
+        if self.axis not in AXES:
+            raise ValueError(f"axis must be one of {AXES}, not {self.axis!r}")
+        if self.feature_expectations:
+            # Aligned by position, so a mismatch is a case file that means
+            # something other than what it says — refused at load rather
+            # than scored, because the run costs hours and the reading of
+            # every row after it would be wrong.
+            if len(self.feature_expectations) != len(self.feature_fdrs):
+                raise ValueError(
+                    f"{len(self.feature_expectations)} expectations for "
+                    f"{len(self.feature_fdrs)} feature FDRs — they are paired "
+                    "by position"
+                )
+            unknown = [e for e in self.feature_expectations if e not in EXPECTATIONS]
+            if unknown:
+                raise ValueError(f"unknown expectation(s) {unknown}: {EXPECTATIONS}")
+        if self.axis == "increment" and not self.feature_expectations:
+            raise ValueError(
+                "an increment-axis case with no feature_expectations measures "
+                "nothing — it would be excluded from the headline rates and "
+                "contribute to no other"
+            )
 
 
 class ProbeResult(BaseModel):
@@ -112,9 +163,28 @@ class ProbeResult(BaseModel):
     detail: str = ""
 
 
+class IncrementResult(BaseModel):
+    """One follow-up FDR, what the case expected of it, and what happened.
+
+    `actual` is recorded even when it matches, because a gate rate without
+    the answers behind it is a number nobody can check — and the failure
+    this measures is a gate that is *inert* rather than wrong, which reads
+    as a clean "completed" on every row.
+    """
+
+    index: int
+    fdr: str
+    expected: str
+    actual: str
+    correct: bool
+    detail: str = ""
+
+
 class CaseResult(BaseModel):
     name: str
     autopilot_status: str
+    axis: str = "build"
+    increments: list[IncrementResult] = Field(default_factory=list)
     tasks_total: int = 0
     tasks_built: int = 0
     clean_reviews: int = 0
@@ -188,6 +258,18 @@ class CaseResult(BaseModel):
         # `test_a_real_zero_is_still_a_zero`.
         return self.clean_reviews / self.tasks_built if self.tasks_built else None
 
+    @property
+    def gate_rate(self) -> float | None:
+        """How often the increment path did what the case asked of it.
+
+        None when the case made no claim about it — a case with no
+        `feature_expectations` is not a gate scoring 100%, it is a case
+        that did not ask the question (ADR-049).
+        """
+        if not self.measured or not self.increments:
+            return None
+        return sum(1 for i in self.increments if i.correct) / len(self.increments)
+
 
 class BenchSummary(BaseModel):
     cases: list[CaseResult]
@@ -198,10 +280,35 @@ class BenchSummary(BaseModel):
     # averaged over 4 are different measurements, and the reader cannot
     # tell them apart from the percentages alone.
     unmeasured: list[str] = Field(default_factory=list)
+    # The increment axis (ADR-049). Separate rate, separate denominator,
+    # separate cases: "did it build what was asked" and "did it correctly
+    # decline to build" are different questions, and a case whose CORRECT
+    # outcome is that nothing was built would drag a build rate down for
+    # doing the right thing. Keeping the split also keeps the run-13..17
+    # headline series comparable — the build-axis cases are exactly the
+    # four that have always been in it.
+    gate_rate: float | None = None
+    gate_unmeasured: list[str] = Field(default_factory=list)
+
+    def _axis(self, axis: str) -> list[CaseResult]:
+        return [c for c in self.cases if c.axis == axis]
+
+    @property
+    def cases_total(self) -> int:
+        """Denominator of the HEADLINE rates — build-axis cases only."""
+        return len(self._axis("build"))
 
     @property
     def cases_measured(self) -> int:
-        return len(self.cases) - len(self.unmeasured)
+        return self.cases_total - len(self.unmeasured)
+
+    @property
+    def gate_cases_total(self) -> int:
+        return len(self._axis("increment"))
+
+    @property
+    def gate_cases_measured(self) -> int:
+        return self.gate_cases_total - len(self.gate_unmeasured)
 
 
 def load_cases(cases_dir: str | Path) -> list[ProductCase]:
@@ -333,6 +440,62 @@ def _preserve_workspace(
     return str(keep)
 
 
+def _proposed_scrs(workspace: Path) -> set[str]:
+    """The UNAPPROVED spec-change requests sitting in the workspace.
+
+    Read by name and by `status:` rather than by count, so a follow-up that
+    happens to raise an SCR for an unrelated reason cannot be mistaken for
+    the one this expectation is about, and an SCR a human later approves
+    stops matching (ADR-046 only ever writes them `proposed`).
+    """
+    scr_dir = workspace / ".mas" / "scr"
+    if not scr_dir.is_dir():
+        return set()
+    found = set()
+    for path in scr_dir.glob("SCR-*.yaml"):
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except Exception:  # noqa: BLE001 — a malformed SCR is not a crash here
+            continue
+        if isinstance(data, dict) and data.get("status") == "proposed":
+            found.add(path.name)
+    return found
+
+
+def _score_increment(
+    *, index: int, fdr: str, expected: str, status: str, new_scrs: set[str],
+) -> IncrementResult:
+    """What the increment path actually did, against what the case asked.
+
+    The observable differs per expectation because the OUTCOMES differ:
+    a duplicate refuses and says so in the status, a contradiction under
+    `--yes` proceeds to build and records the clash as an unapproved SCR
+    (that is ADR-046's whole design — `--yes` may not approve a change to
+    what the product promises), and a clean addition is just a build.
+    So a raised SCR is checked on the filesystem, not inferred from the
+    status, which for that path reads `completed` exactly like a case
+    where the gate never fired at all. That indistinguishability is the
+    failure mode this case exists to catch (ADR-048's inert gate).
+    """
+    # A raised SCR is the strongest signal available and outranks the
+    # status, in BOTH directions: a follow-up expected to be a clean
+    # addition that instead raised a contradiction is a wrong answer, not
+    # a `completed` one, and reporting it as `completed` would hide the
+    # gate misfiring behind a passing row.
+    actual = "raises_scr" if new_scrs else status
+    detail = f"status={status}; new proposed SCR(s): " + (
+        ", ".join(sorted(new_scrs)) if new_scrs else "none"
+    )
+    return IncrementResult(
+        index=index,
+        fdr=fdr[:200],
+        expected=expected,
+        actual=actual,
+        correct=actual == expected,
+        detail=detail[:400],
+    )
+
+
 def run_case(
     case: ProductCase, *, provider: str | None = None,
     keep_dir: str | Path | None = None,
@@ -358,17 +521,29 @@ def run_case(
         )
         all_outcomes = list(result.outcomes)
         statuses = [result.status]
+        increments: list[IncrementResult] = []
         if result.status == "completed" and case.feature_fdrs:
             from ai_venture_studio.upstream.autopilot import run_feature
 
             for i, feature_fdr in enumerate(case.feature_fdrs):
                 fdr_path = workspace / f".bench-feature-{i}.md"
                 fdr_path.write_text(feature_fdr, encoding="utf-8")
+                scrs_before = _proposed_scrs(workspace)
                 feature_result = run_feature(
                     workspace, fdr_path, provider=provider or "anthropic", yes=True
                 )
                 statuses.append(feature_result.status)
                 all_outcomes += feature_result.outcomes
+                if i < len(case.feature_expectations):
+                    increments.append(
+                        _score_increment(
+                            index=i,
+                            fdr=feature_fdr,
+                            expected=case.feature_expectations[i],
+                            status=feature_result.status,
+                            new_scrs=_proposed_scrs(workspace) - scrs_before,
+                        )
+                    )
             result.outcomes = all_outcomes
             # `already_satisfied` is a CORRECT outcome, not a failed build:
             # the feature FDR asked for a promise the product already keeps
@@ -432,6 +607,8 @@ def run_case(
         return CaseResult(
             name=case.name,
             autopilot_status=result.status,
+            axis=case.axis,
+            increments=increments,
             tasks_total=len(result.outcomes),
             tasks_built=len(built),
             clean_reviews=len(clean),
@@ -518,6 +695,10 @@ def _run_product_bench(
                 CaseResult(
                     name=case.name,
                     autopilot_status=f"error: {type(exc).__name__}: {str(exc)[:120]}",
+                    # A crashed case still belongs to the axis it was written
+                    # for, or it would be dropped from the increment rate and
+                    # silently counted against the headline denominator.
+                    axis=case.axis,
                     # Written by run_case on its way out. Without it the row
                     # names a failure whose evidence is already deleted.
                     preserved_workspace=getattr(exc, "avs_preserved_workspace", ""),
@@ -531,15 +712,30 @@ def _run_product_bench(
         measured = [v for v in values if v is not None]
         return sum(measured) / len(measured) if measured else 0.0
 
+    # The headline three are averaged over BUILD-axis cases only, so the
+    # run-13..17 series stays comparable when increment cases are added
+    # beside it: an increment case whose correct answer is "nothing was
+    # built" would otherwise enter the build rate as a 0.0 for being right
+    # (ADR-049).
+    build = [r for r in results if r.axis == "build"]
+    increment = [r for r in results if r.axis == "increment"]
+    gate_values = [r.gate_rate for r in increment if r.gate_rate is not None]
     return BenchSummary(
         cases=results,
-        build_rate=_avg([r.build_rate for r in results]),
-        probe_pass_rate=_avg([r.probe_pass_rate for r in results]),
-        clean_review_rate=_avg([r.clean_review_rate for r in results]),
+        build_rate=_avg([r.build_rate for r in build]),
+        probe_pass_rate=_avg([r.probe_pass_rate for r in build]),
+        clean_review_rate=_avg([r.clean_review_rate for r in build]),
         # Read from the case's own one decision, never re-derived from a
         # rate — deriving it from `build_rate is None` is what let the list
         # disagree with the averages it was describing.
-        unmeasured=[r.name for r in results if not r.measured],
+        unmeasured=[r.name for r in build if not r.measured],
+        # None, not 0.0, when no increment case reported: a rate of zero
+        # says the gate answered wrongly every time, and a run that never
+        # asked must not be readable as that.
+        gate_rate=(sum(gate_values) / len(gate_values)) if gate_values else None,
+        gate_unmeasured=[
+            r.name for r in increment if not r.measured or r.gate_rate is None
+        ],
     )
 
 
@@ -565,9 +761,21 @@ def save_summary(summary: BenchSummary, repo_dir: str | Path) -> Path:
         # criterion reads — "75%" over three of four cases is not the same
         # reading as "75%" over four, and a later reader has only this file.
         "cases_measured": summary.cases_measured,
-        "cases_total": len(summary.cases),
+        # Build-axis cases, not every case in the directory: adding an
+        # increment case must not silently change what "of 4" meant in
+        # every row above this one (ADR-049).
+        "cases_total": summary.cases_total,
         "unmeasured": list(summary.unmeasured),
     }
+    if summary.gate_cases_total:
+        payload["rates"]["increment"] = {
+            "gate_rate": (
+                round(summary.gate_rate, 3) if summary.gate_rate is not None else None
+            ),
+            "cases_measured": summary.gate_cases_measured,
+            "cases_total": summary.gate_cases_total,
+            "unmeasured": list(summary.gate_unmeasured),
+        }
     rendered = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
     path.write_text(rendered, encoding="utf-8")
     # Durable copy: .mas/ is gitignored and was lost once (2026-07-26, the

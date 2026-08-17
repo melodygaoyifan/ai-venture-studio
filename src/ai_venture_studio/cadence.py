@@ -448,6 +448,13 @@ def _bench_rates(path: str) -> str:
     measured, total = rates.get("cases_measured"), rates.get("cases_total")
     if isinstance(measured, int) and isinstance(total, int) and measured < total:
         read += f" — over {measured} of {total} cases"
+    # The increment axis rides along on its own terms (ADR-049): it answers
+    # a different question over different cases, so it is appended, never
+    # averaged into the two rates above.
+    inc = rates.get("increment") if isinstance(rates.get("increment"), dict) else {}
+    gate = inc.get("gate_rate")
+    if isinstance(gate, (int, float)):
+        read += f", increment gate {float(gate):.0%}"
     return read
 
 

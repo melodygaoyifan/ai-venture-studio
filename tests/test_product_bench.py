@@ -403,3 +403,228 @@ def test_a_wedged_probe_does_not_leave_the_product_server_running(tmp_path, monk
     assert "time.sleep(120)" not in survivors.stdout, (
         "the probe's server outlived the probe and still holds its port"
     )
+
+
+# ---------------------------------------------------------------------------
+# The increment axis (ADR-049). ADR-046 added the only refusal path this
+# product has, and nothing measured it: a bench that only ever asks "can it
+# build" scores a gate that never fires exactly the same as one that fires
+# correctly. ADR-048 then found the gate INERT in Chinese — passing every
+# English test, refusing nothing, erroring never. These tests exist because
+# that failure mode is invisible to every rate above this line.
+# ---------------------------------------------------------------------------
+
+
+REAL_CASES = Path(__file__).parent.parent / "benchmarks" / "products-real"
+
+
+def _increment_case(name, *, expected, actual, axis="increment"):
+    from ai_venture_studio.product_bench import CaseResult, IncrementResult
+
+    return CaseResult(
+        name=name,
+        autopilot_status="completed",
+        axis=axis,
+        increments=[
+            IncrementResult(
+                index=i, fdr=f"f{i}", expected=e, actual=a, correct=e == a
+            )
+            for i, (e, a) in enumerate(zip(expected, actual))
+        ],
+        tasks_total=2,
+        tasks_built=2,
+        clean_reviews=2,
+    )
+
+
+def test_an_increment_case_stays_out_of_the_three_headline_rates(
+    monkeypatch, tmp_path
+):
+    """Otherwise the bench punishes the system for being right.
+
+    An increment case whose CORRECT answer is `already_satisfied` builds
+    nothing on purpose. Averaged into the build rate that is a 0.0 — the
+    same score a case gets for failing outright — and the run-13..17 series
+    would step down for a reason that has nothing to do with capability.
+    """
+    pb = _crashing_bench(
+        monkeypatch,
+        tmp_path,
+        [
+            _case("ok", total=4, built=4, clean=4, probes_passed=2, probes_total=2),
+            _case_with_axis(
+                _case("inc", total=2, built=0, clean=0,
+                      probes_passed=0, probes_total=1),
+            ),
+        ],
+    )
+    summary = pb.run_product_bench(CASES, limit=2, repo_dir=tmp_path)
+    assert summary.build_rate == 1.0
+    assert summary.probe_pass_rate == 1.0
+    # ...and the denominator the reader sees is the build series' own, so
+    # "of 4" keeps meaning what it meant in every row above.
+    assert summary.cases_total == 1
+    assert summary.cases_measured == 1
+
+
+def _case_with_axis(result, axis="increment"):
+    return result.model_copy(update={"axis": axis})
+
+
+def test_the_gate_rate_is_scored_over_the_expectations_the_case_declared(
+    monkeypatch, tmp_path
+):
+    pb = _crashing_bench(
+        monkeypatch,
+        tmp_path,
+        [
+            _increment_case(
+                "inc",
+                expected=["already_satisfied", "raises_scr", "completed"],
+                actual=["already_satisfied", "completed", "completed"],
+            ),
+        ],
+    )
+    summary = pb.run_product_bench(CASES, limit=1, repo_dir=tmp_path)
+    assert summary.gate_rate == pytest.approx(2 / 3)
+    assert summary.gate_cases_measured == 1 and summary.gate_cases_total == 1
+    # The headline three have no build-axis case to average, and must not
+    # report the increment case's numbers under their own names.
+    assert summary.cases_total == 0
+
+
+def test_a_run_that_never_asked_the_gate_reports_no_gate_rate(
+    monkeypatch, tmp_path
+):
+    """None, not 0.0. Zero says the gate answered wrongly every time."""
+    pb = _crashing_bench(
+        monkeypatch,
+        tmp_path,
+        [_case("ok", total=1, built=1, clean=1, probes_passed=1, probes_total=1)],
+    )
+    summary = pb.run_product_bench(CASES, limit=1, repo_dir=tmp_path)
+    assert summary.gate_rate is None
+    assert summary.gate_cases_total == 0
+
+
+def test_the_saved_series_carries_the_gate_rate_and_its_own_denominator(
+    monkeypatch, tmp_path
+):
+    """A later reader has only this file — and the increment rate is over
+    different cases than the three above it."""
+    import yaml as _yaml
+
+    pb = _crashing_bench(
+        monkeypatch,
+        tmp_path,
+        [
+            _case("ok", total=2, built=2, clean=2, probes_passed=1, probes_total=1),
+            _increment_case(
+                "inc",
+                expected=["already_satisfied", "raises_scr"],
+                actual=["already_satisfied", "raises_scr"],
+            ),
+        ],
+    )
+    summary = pb.run_product_bench(CASES, limit=2, repo_dir=tmp_path)
+    rates = _yaml.safe_load(pb.save_summary(summary, tmp_path).read_text())["rates"]
+    assert rates["cases_total"] == 1, "the headline denominator counted an increment case"
+    assert rates["increment"]["gate_rate"] == 1.0
+    assert rates["increment"]["cases_total"] == 1
+    assert rates["increment"]["cases_measured"] == 1
+
+
+def test_a_raised_scr_outranks_the_status_in_both_directions():
+    """A contradiction under `--yes` PROCEEDS to build (ADR-046: `--yes`
+    may approve work, never a change to what the product promises), so its
+    status reads `completed` — indistinguishable from a gate that never
+    fired. The SCR on disk is the only thing that tells them apart, which
+    is exactly the reading ADR-048's inert gate would have passed."""
+    from ai_venture_studio.product_bench import _score_increment
+
+    fired = _score_increment(
+        index=0, fdr="删除报修", expected="raises_scr",
+        status="completed", new_scrs={"SCR-002.yaml"},
+    )
+    assert fired.actual == "raises_scr" and fired.correct
+    assert "SCR-002.yaml" in fired.detail
+
+    inert = _score_increment(
+        index=0, fdr="删除报修", expected="raises_scr",
+        status="completed", new_scrs=set(),
+    )
+    assert inert.actual == "completed" and not inert.correct
+
+    # ...and the other direction: a clean addition that trips the gate is a
+    # wrong answer, not a passing `completed` row.
+    misfire = _score_increment(
+        index=1, fdr="评分", expected="completed",
+        status="completed", new_scrs={"SCR-003.yaml"},
+    )
+    assert misfire.actual == "raises_scr" and not misfire.correct
+
+
+def test_only_unapproved_scrs_count_as_the_gate_having_fired(tmp_path):
+    """ADR-046 only ever writes them `proposed`. One a human later approved
+    is a decision that was made, not a clash the gate just raised."""
+    from ai_venture_studio.product_bench import _proposed_scrs
+
+    scr = tmp_path / ".mas" / "scr"
+    scr.mkdir(parents=True)
+    (scr / "SCR-001.yaml").write_text("status: approved\n", encoding="utf-8")
+    (scr / "SCR-002.yaml").write_text("status: proposed\n", encoding="utf-8")
+    (scr / "SCR-003.yaml").write_text("{{ not yaml", encoding="utf-8")
+    assert _proposed_scrs(tmp_path) == {"SCR-002.yaml"}
+    assert _proposed_scrs(tmp_path / "nowhere") == set()
+
+
+def test_a_case_whose_expectations_do_not_line_up_is_refused_at_load():
+    """They are paired by POSITION. A mismatch means the file says something
+    other than what it means, and the run costs hours — refused at load
+    beats scored and read wrongly."""
+    from ai_venture_studio.product_bench import ProductCase
+
+    with pytest.raises(ValueError, match="paired by position"):
+        ProductCase(
+            name="x", fdr="f", probes=[],
+            auto_probes=True,
+            feature_fdrs=["a", "b"],
+            feature_expectations=["completed"],
+        )
+    with pytest.raises(ValueError, match="unknown expectation"):
+        ProductCase(
+            name="x", fdr="f", auto_probes=True,
+            feature_fdrs=["a"], feature_expectations=["probably_fine"],
+        )
+    with pytest.raises(ValueError, match="measures nothing"):
+        ProductCase(name="x", fdr="f", auto_probes=True, axis="increment")
+
+
+def test_the_real_increment_case_asks_the_gate_all_three_of_its_questions():
+    """A gate that only ever says no scores 100% on a case that only ever
+    asks it to say no. The case has to contain a duplicate, a contradiction
+    AND a clean addition, or it measures half a gate.
+
+    It is also asserted to be Chinese: ADR-048 found the gate inert in
+    exactly that language while every English test passed, and a case
+    quietly rewritten into English would restore the blind spot.
+    """
+    from ai_venture_studio.product_bench import EXPECTATIONS
+
+    cases = [c for c in load_cases(REAL_CASES) if c.axis == "increment"]
+    assert cases, "the real series has no increment case (ADR-049)"
+    for case in cases:
+        assert set(case.feature_expectations) == set(EXPECTATIONS)
+        assert len(case.feature_expectations) == len(case.feature_fdrs)
+        text = case.fdr + "".join(case.feature_fdrs)
+        assert any("一" <= ch <= "鿿" for ch in text), (
+            f"{case.name} is not written in the language the gate was inert in"
+        )
+
+
+def test_the_real_build_series_is_still_the_same_four_cases():
+    """The comparability guard. Run 13..17 are read as one series; adding a
+    case to the build axis silently redefines every rate in it, and the
+    percentages give the reader no way to notice."""
+    build = [c.name for c in load_cases(REAL_CASES) if c.axis == "build"]
+    assert len(build) == 4, f"the headline series changed shape: {build}"

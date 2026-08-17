@@ -1,0 +1,84 @@
+name: 05-increment-repairs
+profile: web
+# The increment axis (ADR-049). This case does not ask "can it build a
+# product" — the four cases beside it already do, and this one is excluded
+# from those three rates for that reason. It asks the question ADR-046
+# added and nothing measured: when the founder comes back a month later
+# and asks for something else, does the system read the new request
+# against what the product already promises?
+#
+# It is written in Chinese because that is what the founder writes in, and
+# because ADR-048 found the gate INERT in exactly that language while
+# every English test passed. A gate that cannot be caught failing here is
+# not being measured — it is being assumed.
+axis: increment
+fdr: |
+  小区报修的后端 API（先只做后端）。
+  住户能提交一条报修（房号、故障描述）；
+  住户能查看自己提交过的报修；
+  物业能看到全部报修，并把某一条标记为已完成。
+  报修一旦提交就不能删除，只能由物业标记完成——这条是为了留痕。
+  数据要存在数据库里，重启不丢。暂时不要：页面、支付、登录、通知。
+  成功：上面的事情都能做到。
+
+# Paired by position with `feature_expectations` below. Each is written the
+# way a founder would write it a month later — their own words, not the
+# spec's — because retrieval that only works on the spec's vocabulary is
+# retrieval that will never fire in real use.
+feature_fdrs:
+# 1. The same promise, different words. "把家里坏掉的东西报上来" and
+#    "提交一条报修" share almost no characters; the base already promises it.
+- 我希望住户可以把家里坏掉的东西报上来，让物业知道。必须有：报修入口。
+# 2. Against a promise the FDR made on purpose and gave a reason for.
+#    Under `--yes` the build proceeds — ADR-046 is explicit that `--yes`
+#    may approve work but may not approve a change to what the product
+#    promises — and the clash is recorded as an UNAPPROVED SCR.
+- 住户应该能自己删掉自己发的报修单，发错了很尴尬。必须有：删除入口。
+# 3. A real addition, contradicting nothing. A gate that only ever says no
+#    would score 100% on the two above and be worthless.
+- 报修完成以后，住户可以给这次维修打个分。必须有：评分入口。
+
+feature_expectations:
+- already_satisfied
+- raises_scr
+- completed
+
+# These feed NO rate — the increment axis is scored on the three
+# expectations above, and this case is out of the probe rate by
+# construction. They are here as forensics: a failing probe preserves the
+# workspace, and "the duplicate got built anyway" is the failure whose
+# evidence is hardest to reconstruct after the fact.
+probes:
+- name: the-duplicate-was-not-built-twice
+  script: '
+
+    import glob
+
+    modules = sorted(glob.glob("feature_*.py"))
+
+    text = "\n".join(open(m, encoding="utf-8").read() for m in modules)
+
+    lowered = text.lower()
+
+    hits = lowered.count("def create_repair") + lowered.count("def submit_repair")
+
+    assert hits == 0, f"the duplicate follow-up built a second submit path: {modules}"
+
+    print(f"no second submit path across {len(modules)} follow-up modules")
+
+    '
+- name: the-real-addition-still-landed
+  script: '
+
+    import glob
+
+    modules = sorted(glob.glob("feature_*.py"))
+
+    text = "\n".join(open(m, encoding="utf-8").read() for m in modules)
+
+    assert any(w in text.lower() for w in ("rating", "rate", "score", "评分")), \
+      f"the third follow-up added nothing: {modules}"
+
+    print("rating feature present")
+
+    '

@@ -4,6 +4,65 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.98.0 — the refusal is measured, on its own axis
+
+ADR-046 gave this product its only refusal: a new request is read against what
+the product already promises, and it is either a duplicate (nothing is built),
+a contradiction (a person decides; under `--yes` the build proceeds and the
+clash is recorded as an unapproved SCR), or a real addition. **Nothing measured
+it.** The product bench asks one question — can it build what was asked — over
+four cases that all ask for a product to exist, and in that reading a gate that
+never fires scores exactly like a gate that fires correctly.
+
+ADR-048 showed what that costs: the gate shipped in v0.96.0 inert in Chinese,
+never firing and never erroring, and run 17 would have recorded it as working.
+The one thing this bench could not see was **a refusal that did not happen**.
+
+**The increment axis (ADR-049).** A case now declares `axis: build` or
+`axis: increment`. The four real cases that have always produced the headline
+series stay on `build` and remain the only contributors to build rate, probe
+pass rate and clean review rate; increment cases score a separate **gate rate**
+with its own denominator, its own `unmeasured` list, and its own
+`rates.increment` block in the saved result. `avs product-bench`, the Discord
+bench alert and the cadence one-line read each report it on its own line —
+never folded into the three, because a reader shown one number cannot tell
+which question it answered.
+
+Separate rather than combined for the reason ADR-035 gives about denominators:
+an increment case whose *correct* outcome is `already_satisfied` builds nothing
+on purpose, and averaged into the build rate that is a `0.0` — the same score a
+case earns for failing outright.
+
+**A case declares its expectation before the run.** `feature_expectations`
+pairs by position with `feature_fdrs`, one of `already_satisfied` /
+`raises_scr` / `completed`, and a mismatched length or unknown value is refused
+at **load** rather than after hours of wall-clock. An expectation written after
+the run is not a measurement.
+
+**A raised SCR outranks the status, both ways.** Under `--yes` a contradiction
+proceeds to build, so its status reads `completed` — identical to a gate that
+never fired. The harness therefore reads `.mas/scr/SCR-*.yaml` for a newly
+written `status: proposed` entry instead of trusting the status. And a
+follow-up expected to be a clean addition that instead raised a contradiction
+scores `raises_scr` and is **wrong**: a gate that fires too often is a different
+failure from one that never fires, and both have to be visible.
+
+**The real case is Chinese and asks all three questions.**
+`benchmarks/products-real/05-increment-repairs.yaml` builds a small 报修 backend
+whose FDR promises on purpose that a submitted repair cannot be deleted, then
+sends three follow-ups in the founder's own later vocabulary: the same promise
+reworded, deleting one's own repair, and rating a completed repair. Chinese
+because that is the language the gate was inert in while every English test
+passed; all three because a gate that only ever says no would score 100% on a
+case that only ever asks it to say no.
+
+**Changed, and named:** `cases_total` in a saved result is no longer every case
+file in the directory — it is the build-axis count. That narrowing is what
+stops a fifth case silently redefining every rate in the run-13..17 series.
+The gate rate gets **no floor and no kill criterion**: run 18 is its first
+reading, and a threshold set against zero observations is a number invented to
+look rigorous.
+
 ## v0.97.0 — the founder describes the product; the system proposes the increments
 
 v0.96.0 gave the product a memory of what it *promises*. Two things were still

@@ -27,6 +27,29 @@ for the headline numbers.
 | 16 | result-2026-08-16-0612.yaml | 08d8ba9 (v0.93.0) | **100%** | 75% | 31% | 3 of 4 cases measured — `02-shortener-api` is **excluded**, and both halves of that exclusion are wrong in opposite directions (see the note below). Every task in every case that ran was built: **16/16**, and **16/16 probes passed**. The ceiling is the review again: 5 clean of 16 tasks. **ADR-039 did what it was built to do and it did not move this number** — reviews now arrive at one or two findings each rather than one issue wearing nine hats, and a repair pass fires on all of them, but **6 of the 11 rejections read "a fix was attempted and rolled back — it did not clear the review"**. Two rejections are the reviewer earning its keep: `04-t1` held a shared `sqlite3` connection across `ThreadingHTTPServer` worker threads without `check_same_thread=False` (3 critical), and `04-t3` removed the non-integer id guard, answering 404 where it owed 400 — `ESCALATE_SECURITY_RISK`. Three more were not about severity at all (see below) |
 | 15 | result-2026-08-14-0702.yaml | 9807c32 (v0.88.0) | 83% | **100%** | 55% | 3 of 4 cases measured — **04-direction-workbench died on a provider `529 Overloaded` and is excluded, not scored `0.0`** (ADR-035). Probes stayed perfect on everything that shipped. Two independent cases were blocked by a spec containing *nothing* — no criteria, no skeletons — reported as the flat sentence "no acceptance criteria"; an empty spec passed every quality check by having nothing to check, so the revision loop's good-enough break fired on it (ADR-041). Case 01 also lost a task to a build that failed `1 failed, 27 passed` three times, whose recorded cause was 240 characters of pytest banner art naming no assertion (ADR-042); re-running the preserved workspace showed a genuine product defect — a 40-digit id matching the spec's own `^[0-9]+$` criterion answered 400 where it owed 404 |
 
+> **New axis from run 18 — the increment rate is not part of this table.**
+> `benchmarks/products-real/05-increment-repairs.yaml` joins the directory in
+> v0.98.0 and it is **not** in the four columns above. It carries
+> `axis: increment` (ADR-049), which keeps it out of build, probes and clean,
+> and scores its own **gate rate** in a separate `rates.increment` block of the
+> result file, with its own `cases_measured` / `cases_total`.
+>
+> This is deliberate and it is what makes runs 13–18 still one series: the
+> headline `cases_total` stays **4**, so "of 4" means in run 18 what it meant
+> in run 13, and `bench_criterion`'s floors keep measuring the population they
+> were set against. Folding it in would have been worse than incomparable — an
+> increment case whose *correct* outcome is `already_satisfied` builds nothing
+> on purpose, so it would have entered the build rate as a `0.0` for the system
+> doing exactly the right thing.
+>
+> The gate rate has **no floor and no kill criterion**. It has never been
+> measured; run 18 is the first reading, and a threshold set against zero
+> observations is a number invented to look rigorous (ADR-034 — a series earns
+> its floors). Note also that the run gets longer: run 16 spent ~2.97h of the
+> 8h ceiling over four cases, and a fifth case that builds a base product then
+> runs three follow-up builds should add roughly 2h. The ceiling is unchanged;
+> if run 18 comes near it, the run will say so.
+
 > **Comparability break after run 15 — read run 16's clean rate against
 > nothing above it.** Four ADRs landed between run 15 and the next run, and
 > three of them change what the numbers *mean* rather than how well the
