@@ -104,6 +104,17 @@ write or edit by hand.
 - **One FDR = one thing.** The first FDR is the smallest usable product;
   every later feature is its own small FDR. Small builds are more accurate
   and fail more debuggably.
+- **You do not have to do that splitting yourself.** Describe the product in
+  one paragraph and `avs roadmap` proposes the small steps in the order to
+  build them; each run hands you the next one as a file, and re-checks the
+  rest against what your product already promises — so a step you have
+  since got another way is marked done instead of being built twice.
+- **What you said NOT to build is remembered.** The "not needed for now"
+  section you already fill in becomes a list every plan is shown, so the
+  tenth feature does not quietly grow the checkout you ruled out in the
+  first one. Change your mind by asking for it — the newest request wins.
+- **`avs requirements` shows what your product promises**, grouped, each with
+  the test that checks it, and what changed since the last checkpoint.
 - **If you ask for something your product already does, it tells you instead
   of building it again** — naming the promise and the test that already
   proves it. If your new request contradicts something you asked for
@@ -200,7 +211,7 @@ is in [claims/platform.yaml](claims/platform.yaml).
 - **Perf-lane calibration**: 5 of 5 seeded defects caught (catch rate 100%)
   at the 3x relative-detection factor, loopback low-parity environment,
   2026-07-26 ([manifest](benchmarks/perf_seeded/calibration.yaml)).
-- **2097 hermetic tests** (`uv run pytest`, no network, no keys); every PR
+- **2138 hermetic tests** (`uv run pytest`, no network, no keys); every PR
   in this repo was reviewed by avs itself, and five of those reviews caught
   real bugs.
 - **A hermetic suite is not enough, and this repo says so.** Twelve real

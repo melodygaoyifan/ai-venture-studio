@@ -962,7 +962,15 @@ def _post_build_artifacts(
 
 
 def tag_checkpoint(root: Path) -> str:
-    """M7 undo: every completed build/feature gets a checkpoint tag."""
+    """M7 undo: every completed build/feature gets a checkpoint tag.
+
+    The tag also freezes what the product promised at that moment
+    (ADR-048), so `avs requirements` can answer "what did this build change
+    about my promises" instead of only "what does the product promise now".
+    The baseline is written AFTER the tag exists and its failure is not
+    fatal: a checkpoint that cannot be undone because a bookkeeping file
+    would not write is a far worse outcome than a missing delta line.
+    """
     import subprocess
 
     existing = subprocess.run(
@@ -971,6 +979,12 @@ def tag_checkpoint(root: Path) -> str:
     ).stdout.split()
     name = f"ap-checkpoint-{len(existing) + 1:03d}"
     subprocess.run(["git", "tag", name], cwd=root, capture_output=True, timeout=60)
+    try:
+        from ai_venture_studio.upstream.requirements import write_baseline
+
+        write_baseline(root, name)
+    except OSError:
+        pass
     return name
 
 
@@ -1497,6 +1511,11 @@ Rules:
   A task touching one must CHANGE it in place, never add a second rule
   beside it — two live rules that contradict each other is the state this
   section exists to prevent.
+- <ruled_out> is what the founder has said NOT to build. Plan nothing that
+  delivers one of those lines. The exception is the request in front of
+  you: if THIS feature asks for a thing that was ruled out, the founder
+  has changed their mind and the request wins — plan it, and say which
+  line it reverses in the task description ("reverses C-003: ...").
 - depends_on only within this feature's tasks; no cycles.
 
 Respond with ONLY YAML:
@@ -1703,6 +1722,17 @@ def run_feature(
         if c.requirement_id in settled
     ]
 
+    # What the founder has ruled out (ADR-047). Synced against THIS FDR's
+    # own section 4 first, so a feature that says "still no logins" adds
+    # its line before the planner is shown the list, and scoped to this
+    # document's origin so it cannot repeal what FDR.md said.
+    from ai_venture_studio.upstream import constitution as _con
+
+    _con.sync_constitution(
+        root, fdr_text, str((feature_dir / "fdr.md").relative_to(root))
+    )
+    invariants = _con.render_for_planner(_con.live(root))
+
     from ai_venture_studio.upstream.blocks import catalog_summary
     from ai_venture_studio.upstream.workspace import load_project as _lp2
 
@@ -1728,6 +1758,7 @@ def run_feature(
         "</existing_requirements>\n\n"
         f"<conflicts_to_plan_around>\n{_rec.render_for_planner(reconciliation)}\n"
         "</conflicts_to_plan_around>\n\n"
+        f"<ruled_out>\n{invariants}\n</ruled_out>\n\n"
         f"<feature_fdr>\n{fdr_text}\n</feature_fdr>",
         max_tokens=2048,
     )

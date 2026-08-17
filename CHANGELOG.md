@@ -4,6 +4,98 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.97.0 — the founder describes the product; the system proposes the increments
+
+v0.96.0 gave the product a memory of what it *promises*. Two things were still
+being asked of the founder that the machine can do, and one thing the founder
+could not see at all.
+
+**The constitution (ADR-047).** Section 4 of the FDR template — "暂时不要的功能
+/ NOT needed for now" — has been in the template since the beginning, the
+Studio composes it as its own slot, the template explains that writing things
+there stops them being built by mistake, and **nothing has ever read it**. It
+reached the first planner mixed into the FDR blob with no rule attached, and
+after that it vanished: `avs add` plans against the code, the ledger and the
+reconciler, none of which knows that in February the founder wrote "暂时不需要
+在线支付". So the tenth feature grows a checkout.
+
+- `product/constitution.yaml` — an append-only `C-001` ledger of what the
+  founder ruled out, **derived from a document they already wrote**. Never a
+  typing chore, because a file the founder maintains by hand goes stale in
+  silence.
+- **Extracted deterministically — no model call.** A model asked to summarise
+  this section can invent a boundary the founder never drew, and an invented
+  invariant is shown to every future plan as something they decided. Bullets
+  and numbering stripped, the templates' own parenthetical examples skipped
+  (including the English one, which wraps across two lines), "无"/"none" read as
+  *there are none*. The section is found by its **number**, because the two
+  templates and the Studio composer write three different wordings after it.
+- **Reconciled per origin.** A feature FDR can add to or withdraw from its own
+  lines and nothing else — a derivation that read silence as repeal would empty
+  the constitution on the first feature.
+- **Shown whole to every planner**, not retrieved by keyword: a "do not build
+  this" list is short and every line applies to every plan, so slicing it would
+  hide the invariant the request is about to violate. The cap of 20 is a
+  backstop and it announces what it dropped.
+- **It gates nothing.** The planner is told what was ruled out *and* told that
+  if this request asks for one of those things, the founder has changed their
+  mind and the request wins. A boundary that refuses the person who drew it is
+  a bug; this product's one refusal path stays ADR-046's.
+
+**The roadmap (ADR-048).** "One FDR = one thing" is the rule this system runs
+on, and it has always been enforced on the *founder*: arrive with a paragraph,
+then split it into twelve small documents yourself, in the right order, each
+one small enough. That is unpaid labour, it is what a non-technical person is
+worst at, and it was the last manual step in a pipeline whose premise is that
+everything downstream of an FDR is automated.
+
+- `avs roadmap "..."` — a paragraph becomes 3–12 ordered steps, each a request
+  `avs add` can take as written, in the founder's own vocabulary.
+- **A proposal, not a contract.** `avs roadmap` with no argument re-reads the
+  remaining steps against the ledger through the ADR-046 reconciler, so a step
+  the product now satisfies is marked done rather than built twice. A stale
+  roadmap the system still believes is worse than none — it has an
+  authoritative shape with a wrong answer inside it.
+- **Done only when something says so.** An unchecked reconciliation leaves the
+  step pending and is *named* as unchecked; steps past the re-check cap are
+  reported, not counted as pending. Marking work done because a check failed to
+  run would silently delete a feature from the founder's plan.
+- **Order is repaired, loops are refused.** A prerequisite listed second is a
+  wrong order — topologically sorted. A cycle has no order that builds it —
+  refused. An edge to a step that does not exist is dropped, or `next_step`
+  would wait forever for something nobody proposed.
+- The whole loop is two commands and no documents: `avs roadmap`, then
+  `avs add FDR-NEXT.md --yes`, repeat.
+
+**The view and the baseline (ADR-048).** At two hundred promises the founder
+needs to *see* what they have before adding to it, and nothing showed it.
+
+- `avs requirements` — live promises grouped by the part of the product they
+  belong to, each with its status and the test file that checks it; `--all`
+  includes retired and superseded ones.
+- **Every `tag_checkpoint` freezes a baseline**, so the view ends with "since
+  ap-checkpoint-004: +6 promise(s), 1 superseded". The stored value is the
+  id→status map, not a hash: a hash answers *did anything change*, and the
+  question a founder asks is *what* changed.
+- A checkpoint with no baseline reports **nothing**, not "no change" — every
+  checkpoint tagged before this release is one of those. A baseline that will
+  not write does not cost the checkpoint: the tag is the founder's undo.
+
+**Fixed: v0.96.0's gate was inert in Chinese (ADR-048).** Building the
+roadmap's re-derivation on top of the same retrieval is what surfaced it.
+`requirements.tokens()` used one regex that requires an ASCII letter; Chinese
+has no spaces, so it found **nothing** in a Chinese criterion. Every score was
+zero, `relevant` returned an empty slice, and the ADR-046 duplicate /
+contradiction gate therefore reported *"no existing requirement matched this
+request"* for every request in the language this product's founder actually
+writes in — the templates are bilingual, the Studio ships Chinese by default,
+and every case in `benchmarks/products` is Chinese. The gate was not wrong, it
+was inert, which is the hardest kind of broken to notice: it never fires and
+never errors. Fixed with character bigrams unioned into the existing Latin
+rule (no segmenter, no new dependency, no dictionary to go stale), and
+retrieval is now tested in both languages — ADR-046's tests were English
+against an English ledger, which is why they all passed.
+
 ## v0.96.0 — a requirement has a name, and a new one is read against the old
 
 The founder asks for one more small thing. Until now `avs add` planned it

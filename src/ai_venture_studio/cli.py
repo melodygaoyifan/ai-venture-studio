@@ -1174,6 +1174,163 @@ def add(
         raise typer.Exit(code=1)
 
 
+#: Where `avs roadmap` leaves the next step, so the founder's whole loop is
+#: two commands they never have to retype: `avs roadmap`, then
+#: `avs add FDR-NEXT.md --yes`. Overwritten each time on purpose — the step
+#: it holds is the one to build now, and a directory of stale FDR-NEXT-3.md
+#: files is a decision the founder then has to make.
+NEXT_FDR = "FDR-NEXT.md"
+
+
+def _render_roadmap(plan, next_) -> None:
+    for step in plan.steps:
+        if step.status == "done":
+            mark, colour = "✓", "dim"
+        elif next_ is not None and step.id == next_.id:
+            mark, colour = "→", "bold green"
+        else:
+            mark, colour = " ", ""
+        tag = f"[{colour}]" if colour else ""
+        end = f"[/{colour}]" if colour else ""
+        console.print(f"  {mark} {tag}{step.id}  {step.title}{end}")
+        if step.note:
+            console.print(f"      [dim]{step.note}[/dim]")
+
+
+@app.command()
+def roadmap(
+    describe: str = typer.Argument(
+        None,
+        help="Your product in a paragraph, your own words. Leave it out to "
+        "see the roadmap you already have, re-checked against what is built.",
+    ),
+    repo_dir: str = typer.Option(".", help="Workspace directory"),
+    provider: str = typer.Option("anthropic", help="Provider (e.g. 'mock')"),
+    recheck: bool = typer.Option(
+        True, "--recheck/--no-recheck",
+        help="Re-read the remaining steps against what the product already "
+        "promises (one model call per remaining step)",
+    ),
+):
+    """Turn a paragraph about your product into small steps to build in
+    order — then hand you the next one."""
+    from ai_venture_studio.upstream import roadmap as rm
+
+    root = Path(repo_dir)
+    if describe:
+        plan = rm.propose(describe, provider=provider)
+        if not plan.checked:
+            console.print(f"[red]no roadmap[/red] — {plan.note}")
+            raise typer.Exit(code=1)
+    else:
+        plan = rm.load(root)
+        if plan is None:
+            console.print(
+                "[yellow]no roadmap yet[/yellow] — describe your product:\n"
+                '  avs roadmap "..."'
+            )
+            raise typer.Exit(code=2)
+    # Re-derived on BOTH paths, including a fresh proposal: a founder who
+    # re-describes their product halfway through has not un-built anything,
+    # and handing them a plan that says 0/8 would walk them back into work
+    # `avs add` would then correctly refuse. On an empty ledger retrieval
+    # matches nothing and this costs no model call at all.
+    if recheck:
+        report = rm.rederive(root, plan, provider=provider)
+        if report.marked_done:
+            console.print(f"[dim]already built: {', '.join(report.marked_done)}[/dim]")
+        if report.unchecked:
+            # Said out loud rather than counted as pending: a step nobody
+            # could check is not a step known to be unbuilt.
+            console.print(f"[dim]not re-checked: {', '.join(report.unchecked)}[/dim]")
+    rm.save(root, plan)
+
+    next_ = rm.next_step(plan)
+    console.print(f"\n[bold]{len(plan.done)}/{len(plan.steps)} built[/bold]")
+    _render_roadmap(plan, next_)
+    if next_ is None:
+        console.print("\n[green]every step on this roadmap is built.[/green]")
+        return
+    path = root / NEXT_FDR
+    path.write_text(
+        f"# {next_.title}\n\n{next_.fdr}\n\n"
+        f"<!-- avs roadmap step {next_.id} of product/roadmap.yaml -->\n",
+        encoding="utf-8",
+    )
+    console.print(f"\nnext step written to {path}\n  avs add {NEXT_FDR} --yes")
+
+
+@app.command()
+def requirements(
+    repo_dir: str = typer.Option(".", help="Workspace directory"),
+    all_: bool = typer.Option(
+        False, "--all", help="Include retired and superseded promises"
+    ),
+):
+    """What your product promises, grouped, with what checks each one."""
+    from ai_venture_studio.upstream.autopilot import checkpoints
+    from ai_venture_studio.upstream.requirements import (
+        LIVE_STATUSES,
+        load_ledger,
+        since,
+        sync_ledger,
+    )
+
+    root = Path(repo_dir)
+    sync_ledger(root)
+    ledger = load_ledger(root)
+    shown = [r for r in ledger if all_ or r.status in LIVE_STATUSES]
+    if not shown:
+        console.print("[yellow]this product promises nothing yet[/yellow]")
+        return
+
+    by_spec: dict[str, list] = {}
+    for req in shown:
+        by_spec.setdefault(req.spec_slug, []).append(req)
+    live = sum(1 for r in ledger if r.status in LIVE_STATUSES)
+    console.print(
+        f"[bold]{live} promise(s)[/bold] across {len(by_spec)} part(s) of the product"
+    )
+    for slug in sorted(by_spec):
+        console.print(f"\n[bold]{slug}[/bold]")
+        for req in by_spec[slug]:
+            colour = "green" if req.status == "built" else (
+                "dim" if req.status not in LIVE_STATUSES else "yellow"
+            )
+            console.print(f"  [{colour}]{req.id}[/{colour}] {req.text}")
+            detail = []
+            if req.status != "built":
+                detail.append(req.status)
+            if req.verified_by:
+                detail.append("checked by " + ", ".join(req.verified_by[:2]))
+            if req.superseded_by:
+                detail.append(f"replaced by {req.superseded_by}")
+            if detail:
+                console.print(f"      [dim]{' · '.join(detail)}[/dim]")
+
+    # The newest checkpoint that actually froze a baseline. Older ones were
+    # tagged before baselines existed and have nothing to compare against;
+    # reporting "+0 since checkpoint 2" for one of those would measure the
+    # missing file rather than the product.
+    for tag in reversed(checkpoints(root)):
+        delta = since(root, tag)
+        if delta is None:
+            continue
+        parts = []
+        if delta.added:
+            parts.append(f"+{len(delta.added)} promise(s)")
+        if delta.superseded:
+            parts.append(f"{len(delta.superseded)} superseded")
+        if delta.retired:
+            parts.append(f"{len(delta.retired)} retired")
+        if delta.restored:
+            parts.append(f"{len(delta.restored)} back")
+        console.print(
+            f"\n[dim]since {tag}: {', '.join(parts) if parts else 'no change'}[/dim]"
+        )
+        break
+
+
 @app.command()
 def scr(
     slug: str = typer.Argument(..., help="Built spec slug that needs changing"),

@@ -319,6 +319,9 @@ Rules:
 - lane groups tasks that touch the same surface (e.g. api, ui, infra) —
   tasks in one lane run serially, lanes run in parallel.
 - Only scope_now. scope_later items do NOT get tasks.
+- <ruled_out> is what the founder has said NOT to build. Plan nothing that
+  delivers one of those lines, however natural a companion to the scope it
+  looks — they wrote it down precisely because it looks natural.
 - Every task is a USER-VISIBLE feature slice specifiable as acceptance
   criteria. NO meta-tasks: no "test skeleton", "contract tests",
   "performance benchmark", "E2E suite", or "infrastructure" tasks — tests
@@ -399,6 +402,16 @@ def run_planning(
         sort_keys=False, allow_unicode=True,
     )
 
+    # Section 4 of the FDR — the founder's "not for now" list — has always
+    # been written and never read (ADR-047). The brief carries scope_now
+    # and scope_later; neither is "do not build this", and the difference
+    # matters most here, where a planner is deciding what a first version
+    # contains.
+    from ai_venture_studio.upstream import constitution as _con
+
+    _con.sync_constitution(repo_dir, fdr_text or read_fdr(repo_dir), "FDR.md")
+    ruled_out = _con.render_for_planner(_con.live(repo_dir))
+
     feedback = ""
     tasks: list[Task] = []
     dag_issues: list[str] = []
@@ -407,7 +420,8 @@ def run_planning(
         raw = provider_impl.complete(
             model=planner_model,
             system=planner_system(scope_tier),
-            user=f"<brief>\n{brief_yaml}</brief>"
+            user=f"<brief>\n{brief_yaml}</brief>\n\n"
+            f"<ruled_out>\n{ruled_out}\n</ruled_out>"
             + (f"\n\n<revision_feedback>\n{feedback}\n</revision_feedback>" if feedback else ""),
             max_tokens=_PLANNER_MAX_TOKENS,
         )

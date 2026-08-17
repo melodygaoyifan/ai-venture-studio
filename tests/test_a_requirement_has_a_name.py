@@ -227,6 +227,41 @@ def test_the_ledger_tokenizer_stops_the_words_ears_puts_in_every_criterion() -> 
     assert incident_tokens(grammar) & {"shall", "system"}
 
 
+def test_a_chinese_request_retrieves_the_chinese_promise(tmp_path: Path) -> None:
+    """The regression that made the ADR-046 gate inert (ADR-048).
+
+    Every test above this one is written in English, and every one of them
+    passed against a tokenizer that found NOTHING in a Chinese criterion —
+    so `relevant` returned an empty slice and the gate reported "no existing
+    requirement matched" for every request in the language the templates,
+    the Studio default and every benchmark case are written in. It never
+    fired and never errored.
+    """
+    _write_spec(
+        tmp_path, "orders",
+        ["系统应当允许住户在接龙中提交订单。", "系统应当发送每日天气预报。"],
+    )
+    req.sync_ledger(tmp_path)
+    shown = req.relevant(tmp_path, "住户在接龙里下单").shown
+    assert shown, "a Chinese request retrieved nothing from a Chinese ledger"
+    assert "接龙" in shown[0].text
+
+
+def test_a_chinese_request_does_not_drag_in_every_chinese_promise(
+    tmp_path: Path,
+) -> None:
+    """Bigrams are noisier than words; retrieval still has to discriminate,
+    or the slice is the whole ledger and the gate reads it as one blob."""
+    _write_spec(
+        tmp_path, "orders",
+        ["系统应当允许住户在接龙中提交订单。", "系统应当发送每日天气预报。"],
+    )
+    req.sync_ledger(tmp_path)
+    assert [r.text for r in req.relevant(tmp_path, "天气预报").shown] == [
+        "系统应当发送每日天气预报。"
+    ]
+
+
 def test_the_planner_is_shown_the_requirements_it_is_told_it_has() -> None:
     """The prompt names <existing_requirements>; the assembly must actually
     build that block. A rule about a section that is never sent is a rule

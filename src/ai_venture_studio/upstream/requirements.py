@@ -65,10 +65,50 @@ _STOPWORDS = {
 }
 
 
+# Chinese has no spaces, so `_TOKEN` — which requires an ASCII letter —
+# found NOTHING in a Chinese criterion. Every score was zero, `relevant`
+# returned an empty slice, and the ADR-046 gate therefore reported "no
+# existing requirement matched this request" for every request in the
+# language this product's founder actually writes in: the templates are
+# bilingual, the Studio shipped Chinese by default, and every case in
+# `benchmarks/products` is Chinese. The gate was not wrong, it was inert,
+# and an inert gate is the hardest kind of broken to notice — it never
+# fires and never errors.
+#
+# Character bigrams rather than a segmenter: no new runtime dependency, no
+# dictionary to go stale, and the failure mode is symmetric noise (a bigram
+# straddling two words scores equally against every candidate) instead of a
+# missed match. Ranking is comparative and capped, so noise costs a little
+# precision where the alternative cost everything.
+_CJK = re.compile(r"[㐀-䶿一-鿿豈-﫿]+")
+# The grammar itself, same role as `_STOPWORDS`: a bigram made only of
+# these ranks nothing because it appears in every criterion.
+_CJK_FUNCTION = set("的了是在和与及也都很就把被对从为以要能会有个之其所并且或者")
+
+
+def _cjk_tokens(text: str) -> set[str]:
+    found: set[str] = set()
+    for run in _CJK.findall(text):
+        if len(run) == 1:
+            if run not in _CJK_FUNCTION:
+                found.add(run)
+            continue
+        for index in range(len(run) - 1):
+            gram = run[index : index + 2]
+            if all(char in _CJK_FUNCTION for char in gram):
+                continue
+            found.add(gram)
+    return found
+
+
 def tokens(text: str) -> set[str]:
     """Content words of a requirement — see `_STOPWORDS` for why this is
-    not the correlator's tokenizer."""
-    return {t.lower() for t in _TOKEN.findall(text) if t.lower() not in _STOPWORDS}
+    not the correlator's tokenizer, and `_CJK` for why a second rule is
+    needed at all."""
+    latin = {
+        t.lower() for t in _TOKEN.findall(text) if t.lower() not in _STOPWORDS
+    }
+    return latin | _cjk_tokens(text)
 
 
 class Requirement(BaseModel):
@@ -357,6 +397,84 @@ def relevant(
     return RequirementSlice(
         shown=[req for _, _, req in scored[:cap]], matched=len(scored), cap=cap
     )
+
+
+@dataclass
+class Since:
+    """What changed between a checkpoint and now (ADR-048)."""
+
+    tag: str
+    added: list[str] = field(default_factory=list)
+    superseded: list[str] = field(default_factory=list)
+    retired: list[str] = field(default_factory=list)
+    restored: list[str] = field(default_factory=list)
+
+    @property
+    def changed(self) -> bool:
+        return bool(self.added or self.superseded or self.retired or self.restored)
+
+
+def baseline_path(repo_dir: str | Path, tag: str) -> Path:
+    return Path(repo_dir) / "product" / "baselines" / f"{tag}.yaml"
+
+
+def write_baseline(repo_dir: str | Path, tag: str) -> Path:
+    """Freeze what the product promised at a checkpoint.
+
+    The stored value is the id→status MAP, not a hash of the ledger. A hash
+    is cheaper and can answer exactly one question — "did anything change?"
+    — and the question a founder asks is the other one: *what* changed, and
+    is anything I used to have gone. Six ids and a status each is a few
+    hundred bytes; buying "+6 requirements, 1 superseded" for that is not a
+    trade worth thinking about twice.
+    """
+    path = baseline_path(repo_dir, tag)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        yaml.safe_dump(
+            {req.id: req.status for req in load_ledger(repo_dir)},
+            sort_keys=True, allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def load_baseline(repo_dir: str | Path, tag: str) -> dict[str, str] | None:
+    path = baseline_path(repo_dir, tag)
+    if not path.exists():
+        return None
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return {str(k): str(v) for k, v in data.items()}
+
+
+def since(repo_dir: str | Path, tag: str) -> Since | None:
+    """The delta from a checkpoint's baseline to the ledger as it stands.
+
+    Returns None when that checkpoint has no baseline — every checkpoint
+    tagged before this file existed is one, and reporting "+0 since
+    checkpoint 2" for a checkpoint nobody recorded would be a measurement
+    of the missing file rather than of the product.
+    """
+    before = load_baseline(repo_dir, tag)
+    if before is None:
+        return None
+    result = Since(tag=tag)
+    for req in load_ledger(repo_dir):
+        was = before.get(req.id)
+        if was is None:
+            if req.status in LIVE_STATUSES:
+                result.added.append(req.id)
+            continue
+        if was == req.status:
+            continue
+        if req.status == "superseded":
+            result.superseded.append(req.id)
+        elif req.status == "retired":
+            result.retired.append(req.id)
+        elif was not in LIVE_STATUSES:
+            result.restored.append(req.id)
+    return result
 
 
 def render_slice(slice_: RequirementSlice) -> str:

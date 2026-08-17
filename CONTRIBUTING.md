@@ -33,7 +33,9 @@ Telemetry schema changes are a major-version review with a
 
 SemVer over an enumerated surface: FDR schema · `.mas/*` schemas ·
 `product/requirements.yaml` (the requirement ledger, ADR-045 — ids are
-permanent and referenced from outside the file) · CLI commands and exit
+permanent and referenced from outside the file) · `product/constitution.yaml`
+(the invariant ledger, ADR-047 — same reason: `C-0xx` ids are permanent and
+are cited by planners and task descriptions) · CLI commands and exit
 codes · gate names and record schemas · skill frontmatter · the telemetry
 payload schema. Breaking any of these bumps
 major with a migration note; deprecations live ≥1 minor with a loud

@@ -94,6 +94,10 @@ class MockProvider(Provider):
         from ai_venture_studio.upstream.fdr import FDR_ASSESSOR_MARKER
         from ai_venture_studio.upstream.reconcile import RECONCILER_MARKER
 
+        from ai_venture_studio.upstream.roadmap import ROADMAP_MARKER
+
+        if ROADMAP_MARKER in system:
+            return self._roadmap(user)
         if RECONCILER_MARKER in system:
             # `extends` for everything unless the request asks for a
             # relation by name. A mock that reported duplicates by default
@@ -599,6 +603,32 @@ class MockProvider(Provider):
             },
             sort_keys=False, allow_unicode=True,
         )
+
+    def _roadmap(self, user: str) -> str:
+        """One step per sentence of the description, in order, each
+        depending on the one before.
+
+        A mock cannot decompose a paragraph, so it does the one split that
+        is defensible without a model — the founder's own sentence breaks —
+        and stops at three so a fixture roadmap stays readable. Tests that
+        need a specific decomposition drive their own fake provider; this
+        exists so the CLI path is exercisable end to end.
+        """
+        body = re.search(r"<product>\n(.*?)\n</product>", user, re.DOTALL)
+        text = (body.group(1) if body else user).strip()
+        parts = [p.strip() for p in re.split(r"[。.!?！？\n]+", text) if p.strip()]
+        parts = parts[:3] or ["mock step"]
+        steps = []
+        for index, part in enumerate(parts, start=1):
+            steps.append(
+                {
+                    "id": f"S-{index:03d}",
+                    "title": part[:24],
+                    "fdr": part,
+                    "depends_on": [f"S-{index - 1:03d}"] if index > 1 else [],
+                }
+            )
+        return yaml.safe_dump({"steps": steps}, sort_keys=False, allow_unicode=True)
 
     def _fixpr(self, user: str) -> str:
         """Fix the planted `return a - b` bug in the provided file, else abstain."""
