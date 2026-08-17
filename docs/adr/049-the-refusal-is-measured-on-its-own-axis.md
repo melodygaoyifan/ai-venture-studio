@@ -110,6 +110,14 @@ giving the reader no way to notice.
   2.7×. That is smaller and it is still a margin. Raising the ceiling on an
   estimate would be a change made against no observation; if run 18 comes close
   to it, the run itself will say so.
+- **Run 17 is not this record's reading.** The bench LaunchAgent runs whatever
+  is *installed*, and 0.97.0 was deployed to it deliberately: run 17 is the
+  first run to measure ADR-044 through ADR-048 — including the Chinese
+  tokenizer fix, without which the gate this record scores does not fire at
+  all. Deploying 0.98.0 before that run would fold a new case and a new axis
+  into the same reading and leave neither answerable. **0.98.0 publishes now
+  and is deployed after run 17 reports**, which makes run 18 the first gate
+  rate. That is also what ADR-048's obligation said: *after run 17 reports.*
 - **The synthetic case `06-already-promised` is not retired.** It is fast,
   hermetic-adjacent and checks the same path against fixed probes; the real
   case measures the same gate against a product the system built itself, which
