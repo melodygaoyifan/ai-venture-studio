@@ -143,7 +143,9 @@ def test_a_metering_failure_never_fails_a_case_that_ran(tmp_path):
     # A workspace with no ledger at all: nothing was metered, which is not
     # the same as nothing was spent, so it reports None rather than a zero.
     assert pb._case_spend(tmp_path, PRICES) is None
-    assert pb.render_spend(None) == "cost not metered"
+    # No label of its own — the caller supplies one, and a `render_spend`
+    # that carried the word "cost" printed `cost cost not metered`.
+    assert pb.render_spend(None) == "not metered"
 
 
 def _summary(**kw):

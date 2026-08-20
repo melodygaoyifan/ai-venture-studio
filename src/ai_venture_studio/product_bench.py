@@ -285,7 +285,10 @@ def render_spend(spend: CaseSpend | None) -> str:
     the person who needed it did not get.
     """
     if spend is None:
-        return "cost not metered"
+        # No leading "cost" here: every caller supplies its own label, and the
+        # first live run printed `cost cost not metered`. Caught by running it,
+        # not by reading it (ADR-054).
+        return "not metered"
     tokens = f"{spend.calls} calls · {spend.input_tokens + spend.output_tokens:,} tokens"
     if spend.usd is None:
         # Not "$0.00". The counts are exact; there is simply no price to
