@@ -49,3 +49,20 @@ avs bench                    # ~10 min, one key: the 13-case review bench
 avs product-bench            # long: full FDR→product runs
 avs init demo --profile web --from-bench 01-groupbuy-api   # templates ARE the fixtures
 ```
+
+To check that the harness works without spending anything, run it against the
+simulated provider — no key, offline, about a minute per case:
+
+```bash
+avs product-bench --provider mock --repo-dir /tmp/scratch
+```
+
+That exercises the whole path — autopilot, build tasks, independent probes,
+review passes, checkpointing, the result file — and it is where recent defects
+have actually lived. **It is not a capability reading and cannot be made into
+one.** The rates it prints describe the mock's answers, so the run records
+`provider: mock`, stays out of `benchmarks/results/`, and is refused by
+`avs bench-criterion` if it reaches that directory anyway (ADR-056). Whether
+the *system* is capable — the build and probe floors the kill criterion reads
+(`BUILD_FLOOR` and `PROBE_FLOOR` in `bench_criterion.py`) — is only ever
+measured against a real provider.

@@ -231,19 +231,25 @@ def _classify(
 
 
 def _latest_dated_file(
-    directory: pathlib.Path, pattern: str
+    directory: pathlib.Path, pattern: str, *, skip: frozenset[str] | set[str] = frozenset(),
 ) -> tuple[dt.date | None, str]:
     """Newest ISO date embedded in a filename, plus the file it came from.
 
     The date is read from the *name*, not the mtime: the loops name their
     output for the day they cover, and a file copied or restored later would
     otherwise read as a run that never happened.
+
+    `skip` names files that are in the directory but are not runs of the
+    series. The caller decides which — this function has no opinion about
+    what any particular loop's artifacts mean (ADR-056).
     """
     if not directory.is_dir():
         return None, f"{directory} (absent)"
     best: dt.date | None = None
     best_name = ""
     for path in directory.glob(pattern):
+        if path.name in skip:
+            continue
         found = _DATE_RE.search(path.name)
         if not found:
             continue
@@ -386,7 +392,19 @@ def _bench_status(
     """
     if not (repo_dir / BENCH_CASES).is_dir():
         return None
-    last, evidence = _latest_dated_file(repo_dir / BENCH_RESULTS, "result-*.yaml")
+    # The same exclusion the criterion applies, ASKED OF the criterion rather
+    # than re-derived here: two readers of one directory drift, and the thing
+    # they would drift about is which files count as the bench having run
+    # (ADR-038, ADR-051). A simulated run measured the harness, not the
+    # series — a watchdog that counted one would report "ran today, all clear"
+    # about a run that read nothing, which is the failure this module's own
+    # `LOOP_NAMES` comment says a watchdog must never commit (ADR-056).
+    from ai_venture_studio.bench_criterion import simulated_runs
+
+    skip = {pathlib.Path(p).name for p in simulated_runs(repo_dir)}
+    last, evidence = _latest_dated_file(
+        repo_dir / BENCH_RESULTS, "result-*.yaml", skip=skip
+    )
     state, age = _classify(last, today, WEEKLY)
     return LoopStatus(
         name="bench", last_run=last.isoformat() if last else "",

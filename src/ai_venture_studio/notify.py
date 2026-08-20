@@ -249,7 +249,7 @@ def _failures(outcomes) -> list[tuple[str, tuple[str, str]]]:
 
 def bench_alert(
     summary, *, workspace: str = "", saved: str = "", concern: str = "",
-    movement: str = "",
+    movement: str = "", provider: str | None = None,
 ) -> Alert:
     """What one finished product-bench run has to say for itself.
 
@@ -320,9 +320,27 @@ def bench_alert(
             )
     if saved:
         lines.append(f"  saved: `{saved}`")
+    # The third reader of these same numbers, after the ledger and cadence.
+    # `--notify` on a `--provider mock` run posted "build 100%" into the alert
+    # channel with nothing to distinguish it from the weekly capability
+    # reading somebody is waiting on — the rates are real percentages about a
+    # regex table (ADR-056). Said in the heading, because that is the part a
+    # phone notification shows.
+    from ai_venture_studio.providers.base import is_simulated
+
+    simulated = " SIMULATED —" if is_simulated(provider) else ""
+    if simulated:
+        lines.append(
+            f"  Measured against the `{provider}` provider: this exercised the "
+            "harness, not the system. Not a capability reading, and not in "
+            "the series `avs bench-criterion` evaluates."
+        )
     flag = "⚠ " if (unmeasured or concern) else ""
     return Alert(
-        heading=f"**{workspace or 'workspace'}** — {flag}product bench: {rates}{scope}",
+        heading=(
+            f"**{workspace or 'workspace'}** —{simulated} {flag}product bench: "
+            f"{rates}{scope}"
+        ),
         lines=lines,
     )
 

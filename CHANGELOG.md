@@ -4,6 +4,61 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.105.0 — a reading that cannot name its instrument
+
+Run 17 is blocked on API credit, so the question was what can be validated
+without it. The cheapest substitute is `avs product-bench --provider mock` — a
+documented option, free and offline. Before running it, one check, because
+ADR-054 had just established what `benchmarks/results/` is for:
+
+> Can a simulated run enter the ledger the capability kill criterion reads?
+
+It could, and it was indistinguishable from a real one once there. Nobody had
+run it, so nothing was corrupted; it was safe by accident.
+
+- **A result file now records the provider that produced it.** `provider:`
+  sits beside `avs_version` and exists for the same reason — a row that cannot
+  name what produced it cannot be compared to the row above it. Recorded on
+  every run, not only simulated ones: a field that appears exactly when
+  something is wrong is a field nobody thinks to look for.
+- **A simulated run is not dual-written into `benchmarks/results/`.** It still
+  writes `.mas/product-bench/`, because a mock run *is* a real exercise of the
+  harness and the scoreboard is the output of that check.
+- **`bench_criterion` refuses to count a simulated result that reaches the
+  directory anyway** — hand-copied, restored, written by an older build — and
+  *names* it, the rule the aborted-run list already established. Two layers,
+  because each is silent about the other's case.
+- **A file with no `provider:` key is read as real.** The eleven results
+  already in the series predate the field and every one of them was a genuine
+  run. Reading absence as "simulated" would have deleted the entire recorded
+  series from the criterion's view.
+- **The other two readers of the same numbers, closed with it.** `cadence`
+  globs that directory itself to answer "has the bench run lately" — a
+  simulated file would have made it report *ran today, all clear* about a run
+  that read nothing, which is the failure its own `LOOP_NAMES` comment says a
+  watchdog must never commit. It now asks `bench_criterion` which files to
+  skip rather than re-deriving the rule. And `bench_alert`, which fires even
+  on a clean run because somebody is waiting on the weekly number, marks a
+  simulated run in the heading — the part a phone notification shows.
+- **`SIMULATED_PROVIDERS` lives in the provider registry and nowhere else**,
+  pinned by a test. A second copy is a second definition of "real run", and
+  the thing the two would drift about is which files decide whether a human is
+  asked to consider killing the project (ADR-038, ADR-051).
+- **The command says so on screen**, not only in the file: *"provider 'mock'
+  is simulated — these rates measure the harness, not the system."*
+
+With that closed, the free path is safe to use: the full product-bench harness
+— autopilot, build tasks, independent probes, review passes, checkpointing,
+result file — runs end to end against `--provider mock` in well under a minute
+per case, with no key and no spend. That is where every recent defect actually
+lived (ADR-052, -053, -054, -055; not one needed a provider). What it cannot
+substitute for is the capability reading itself: build ≥ 60% / probes ≥ 50%
+measured against a mock is a measurement of the mock. Run 17 is still run 17.
+
+ADR-056. No contract removed; `save_summary` gains a keyword-only `provider`
+argument, `bench_criterion._scan` a third return value, and
+`BenchCriterionState` a `simulated_skipped` field.
+
 ## v0.104.0 — a name that resolves nowhere
 
 ADR-054 closed by observing that *running* `avs bench-criterion` found in one

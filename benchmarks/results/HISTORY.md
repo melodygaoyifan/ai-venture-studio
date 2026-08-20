@@ -8,6 +8,14 @@ automatically). Files marked *reconstructed* were rebuilt from complete or
 partial copies held in the working session; the table below is authoritative
 for the headline numbers.
 
+**Every file in this directory is a reading against a real provider.** From
+v0.105.0 a result records `provider:`, and a run measured against a simulated
+one (`mock`) is never written here and is never counted if it arrives here by
+some other route — it exercised the harness, not the system (ADR-056). The
+eleven files below predate the field; all eleven are real runs against
+anthropic, which is why an absent `provider:` key is read as real rather than
+as unknown.
+
 | Run | Result file | Code | Build | Probes | Clean | Notes |
 |----|----|----|----|----|----|----|
 | 1 | result-2026-07-23-0507 (lost) | pre-fixes | — | — | — | numbers not preserved |

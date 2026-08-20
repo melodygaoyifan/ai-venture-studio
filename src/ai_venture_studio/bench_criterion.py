@@ -21,6 +21,9 @@ module carries that into the sentence a human reads at Gate PL5 (ADR-035):
 run 12 reported 65% probes only because a case that never ran was averaged in
 as a zero, and a rate is not evidence without its denominator.
 
+Since v0.105.0 a result also records WHICH PROVIDER produced it, and a run
+measured against a fabricating one is not a reading of this system (ADR-056).
+
 This module states; it never decides. A fired criterion demands a recorded
 human decision at Gate PL5 (invariant 14.20).
 """
@@ -31,6 +34,8 @@ import pathlib
 
 import yaml
 from pydantic import BaseModel, Field
+
+from ai_venture_studio.providers.base import is_simulated
 
 RESULTS_DIR = pathlib.Path("benchmarks") / "results"
 BUILD_FLOOR = 0.60
@@ -88,6 +93,12 @@ class BenchCriterionState(BaseModel):
     #: comparing this ledger to the directory must be able to see why a file
     #: they can see is not counted.
     aborted_skipped: list[str] = Field(default_factory=list)
+    #: Runs measured against a provider that fabricates its answers. Named for
+    #: the same reason as the aborts above: the failure mode this list exists
+    #: to prevent is a file that is in the directory, absent from the ledger,
+    #: and unexplained. A simulated run is not resumable and not finishable —
+    #: it is not a reading at all, and re-running it will not make it one.
+    simulated_skipped: list[str] = Field(default_factory=list)
 
 
 class BenchCriterionError(RuntimeError):
@@ -98,8 +109,10 @@ def _as_int(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
-def _scan(repo_dir: str | pathlib.Path) -> tuple[list[BenchRun], list[str]]:
-    """The series and the attempts, read in one pass so they cannot disagree.
+def _scan(
+    repo_dir: str | pathlib.Path,
+) -> tuple[list[BenchRun], list[str], list[str]]:
+    """The series and what it excludes, read in one pass so they cannot disagree.
 
     One scan with one filter rather than two functions that each glob: two
     readers of the same directory drift, and the thing they would drift about
@@ -117,8 +130,9 @@ def _scan(repo_dir: str | pathlib.Path) -> tuple[list[BenchRun], list[str]]:
     root = pathlib.Path(repo_dir) / RESULTS_DIR
     runs: list[BenchRun] = []
     aborted: list[str] = []
+    simulated: list[str] = []
     if not root.is_dir():
-        return runs, aborted
+        return runs, aborted, simulated
     # Both names, because the two guards catch different mistakes and each
     # would be silent about the other's. The glob keeps `aborted-*.yaml` out
     # of the SERIES (and fixes its ordering); walking those files anyway is
@@ -153,6 +167,21 @@ def _scan(repo_dir: str | pathlib.Path) -> tuple[list[BenchRun], list[str]]:
         if data.get("aborted"):
             aborted.append(rel)
             continue
+        # A run measured against a fabricating provider is not a reading of
+        # this system's capability; it is a reading of a regex table. The file
+        # is otherwise byte-identical in shape to a real one — same rates, same
+        # denominators, same version — so nothing downstream could ever have
+        # told them apart. `--provider mock` is a documented option on the
+        # command that writes here, which is what makes this reachable rather
+        # than theoretical.
+        #
+        # A file with no `provider:` key is read as real. Every result written
+        # before v0.105.0 lacks the field and every one of them was a genuine
+        # run against anthropic; guessing the other way would silently drop
+        # eleven real capability readings out of the series.
+        if is_simulated(data.get("provider")):
+            simulated.append(rel)
+            continue
         # Absent OR null. A run whose build axis was empty writes the keys
         # with `null` (a rate over no cases is not a rate), and such a run
         # must not reach `below_floor` — it made no claim about build
@@ -177,7 +206,7 @@ def _scan(repo_dir: str | pathlib.Path) -> tuple[list[BenchRun], list[str]]:
             ))
         except (TypeError, ValueError):
             continue
-    return runs, aborted
+    return runs, aborted, simulated
 
 
 def load_runs(repo_dir: str | pathlib.Path) -> list[BenchRun]:
@@ -201,12 +230,24 @@ def aborted_runs(repo_dir: str | pathlib.Path) -> list[str]:
     return _scan(repo_dir)[1]
 
 
+def simulated_runs(repo_dir: str | pathlib.Path) -> list[str]:
+    """Result files produced by a fabricating provider — never in the series.
+
+    Reported, like the aborts, because the alternative is a file a reader can
+    see in the directory and cannot find in the ledger. Unlike an abort there
+    is nothing to go finish here: the run is complete, and its numbers are
+    real numbers about the wrong thing.
+    """
+    return _scan(repo_dir)[2]
+
+
 def evaluate(repo_dir: str | pathlib.Path) -> BenchCriterionState:
     """Has the capability criterion fired? Mechanically, from the ledger."""
-    runs, aborted = _scan(repo_dir)
+    runs, aborted, simulated = _scan(repo_dir)
     if not runs:
         return BenchCriterionState(
             aborted_skipped=aborted,
+            simulated_skipped=simulated,
             detail="no recorded bench runs — the criterion cannot fire on "
                    "data that does not exist, and cannot be declared safe on "
                    "it either (run `avs product-bench`)",
@@ -235,7 +276,7 @@ def evaluate(repo_dir: str | pathlib.Path) -> BenchCriterionState:
         )
     return BenchCriterionState(
         runs_considered=recent, streak=streak, fires=fires, detail=detail,
-        aborted_skipped=aborted,
+        aborted_skipped=aborted, simulated_skipped=simulated,
     )
 
 

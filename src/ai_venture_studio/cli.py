@@ -1452,6 +1452,7 @@ def product_bench(
         run_product_bench,
         save_summary,
     )
+    from ai_venture_studio.providers.base import is_simulated as _is_simulated
 
     # THE PREFLIGHT LIVES HERE, not in `run_product_bench`. The library
     # function is what the hermetic suite drives, and a network call inside it
@@ -1540,8 +1541,17 @@ def product_bench(
         )
     # Save before exiting: a run that measured three cases still measured
     # three cases, and the result is the series the kill criterion reads.
-    saved = save_summary(summary, repo_dir)
+    saved = save_summary(summary, repo_dir, provider=provider)
     console.print(f"saved: {saved}")
+    # Said at the moment the numbers are on screen, not left to whoever opens
+    # the file later. These rates came out of a regex table; they say the
+    # harness ran end to end, and nothing at all about capability (ADR-056).
+    if _is_simulated(provider):
+        console.print(
+            f"[yellow]provider '{provider}' is simulated — these rates measure "
+            f"the harness, not the system.[/yellow] Not written to "
+            f"benchmarks/results/ and not read by `avs bench-criterion`."
+        )
     if notify:
         from ai_venture_studio import bench_criterion
 
@@ -1552,6 +1562,7 @@ def product_bench(
             # Read AFTER saving, so the series they judge includes this run.
             concern=bench_criterion.concern(repo_dir),
             movement=bench_criterion.movement(repo_dir),
+            provider=provider,
         ))
     # A case that RAN and produced nothing scores a real 0.0 (ADR-035/043),
     # so it never appears in `unmeasured` and the rate is all anyone sees.
@@ -3471,6 +3482,15 @@ def bench_criterion_cmd(
         console.print(
             f"  [dim]{Path(skipped).name}: aborted attempt, not a run "
             f"of the series — resume it with `avs product-bench --resume`[/dim]"
+        )
+    # Same rule, different reason, and the difference is what the reader needs:
+    # an abort is worth going back to finish, a simulated run is not. Nothing
+    # here is resumable into a real reading (ADR-056).
+    for skipped in state.simulated_skipped:
+        console.print(
+            f"  [dim]{Path(skipped).name}: measured against a simulated "
+            f"provider, not a capability reading — it exercised the harness, "
+            f"not the system[/dim]"
         )
     color = "red" if state.fires else "green"
     console.print(f"[{color}]{state.detail}[/{color}]")

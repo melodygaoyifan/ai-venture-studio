@@ -81,6 +81,27 @@ def register(cls: type[Provider]) -> type[Provider]:
     return cls
 
 
+# Which members of the registry are not measuring instruments. `mock` answers
+# from a regex table: run the product bench against it and every rate in the
+# result file describes the fixture set, not the system. The registry is the
+# only place that knows this, so it is the only place that says it — a second
+# copy of the list is a second definition of "real run", and the thing the two
+# would drift about is which files the capability kill criterion counts
+# (ADR-038, ADR-051).
+SIMULATED_PROVIDERS = frozenset({"mock"})
+
+
+def is_simulated(name: str | None) -> bool:
+    """True when `name` names a provider that fabricates its answers.
+
+    `None` is NOT simulated: it means "the default", which is anthropic. That
+    asymmetry is deliberate — a reader that cannot tell what produced a number
+    must assume it was real, because the alternative is quietly dropping
+    genuine capability readings out of the series.
+    """
+    return name in SIMULATED_PROVIDERS
+
+
 def get_provider(name: str) -> Provider:
     # Imports deferred so an SDK missing for an unused provider never breaks startup.
     from ai_venture_studio.providers import (  # noqa: F401

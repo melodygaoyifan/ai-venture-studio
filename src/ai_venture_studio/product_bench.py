@@ -1068,7 +1068,9 @@ def _round_rate(value: float | None) -> float | None:
     return round(value, 3) if value is not None else None
 
 
-def save_summary(summary: BenchSummary, repo_dir: str | Path) -> Path:
+def save_summary(
+    summary: BenchSummary, repo_dir: str | Path, *, provider: str | None = None,
+) -> Path:
     out_dir = Path(repo_dir) / ".mas" / "product-bench"
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d-%H%M")
@@ -1082,6 +1084,14 @@ def save_summary(summary: BenchSummary, repo_dir: str | Path) -> Path:
     from ai_venture_studio import __version__
 
     payload["avs_version"] = __version__
+    # WHAT produced these numbers, for the same reason as the line above it
+    # records which build did. `avs product-bench --provider mock` is a
+    # supported invocation and the result file it wrote was byte-identical in
+    # shape to a real one — no field named the instrument, so the capability
+    # criterion read a regex table's output as a measurement of the system.
+    # Recorded on every run, not only simulated ones: a field that appears
+    # exactly when something is wrong is a field nobody thinks to look for.
+    payload["provider"] = provider or "anthropic"
     payload["rates"] = {
         # `null`, not omitted, when the rate had nothing to average: a key
         # that is present and null says this run considered the rate and
@@ -1124,8 +1134,19 @@ def save_summary(summary: BenchSummary, repo_dir: str | Path) -> Path:
     # Durable copy: .mas/ is gitignored and was lost once (2026-07-26, the
     # entire bench history) — scoreboards are small and secret-free, so they
     # also land in the tracked benchmarks/results/.
+    #
+    # Except for a simulated run, which is not a capability reading and so has
+    # no business in the ledger the kill criterion reads. It still lands in
+    # `.mas/` above: a mock run is a real exercise of the HARNESS, and its
+    # scoreboard is how you check the harness worked. Two layers, because they
+    # catch different mistakes — this one keeps simulated numbers out of the
+    # tracked directory, and `bench_criterion._scan` refuses to count one that
+    # gets there anyway (copied by hand, written by an older build, resumed
+    # from a checkpoint). Either alone would be silent about the other's case.
+    from ai_venture_studio.providers.base import is_simulated
+
     tracked = Path(repo_dir) / "benchmarks" / "results"
-    if (Path(repo_dir) / "benchmarks").is_dir():
+    if (Path(repo_dir) / "benchmarks").is_dir() and not is_simulated(provider):
         tracked.mkdir(exist_ok=True)
         (tracked / path.name).write_text(rendered, encoding="utf-8")
     return path
