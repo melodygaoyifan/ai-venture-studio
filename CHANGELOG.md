@@ -42,7 +42,8 @@ zero. `gate_rate` was already `float | None` for exactly this reason.
   produced it (run 13 = v0.83.0, 14 = v0.86.0, 15 = v0.88.0, 16 = v0.93.0),
   and PC-17, README and `benchmarks/results/HISTORY.md` record that run 16 is
   the newest reading and is **not** a reading of this build: the 16 → 17 gap
-  spans eight releases, so ADR-044 through ADR-053 all move at once and no
+  spans nine releases (v0.94.0 through this one), so ADR-044 through ADR-053
+  all move at once and no
   single record can be credited or blamed for the delta.
 - Every aggregate in `src/` that divides by a count was audited for the same
   shape, the way ADR-050 followed ADR-048. Nine were already safe and mostly

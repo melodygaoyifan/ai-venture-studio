@@ -27,12 +27,13 @@ for the headline numbers.
 | 16 | result-2026-08-16-0612.yaml | 08d8ba9 (v0.93.0) | **100%** | 75% | 31% | 3 of 4 cases measured — `02-shortener-api` is **excluded**, and both halves of that exclusion are wrong in opposite directions (see the note below). Every task in every case that ran was built: **16/16**, and **16/16 probes passed**. The ceiling is the review again: 5 clean of 16 tasks. **ADR-039 did what it was built to do and it did not move this number** — reviews now arrive at one or two findings each rather than one issue wearing nine hats, and a repair pass fires on all of them, but **6 of the 11 rejections read "a fix was attempted and rolled back — it did not clear the review"**. Two rejections are the reviewer earning its keep: `04-t1` held a shared `sqlite3` connection across `ThreadingHTTPServer` worker threads without `check_same_thread=False` (3 critical), and `04-t3` removed the non-integer id guard, answering 404 where it owed 400 — `ESCALATE_SECURITY_RISK`. Three more were not about severity at all (see below) |
 | 15 | result-2026-08-14-0702.yaml | 9807c32 (v0.88.0) | 83% | **100%** | 55% | 3 of 4 cases measured — **04-direction-workbench died on a provider `529 Overloaded` and is excluded, not scored `0.0`** (ADR-035). Probes stayed perfect on everything that shipped. Two independent cases were blocked by a spec containing *nothing* — no criteria, no skeletons — reported as the flat sentence "no acceptance criteria"; an empty spec passed every quality check by having nothing to check, so the revision loop's good-enough break fired on it (ADR-041). Case 01 also lost a task to a build that failed `1 failed, 27 passed` three times, whose recorded cause was 240 characters of pytest banner art naming no assertion (ADR-042); re-running the preserved workspace showed a genuine product defect — a 40-digit id matching the spec's own `^[0-9]+$` criterion answered 400 where it owed 404 |
 
-> **Reading gap: runs 16 → 17 spans eight releases, not one.** Run 16 ran on
+> **Reading gap: runs 16 → 17 spans nine releases, not one.** Run 16 ran on
 > **v0.93.0** (2026-08-16). Run 17 fired early on 2026-08-17 against the then
 > deployed v0.97.0, measured `01-groupbuy-api` over 3438s, and lost the
 > account to credit exhaustion during case 02
 > (`aborted-2026-08-17-1412-credit-exhausted.yaml`, `cases_measured: 1` of 5).
-> The next completed run lands on **v0.101.0 or later** — so whatever moves
+> The next completed run lands on **v0.102.0 or later** — v0.94.0 through
+> v0.102.0 inclusive — so whatever moves
 > between the run-16 row and the next one, ADR-044 through ADR-053 all moved
 > at once, and no single record can be credited or blamed. Every prior
 > run-over-run reading in this table is one or two releases wide; this one is
