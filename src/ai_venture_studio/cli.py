@@ -3463,6 +3463,15 @@ def bench_criterion_cmd(
     state = evaluate(repo_dir)
     for run in state.runs_considered:
         console.print(f"  [dim]{run.summary()}[/dim]")
+    # Named, not silently absent: a file the reader can see in the directory
+    # and cannot find in the ledger is a reason to distrust the ledger, and
+    # the reason it is out (an abort, therefore resumable) is the reason
+    # someone might want to go finish it.
+    for skipped in state.aborted_skipped:
+        console.print(
+            f"  [dim]{Path(skipped).name}: aborted attempt, not a run "
+            f"of the series — resume it with `avs product-bench --resume`[/dim]"
+        )
     color = "red" if state.fires else "green"
     console.print(f"[{color}]{state.detail}[/{color}]")
     if state.fires:
@@ -3470,18 +3479,6 @@ def bench_criterion_cmd(
             "\n[bold]Gate PL5 requires YOUR recorded decision[/bold] — kill, "
             "pivot, or continue — in launch/gate-pl5-evaluation.yaml. Nothing "
             "here decides it."
-        )
-        raise typer.Exit(code=3)
-
-
-    state = streak_state(repo_dir)
-    color = "red" if state.fires else "yellow"
-    console.print(f"[{color}]kill criterion: {state.detail}[/{color}]")
-    if state.fires:
-        console.print(
-            "\n[bold]Gate PL5 now requires YOUR recorded decision[/bold] — "
-            "kill, pivot, or continue — in launch/gate-pl5-evaluation.yaml "
-            "(docs/v3-live-loop.md has the field). Nothing here decides it."
         )
         raise typer.Exit(code=3)
 

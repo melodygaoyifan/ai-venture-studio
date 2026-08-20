@@ -3,9 +3,9 @@
 Added 2026-07-27 by a recorded human choice as the second of two axes, and
 since v0.81.0 the only one — the other measured weekly maintenance hours a
 person had to type in, and was withdrawn with them (ADR-033). Its whole point
-was always that its series ALREADY EXISTS: `benchmarks/results/*.yaml` carries
-a build / probe / clean rate per weekly run, so this criterion can fire on the
-next run without anyone being asked anything.
+was always that its series ALREADY EXISTS: `benchmarks/results/result-*.yaml`
+carries a build / probe / clean rate per weekly run, so this criterion can fire
+on the next run without anyone being asked anything.
 
     build rate < 60% OR probe pass rate < 50%, for 2 consecutive runs
         → the capability claim is not holding → Gate PL5
@@ -83,6 +83,11 @@ class BenchCriterionState(BaseModel):
     streak: int = 0  # consecutive most-recent runs below a floor
     fires: bool = False
     detail: str = ""
+    #: Attempts the environment cut short, named rather than silently absent.
+    #: They are not runs of the series and never reach a floor, but a reader
+    #: comparing this ledger to the directory must be able to see why a file
+    #: they can see is not counted.
+    aborted_skipped: list[str] = Field(default_factory=list)
 
 
 class BenchCriterionError(RuntimeError):
@@ -93,23 +98,60 @@ def _as_int(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
-def load_runs(repo_dir: str | pathlib.Path) -> list[BenchRun]:
-    """Every recorded run, oldest first, by filename (they are timestamped).
+def _scan(repo_dir: str | pathlib.Path) -> tuple[list[BenchRun], list[str]]:
+    """The series and the attempts, read in one pass so they cannot disagree.
 
-    A malformed or rate-less file is skipped rather than fatal: the tracked
-    scoreboard also holds notes and reconstructions, and one unreadable file
-    must not blind the criterion.
+    One scan with one filter rather than two functions that each glob: two
+    readers of the same directory drift, and the thing they would drift about
+    is which files the kill criterion counts (ADR-051).
+
+    `result-*.yaml`, not `*.yaml`. The docstring below this one has always
+    promised "oldest first, by filename (they are timestamped)", and that
+    holds only while every name shares a prefix. ADR-052 added
+    `aborted-<date>-<reason>.yaml` beside them, and `a` sorts before `r` — so
+    the NEWEST run on disk was being ordered as the OLDEST, and the "latest
+    two runs" window silently excluded it. Narrowing the glob restores the
+    invariant the docstring states, and stops any future notes.yaml in a
+    tracked directory from being parsed as a capability reading.
     """
     root = pathlib.Path(repo_dir) / RESULTS_DIR
     runs: list[BenchRun] = []
+    aborted: list[str] = []
     if not root.is_dir():
-        return runs
-    for path in sorted(root.glob("*.yaml")):
+        return runs, aborted
+    # Both names, because the two guards catch different mistakes and each
+    # would be silent about the other's. The glob keeps `aborted-*.yaml` out
+    # of the SERIES (and fixes its ordering); walking those files anyway is
+    # what keeps them out of the series without making them disappear —
+    # excluding a file and never mentioning it is the failure this list
+    # exists to prevent. The content check below then catches an abort
+    # written under a `result-` name, which is what a future writer is most
+    # likely to get wrong.
+    aborted.extend(
+        str(p.relative_to(pathlib.Path(repo_dir)))
+        for p in sorted(root.glob("aborted-*.yaml"))
+    )
+    for path in sorted(root.glob("result-*.yaml")):
         try:
             data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         except yaml.YAMLError:
             continue
         if not isinstance(data, dict):
+            continue
+        rel = str(path.relative_to(pathlib.Path(repo_dir)))
+        # An interrupted attempt is not a run of the series. `save_summary`
+        # writes `aborted:` ABOVE the rates for precisely this reason — in its
+        # own words, "four cases failed" and "this run never got to ask them"
+        # are different findings whose percentages look identical — and this,
+        # the one reader where the distinction decides something, did not
+        # look. Run 17 died on credit exhaustion after one case and sat in the
+        # ledger at build 100% over 1 of 5; it was harmless only because it
+        # scored well. Inverted, an exhausted billing account would have
+        # advanced a streak that asks a human to consider killing the project.
+        # ADR-052 made such a run resumable, which is the same statement: it
+        # is not final, so it is not a reading.
+        if data.get("aborted"):
+            aborted.append(rel)
             continue
         # Absent OR null. A run whose build axis was empty writes the keys
         # with `null` (a rate over no cases is not a rate), and such a run
@@ -123,7 +165,7 @@ def load_runs(repo_dir: str | pathlib.Path) -> list[BenchRun]:
         rates = data.get("rates") if isinstance(data.get("rates"), dict) else {}
         try:
             runs.append(BenchRun(
-                path=str(path.relative_to(pathlib.Path(repo_dir))),
+                path=rel,
                 build_rate=float(data["build_rate"]),
                 probe_pass_rate=float(data["probe_pass_rate"]),
                 clean_review_rate=(
@@ -135,14 +177,36 @@ def load_runs(repo_dir: str | pathlib.Path) -> list[BenchRun]:
             ))
         except (TypeError, ValueError):
             continue
-    return runs
+    return runs, aborted
+
+
+def load_runs(repo_dir: str | pathlib.Path) -> list[BenchRun]:
+    """Every recorded run, oldest first, by filename (they are timestamped).
+
+    A malformed or rate-less file is skipped rather than fatal: the tracked
+    scoreboard also holds notes and reconstructions, and one unreadable file
+    must not blind the criterion.
+    """
+    return _scan(repo_dir)[0]
+
+
+def aborted_runs(repo_dir: str | pathlib.Path) -> list[str]:
+    """Attempts the environment cut short — excluded from the series above.
+
+    Reported rather than dropped in silence. A run that vanishes from the
+    ledger without a word is indistinguishable from a run that never
+    happened, and the reason this one is absent (an abort, therefore
+    resumable) is the reason a human might want to go finish it.
+    """
+    return _scan(repo_dir)[1]
 
 
 def evaluate(repo_dir: str | pathlib.Path) -> BenchCriterionState:
     """Has the capability criterion fired? Mechanically, from the ledger."""
-    runs = load_runs(repo_dir)
+    runs, aborted = _scan(repo_dir)
     if not runs:
         return BenchCriterionState(
+            aborted_skipped=aborted,
             detail="no recorded bench runs — the criterion cannot fire on "
                    "data that does not exist, and cannot be declared safe on "
                    "it either (run `avs product-bench`)",
@@ -170,7 +234,8 @@ def evaluate(repo_dir: str | pathlib.Path) -> BenchCriterionState:
             + "; ".join(r.summary() for r in recent)
         )
     return BenchCriterionState(
-        runs_considered=recent, streak=streak, fires=fires, detail=detail
+        runs_considered=recent, streak=streak, fires=fires, detail=detail,
+        aborted_skipped=aborted,
     )
 
 

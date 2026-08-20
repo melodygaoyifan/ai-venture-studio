@@ -460,6 +460,18 @@ def _bench_rates(path: str) -> str:
     gate = inc.get("gate_rate")
     if isinstance(gate, (int, float)):
         read += f", increment gate {float(gate):.0%}"
+    # Which build produced the reading, beside the reading. `state` above
+    # answers "did the loop run recently enough" in DAYS, and days is a proxy
+    # that breaks exactly when releases outpace the cadence: the bench reads
+    # "ok, 4d" while its newest numbers came from nine releases ago. The file
+    # has recorded `avs_version` since run 15 for this reason, and the
+    # scheduler line already prints the running build, so naming this one puts
+    # the comparison in front of the reader instead of in three documents they
+    # would have to go find. Stated, not judged — no threshold, no alarm; this
+    # module does not decide how stale is too stale (rule 1).
+    build = data.get("avs_version")
+    if isinstance(build, str) and build.strip():
+        read += f" · measured on v{build.strip()}"
     return read
 
 

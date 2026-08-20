@@ -4,6 +4,58 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.103.0 — the criterion must survive being read
+
+ADR-053 closed a defect class by auditing every aggregate in `src/` that
+divides by a count. That audit read code. Asked to close whatever remained,
+the check this time was to RUN the project's own reporting commands against
+the real repository — and `avs bench-criterion` printed its report and then
+crashed with `NameError: name 'streak_state' is not defined`.
+
+Three defects sat in the twenty lines between the bench result files and the
+human who reads them at Gate PL5, all of them ADR-051's shape: a writer added
+something, and a reader that had documented its assumptions was not updated.
+
+- **The command crashed on the healthy path only.** Ten orphaned lines from
+  the implementation `evaluate()` replaced, calling a `streak_state` that
+  exists nowhere. Unreachable in exactly one case — a fired criterion raises
+  `typer.Exit(3)` above them — so across eleven recorded runs the command that
+  reads the launch PRD's only kill criterion had never once completed, and
+  would have "worked" only in the case where the project is in trouble.
+  Nothing caught it because **no test invoked the command**; `evaluate()` had
+  coverage, the CLI path around it had none.
+- **An aborted attempt counted as a run.** `save_summary` writes `aborted:`
+  above the rates and says why — "four cases failed" and "this run never got
+  to ask them" are different findings whose percentages look the same — and
+  the one reader where the difference decides something never looked. Run 17
+  died on credit exhaustion after one case and sat in the capability ledger at
+  build 100% over 1 of 5. Harmless only because it scored well: inverted, an
+  exhausted billing account advances a streak that asks a human to consider
+  killing the project. Excluded now by two independent guards, the glob and
+  the content key, because they catch different mistakes.
+- **The ledger's stated ordering was broken by a filename.** `load_runs`
+  promised "oldest first, by filename (they are timestamped)", which holds
+  only while every name shares a prefix; ADR-052 added `aborted-*.yaml` and
+  `a` sorts before `r`, so the newest file was placed at the oldest position.
+  The glob was `*.yaml`, so any stray file in that tracked directory would be
+  parsed as a capability reading.
+
+Excluded is not invisible: aborts are still walked, reported in
+`BenchCriterionState.aborted_skipped`, and named by the CLI with the command
+that would finish them. `avs cadence` now prints the build each reading came
+from (`· measured on v0.93.0`) — its `state` column measures staleness in days,
+and days is a proxy that breaks exactly when releases outpace the cadence: the
+bench row read `ok (4d)` while its numbers were nine releases old. Stated, not
+judged — no threshold, for the same reason `SchedulerBuild.behind` only counts
+older builds.
+
+Floors, streak and `below_floor` untouched for the second release running.
+
+`tests/test_the_criterion_reads_its_own_ledger.py`, 10 tests; 6 of the first 8
+fail against the deployed v0.102.0 as a control. No recorded rate changes —
+the run-17 abort was above both floors, so removing it from the ledger moves
+no streak and no number. What changes is that it cannot move one in future.
+
 ## v0.102.0 — a rate over no cases is not a rate
 
 Found while pricing a cheaper alternative to a full five-case bench run:
