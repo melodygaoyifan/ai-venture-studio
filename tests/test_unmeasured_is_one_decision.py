@@ -44,7 +44,7 @@ def _bench(monkeypatch, results):
 
     calls = iter(results)
 
-    def _next(case, provider=None):
+    def _next(case, provider=None, **_):
         outcome = next(calls)
         if isinstance(outcome, Exception):
             raise outcome

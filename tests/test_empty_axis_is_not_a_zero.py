@@ -93,7 +93,7 @@ def _build_result(name, *, total, built, clean):
 
 
 def test_an_empty_build_axis_scores_no_build_rate(monkeypatch, tmp_path):
-    monkeypatch.setattr(pb, "run_case", lambda case, provider=None: _increment_result())
+    monkeypatch.setattr(pb, "run_case", lambda case, provider=None, **_: _increment_result())
     summary = pb.run_product_bench(
         _increment_case_dir(tmp_path), provider="mock", repo_dir=str(tmp_path)
     )
@@ -107,7 +107,7 @@ def test_an_empty_build_axis_scores_no_build_rate(monkeypatch, tmp_path):
 def test_the_saved_file_says_null_not_zero(monkeypatch, tmp_path):
     import yaml
 
-    monkeypatch.setattr(pb, "run_case", lambda case, provider=None: _increment_result())
+    monkeypatch.setattr(pb, "run_case", lambda case, provider=None, **_: _increment_result())
     summary = pb.run_product_bench(
         _increment_case_dir(tmp_path), provider="mock", repo_dir=str(tmp_path)
     )
@@ -124,7 +124,7 @@ def test_the_saved_file_says_null_not_zero(monkeypatch, tmp_path):
 
 def test_a_run_with_no_build_axis_never_reaches_the_floor(monkeypatch, tmp_path):
     """The whole reason this matters: the capability criterion."""
-    monkeypatch.setattr(pb, "run_case", lambda case, provider=None: _increment_result())
+    monkeypatch.setattr(pb, "run_case", lambda case, provider=None, **_: _increment_result())
     summary = pb.run_product_bench(
         _increment_case_dir(tmp_path), provider="mock", repo_dir=str(tmp_path)
     )
@@ -154,7 +154,7 @@ def test_the_cadence_reports_nothing_rather_than_zero(tmp_path):
 
 
 def test_neither_the_table_nor_the_alert_prints_a_percent(monkeypatch, tmp_path):
-    monkeypatch.setattr(pb, "run_case", lambda case, provider=None: _increment_result())
+    monkeypatch.setattr(pb, "run_case", lambda case, provider=None, **_: _increment_result())
     summary = pb.run_product_bench(
         _increment_case_dir(tmp_path), provider="mock", repo_dir=str(tmp_path)
     )
@@ -172,7 +172,7 @@ def test_neither_the_table_nor_the_alert_prints_a_percent(monkeypatch, tmp_path)
 
 def _run_build_cases(monkeypatch, tmp_path, results):
     calls = iter(results)
-    monkeypatch.setattr(pb, "run_case", lambda case, provider=None: next(calls))
+    monkeypatch.setattr(pb, "run_case", lambda case, provider=None, **_: next(calls))
     d = tmp_path / "cases"
     d.mkdir()
     for i in range(len(results)):
@@ -212,7 +212,7 @@ def test_a_mixed_run_keeps_the_build_rate_it_earned(monkeypatch, tmp_path):
         _build_result("00-c", total=4, built=4, clean=4),
         _increment_result("01-c"),
     ])
-    monkeypatch.setattr(pb, "run_case", lambda case, provider=None: next(calls))
+    monkeypatch.setattr(pb, "run_case", lambda case, provider=None, **_: next(calls))
     d = tmp_path / "cases"
     d.mkdir()
     (d / "00-c.yaml").write_text(

@@ -31,6 +31,7 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field
 
+from ai_venture_studio.observability import CostModel
 from ai_venture_studio.state import CLEAN_VERDICT_VALUES
 from ai_venture_studio.testing import _as_text
 from ai_venture_studio.testing import _run as _run_killing_the_group
@@ -254,6 +255,104 @@ class IncrementResult(BaseModel):
     detail: str = ""
 
 
+class CaseSpend(BaseModel):
+    """What a case cost, as far as it can honestly be known.
+
+    `usd` is None — never 0.0 — when no price in `.mas/cost-model.yaml`
+    covered the models this case used. ADR-053's rule applied to money: an
+    unpriced run and a free run are different facts, and the difference is
+    exactly the one a reader is trying to establish. `unpriced_calls` rides
+    along so a partially-priced total announces itself as a FLOOR.
+    """
+
+    calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    usd: float | None = None
+    unpriced_calls: int = 0
+
+    @property
+    def is_floor(self) -> bool:
+        return self.unpriced_calls > 0
+
+
+def render_spend(spend: CaseSpend | None) -> str:
+    """One line, safe to print anywhere — the CLI table and the Discord alert.
+
+    Shared rather than written twice, because the two renderings that matter
+    are the one on the operator's screen and the one that arrives at 3am from
+    the scheduler, and a caveat that appears in only one of them is a caveat
+    the person who needed it did not get.
+    """
+    if spend is None:
+        return "cost not metered"
+    tokens = f"{spend.calls} calls · {spend.input_tokens + spend.output_tokens:,} tokens"
+    if spend.usd is None:
+        # Not "$0.00". The counts are exact; there is simply no price to
+        # apply, and saying zero would answer a question nobody can answer.
+        return f"{tokens} · unpriced (no .mas/cost-model.yaml — run `avs prices --import`)"
+    if spend.is_floor:
+        return (
+            f"{tokens} · ≥${spend.usd:.2f} "
+            f"(FLOOR — {spend.unpriced_calls} of {spend.calls} calls unpriced)"
+        )
+    return f"{tokens} · ${spend.usd:.2f}"
+
+
+def bench_cost_model(repo_dir: str | Path = ".") -> CostModel:
+    """The price table to read a bench run against — the OPERATOR's, not the case's.
+
+    Two different things live in two different places and it is easy to fold
+    them into one: the token LEDGER is written inside each case's throwaway
+    workspace, while the PRICE TABLE is `.mas/cost-model.yaml` in the repo the
+    bench was invoked from, put there by `avs prices --import`. A freshly
+    created temp workspace has never had prices and never could, so pricing a
+    case against its own `.mas` reports every call unpriced — technically
+    honest, and useless for the one question the cost is recorded to answer.
+    """
+    from ai_venture_studio.observability import load_cost_model
+
+    return load_cost_model(Path(repo_dir) / ".mas")
+
+
+def _case_spend(workspace: Path | None, cost_model: CostModel) -> CaseSpend | None:
+    """Read the ledger the case just wrote, before its workspace is deleted.
+
+    Every case builds in its own `mkdtemp`, and `autopilot` flushes spend to
+    THAT root — so the rows are already attributed by construction and no
+    per-call tagging is needed. It has to be read here, though: the `finally`
+    below removes the tree, and the ledger goes with it. That is why the
+    bench has been unable to say what it cost since the day it was written,
+    with the data sitting on disk the whole time.
+
+    A final `flush` first, because `autopilot` flushes BETWEEN tasks and the
+    last task's rows are still buffered when the case returns.
+
+    Never raises: metering must not fail a case that ran.
+    """
+    if workspace is None:
+        return None
+    try:
+        from ai_venture_studio import spend as _spend
+
+        _spend.flush(workspace)
+        entries = _spend.read_entries(workspace)
+        if not entries:
+            return None
+        summary = _spend.summarize(entries, cost_model)
+        return CaseSpend(
+            calls=summary.calls,
+            input_tokens=summary.input_tokens,
+            output_tokens=summary.output_tokens,
+            # A total of 0.0 across calls that were ALL unpriced is not a
+            # cost of zero, it is the absence of a price table.
+            usd=None if summary.unpriced_calls == summary.calls else summary.usd,
+            unpriced_calls=summary.unpriced_calls,
+        )
+    except Exception:  # noqa: BLE001 — a metering failure is not a case failure
+        return None
+
+
 class CaseResult(BaseModel):
     name: str
     autopilot_status: str
@@ -268,6 +367,13 @@ class CaseResult(BaseModel):
     preserved_workspace: str = ""
     probes: list[ProbeResult] = Field(default_factory=list)
     duration_s: float = 0.0
+    #: What this case cost. None when nothing was metered — a resumed row
+    #: (its cost was paid on an earlier run and belongs to that run's
+    #: total), a simulated provider, or a crash before the first call.
+    #: `duration_s` has always been recorded beside it; the run that told
+    #: you it took 3438 seconds could not tell you what those seconds
+    #: bought, which is the number that decides whether to run it again.
+    spend: CaseSpend | None = None
     #: Why this case produced nothing, when it ran and produced nothing.
     #: The rate says how badly; only this says why, and without it a 0.0
     #: from a refused plan is indistinguishable from a 0.0 from a pipeline
@@ -380,6 +486,14 @@ class BenchSummary(BaseModel):
     #: reader needs to know the difference between "these four cases failed"
     #: and "this run was never able to ask them".
     aborted: str = ""
+    #: What the whole run cost, summed from the per-case rows. None when
+    #: nothing was metered at all. Note this counts EVERY case, including
+    #: ones excluded from the rates: a case that crashed or refused still
+    #: spent money, and a total that quietly dropped it would answer "what
+    #: will this cost me next time" with a number that has never been true.
+    #: Resumed rows contribute nothing — their cost was paid by the run that
+    #: measured them, and counting it twice would inflate the series.
+    spend: CaseSpend | None = None
 
     def _axis(self, axis: str) -> list[CaseResult]:
         return [c for c in self.cases if c.axis == axis]
@@ -756,6 +870,7 @@ def _score_increment(
 def run_case(
     case: ProductCase, *, provider: str | None = None,
     keep_dir: str | Path | None = None,
+    cost_model: CostModel | None = None,
 ) -> CaseResult:
     import time
 
@@ -896,6 +1011,7 @@ def run_case(
             preserved_workspace=preserved,
             probes=probes,
             duration_s=round(time.monotonic() - start, 1),
+            spend=_case_spend(workspace, cost_model or CostModel()),
         )
     except BaseException as exc:
         # The case that CRASHED is the one whose workspace you need, and it
@@ -914,6 +1030,12 @@ def run_case(
             exc.avs_preserved_workspace = _preserve_workspace(  # type: ignore[attr-defined]
                 workspace, case.name, keep_dir
             )
+            # A crashed case is where "what did that cost" matters MOST: run
+            # 17 spent 3438 seconds and died, and the money was as
+            # unrecoverable as the measurement. Rides on the exception for
+            # the same reason the workspace path does — the caller builds the
+            # error row and this is the only way the number reaches it.
+            exc.avs_case_spend = _case_spend(workspace, cost_model or CostModel())  # type: ignore[attr-defined]
         except Exception:  # noqa: BLE001 — forensics must not mask the failure
             pass
         raise
@@ -944,6 +1066,11 @@ def _run_product_bench(
     import time
 
     cases = load_cases(cases_dir)[: limit or None]
+    # Loaded ONCE, here, and handed down: prices belong to the operator's repo,
+    # never to the throwaway workspace each case builds in (see
+    # `bench_cost_model`). Reading it per case would also let a price table
+    # edited mid-run split one result file across two of them.
+    cost_model = bench_cost_model(repo_dir)
     results = []
     aborted = ""
     recent: list[str] = []
@@ -970,7 +1097,7 @@ def _run_product_bench(
                 continue
         start = time.monotonic()
         try:
-            result = run_case(case, provider=provider)
+            result = run_case(case, provider=provider, cost_model=cost_model)
         except Exception as exc:  # noqa: BLE001 — one case never kills the bench
             # ...but one ENVIRONMENT does. The comment above stayed true for
             # eleven runs and was wrong for exactly one kind of failure, which
@@ -1005,6 +1132,11 @@ def _run_product_bench(
                     # names a failure whose evidence is already deleted.
                     preserved_workspace=getattr(exc, "avs_preserved_workspace", ""),
                     duration_s=round(time.monotonic() - start, 1),
+                    # Same provenance as the workspace path above: metered on
+                    # the way out of run_case, because the ledger dies with
+                    # the temp tree. A run that aborts on a dead account has
+                    # spent money right up to the moment it stopped.
+                    spend=getattr(exc, "avs_case_spend", None),
                 )
             )
             continue
@@ -1044,6 +1176,28 @@ def _run_product_bench(
     build = [r for r in results if r.axis == "build"]
     increment = [r for r in results if r.axis == "increment"]
     gate_values = [r.gate_rate for r in increment if r.gate_rate is not None]
+    # Summed over EVERY case, not just the measured ones — see the field's
+    # own note. Rows without a spend contribute nothing rather than zero,
+    # which is the same distinction `_avg` makes one block above.
+    metered = [r.spend for r in results if r.spend is not None and not r.resumed]
+    run_spend = (
+        CaseSpend(
+            calls=sum(s.calls for s in metered),
+            input_tokens=sum(s.input_tokens for s in metered),
+            output_tokens=sum(s.output_tokens for s in metered),
+            # A run is priced only to the extent its parts were. If any case
+            # went unpriced the total is a floor, and if none was priced at
+            # all there is no total to report — only counts.
+            usd=(
+                None
+                if all(s.usd is None for s in metered)
+                else round(sum(s.usd or 0.0 for s in metered), 6)
+            ),
+            unpriced_calls=sum(s.unpriced_calls for s in metered),
+        )
+        if metered
+        else None
+    )
     return BenchSummary(
         cases=results,
         build_rate=_avg([r.build_rate for r in build]),
@@ -1061,6 +1215,7 @@ def _run_product_bench(
             r.name for r in increment if not r.measured or r.gate_rate is None
         ],
         aborted=aborted,
+        spend=run_spend,
     )
 
 
@@ -1115,6 +1270,28 @@ def save_summary(
         # reused row is real enough to hide it.
         "resumed": [c.name for c in summary.cases if c.resumed],
     }
+    # Cost is placed deliberately rather than left where `model_dump` put it,
+    # and it sits OUTSIDE `rates` on purpose: it is not a rate, and a number
+    # the kill criterion must never read has no business sitting in the block
+    # it reads. The caveat travels in the file with the number, because the
+    # person who opens this in six months is exactly the person who cannot
+    # ask whether the price table was complete.
+    spend = payload.pop("spend", None)
+    if spend:
+        payload["cost"] = dict(spend)
+        if spend["usd"] is None:
+            payload["cost"]["note"] = (
+                "no price in .mas/cost-model.yaml covered this run — token "
+                "counts are exact, there is simply no price to apply. Not a "
+                "cost of zero."
+            )
+        elif spend["unpriced_calls"]:
+            payload["cost"]["note"] = (
+                f"FLOOR, not a total: {spend['unpriced_calls']} of "
+                f"{spend['calls']} calls used a model with no price in "
+                f".mas/cost-model.yaml. The real cost is higher by whatever "
+                f"those calls cost."
+            )
     if summary.aborted:
         # Above the rates in the file, because it changes how to read them:
         # "four cases failed" and "this run never got to ask them" are

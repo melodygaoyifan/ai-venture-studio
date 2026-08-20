@@ -73,7 +73,7 @@ def test_bench_is_honest_about_failing_probes(tmp_path):
 def test_crashed_case_still_records_duration(monkeypatch, tmp_path):
     import ai_venture_studio.product_bench as pb
 
-    def _boom(case, provider=None):
+    def _boom(case, provider=None, **_):
         import time
 
         time.sleep(0.05)
@@ -104,7 +104,7 @@ def _crashing_bench(monkeypatch, tmp_path, results):
 
     calls = iter(results)
 
-    def _next(case, provider=None):
+    def _next(case, provider=None, **_):
         outcome = next(calls)
         if isinstance(outcome, Exception):
             raise outcome
@@ -257,7 +257,7 @@ def test_a_bench_that_could_not_measure_a_case_exits_nonzero(monkeypatch, tmp_pa
         RuntimeError("pytest timed out"),
     ])
 
-    def _next(case, provider=None):
+    def _next(case, provider=None, **_):
         outcome = next(calls)
         if isinstance(outcome, Exception):
             raise outcome
@@ -286,7 +286,7 @@ def test_a_bench_that_measured_everything_stays_quiet(monkeypatch, tmp_path):
 
     monkeypatch.setattr(
         pb, "run_case",
-        lambda case, provider=None: _case(
+        lambda case, provider=None, **_: _case(
             "ok", total=2, built=1, clean=0, probes_passed=0, probes_total=2
         ),
     )

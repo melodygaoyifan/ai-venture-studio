@@ -40,7 +40,7 @@ def _bench(monkeypatch, outcomes):
     """Drive the bench where `outcomes` decides each case, by position."""
     calls = iter(outcomes)
 
-    def _next(case, provider=None):
+    def _next(case, provider=None, **_):
         outcome = next(calls)
         if isinstance(outcome, BaseException):
             raise outcome
@@ -61,7 +61,7 @@ def test_a_finished_case_is_on_disk_before_the_next_one_runs(monkeypatch, tmp_pa
     """The whole point: the next case is what kills the process."""
     seen = {}
 
-    def _next(case, provider=None):
+    def _next(case, provider=None, **_):
         # What exists on disk at the moment case 2 STARTS — not at the end of
         # the run, which is when `save_summary` would have got there.
         seen[case.name] = sorted(p.name for p in pb.checkpoint_dir(tmp_path).glob("*"))
@@ -104,7 +104,7 @@ def test_a_resumed_case_is_not_run_again(monkeypatch, tmp_path):
 
     ran = []
 
-    def _record(case, provider=None):
+    def _record(case, provider=None, **_):
         ran.append(case.name)
         return _case(case.name)
 
@@ -141,7 +141,7 @@ def test_a_row_from_another_build_is_refused(monkeypatch, tmp_path):
     monkeypatch.setattr("ai_venture_studio.__version__", "0.0.1-other")
     ran = []
     monkeypatch.setattr(
-        pb, "run_case", lambda case, provider=None: (ran.append(case.name)
+        pb, "run_case", lambda case, provider=None, **_: (ran.append(case.name)
                                                      or _case(case.name))
     )
     pb.run_product_bench(CASES, limit=1, repo_dir=tmp_path, resume=True)
@@ -175,7 +175,7 @@ def test_a_corrupt_checkpoint_is_no_checkpoint(monkeypatch, tmp_path):
         path.write_text("{{{ not yaml", encoding="utf-8")
     ran = []
     monkeypatch.setattr(
-        pb, "run_case", lambda case, provider=None: (ran.append(case.name)
+        pb, "run_case", lambda case, provider=None, **_: (ran.append(case.name)
                                                      or _case(case.name))
     )
     pb.run_product_bench(CASES, limit=1, repo_dir=tmp_path, resume=True)
@@ -189,7 +189,7 @@ def test_a_run_without_resume_measures_everything(monkeypatch, tmp_path):
     pb.run_product_bench(CASES, limit=1, repo_dir=tmp_path)
     ran = []
     monkeypatch.setattr(
-        pb, "run_case", lambda case, provider=None: (ran.append(case.name)
+        pb, "run_case", lambda case, provider=None, **_: (ran.append(case.name)
                                                      or _case(case.name))
     )
     summary = pb.run_product_bench(CASES, limit=1, repo_dir=tmp_path)
@@ -215,7 +215,7 @@ def test_a_stale_checkpoint_is_refused_but_not_deleted(monkeypatch, tmp_path):
 
     ran = []
     monkeypatch.setattr(
-        pb, "run_case", lambda case, provider=None: (ran.append(case.name)
+        pb, "run_case", lambda case, provider=None, **_: (ran.append(case.name)
                                                      or _case(case.name))
     )
     pb.run_product_bench(CASES, limit=1, repo_dir=tmp_path, resume=True)
@@ -235,7 +235,7 @@ def test_a_checkpoint_that_cannot_date_itself_is_refused(monkeypatch, tmp_path):
 
     ran = []
     monkeypatch.setattr(
-        pb, "run_case", lambda case, provider=None: (ran.append(case.name)
+        pb, "run_case", lambda case, provider=None, **_: (ran.append(case.name)
                                                      or _case(case.name))
     )
     pb.run_product_bench(CASES, limit=1, repo_dir=tmp_path, resume=True)
@@ -314,7 +314,7 @@ def test_an_abort_does_not_run_the_remaining_cases(monkeypatch, tmp_path):
     on a dead account and then rediscovered the same fact three more times."""
     asked = []
 
-    def _next(case, provider=None):
+    def _next(case, provider=None, **_):
         asked.append(case.name)
         raise _Status400(CREDIT)
 

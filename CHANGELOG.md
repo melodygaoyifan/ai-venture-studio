@@ -4,6 +4,48 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.106.0 — the bench could never say what it cost
+
+Every product-bench result file records `duration_s`. Run 17's row says a case
+took 3438 seconds and then died. No file in the series says what those seconds
+bought — and that is the number that decides whether to run it again.
+
+The data was never missing. `spend.record()` meters every provider call;
+`autopilot` flushes the ledger into the workspace root, so the rows are already
+attributed to the case by construction; `run_case` then deletes that tree in a
+`finally`. The answer was written to disk and thrown away, once per case, for
+the whole life of the bench. ADR-051's shape again: cost metering is read back
+by `build`, `autopilot`, `graph`, `studio`, `gepa`, `smoke` and `cli`, and was
+not read back by the one path that spends the most.
+
+- **A bench run now reports what it cost.** Per case and summed for the run —
+  on the CLI under the rates, in the Discord alert (whose docstring already
+  argued this run costs "real money on the founder's own key", and then
+  reported only the hours), and as a `cost` block in the result file. Outside
+  `rates`, because cost is not a rate and `bench_criterion` reads that block.
+- **Unpriced is not zero.** `usd` is `None`, never `0.0`, when no price covered
+  the models a case used — ADR-053's rule applied to money. `unpriced_calls`
+  travels with it, so a partially-priced total announces itself as a FLOOR.
+- **Prices come from the operator's repo.** The token ledger lives in the
+  case's throwaway workspace; the price table lives in `.mas/cost-model.yaml`
+  where `avs prices --import` put it. A `mkdtemp` directory has never held an
+  operator's prices and never will, so pricing a case against its own `.mas`
+  would report every call unpriced forever.
+- **A crashed case still reports its spend**, via the same channel the
+  preserved-workspace path already uses. That is where the question matters
+  most: run 17 spent 3438 seconds and died, and the money was as unrecoverable
+  as the measurement.
+- **A resumed row contributes nothing** to the run total — its cost was paid by
+  the run that measured it, and counting it twice would inflate the series in
+  proportion to how often a flaky run was resumed.
+- **The total counts cases the rates exclude**, deliberately opposite to
+  ADR-035: a case that crashed still spent money, and a total that dropped it
+  would answer "what will this cost me next time" with a number that has never
+  been true.
+- No cap and no refusal (ADR-032 stands), and no prices in code.
+
+See [ADR-057](docs/adr/057-the-bench-could-never-say-what-it-cost.md).
+
 ## v0.105.0 — a reading that cannot name its instrument
 
 Run 17 is blocked on API credit, so the question was what can be validated

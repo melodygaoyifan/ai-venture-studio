@@ -1539,6 +1539,13 @@ def product_bench(
             f"increment gate {gate} (over {summary.gate_cases_measured} of "
             f"{summary.gate_cases_total} increment case(s))"
         )
+    # On the same screen as the rates, and deliberately on its own line below
+    # them: it is not a rate and must never be read as one. Every previous run
+    # reported its duration and not its cost, so "should I run this again"
+    # was answerable in hours and not in dollars.
+    from ai_venture_studio.product_bench import render_spend
+
+    console.print(f"cost {render_spend(summary.spend)}")
     # Save before exiting: a run that measured three cases still measured
     # three cases, and the result is the series the kill criterion reads.
     saved = save_summary(summary, repo_dir, provider=provider)

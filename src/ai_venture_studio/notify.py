@@ -302,6 +302,14 @@ def bench_alert(
             + f" (over {summary.gate_cases_measured} of "
             f"{summary.gate_cases_total} increment case(s))"
         )
+    # The docstring above already argues that this run "costs hours of wall
+    # clock and real money on the founder's own key" — and then said only the
+    # hours. This is the half the reader was budgeting against.
+    spend = getattr(summary, "spend", None)
+    if spend is not None:
+        from ai_venture_studio.product_bench import render_spend
+
+        lines.append(f"**cost:** {render_spend(spend)}")
     if concern:
         lines.append(f"**series:** {concern}")
     if movement:
