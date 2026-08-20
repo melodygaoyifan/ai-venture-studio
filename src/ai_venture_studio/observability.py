@@ -11,7 +11,6 @@ telemetry uses — aggregate-only by construction.
 
 from __future__ import annotations
 
-import datetime as dt
 import pathlib
 
 import yaml

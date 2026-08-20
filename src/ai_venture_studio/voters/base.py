@@ -12,7 +12,6 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-import yaml
 from pydantic import ValidationError
 
 from ai_venture_studio.harness import SpecValidator

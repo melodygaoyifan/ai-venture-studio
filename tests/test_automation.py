@@ -13,7 +13,6 @@ import pathlib
 import pytest
 import yaml
 
-from ai_venture_studio import automation
 from ai_venture_studio.paths import skills_root
 from ai_venture_studio.automation import (
     ALWAYS_HUMAN_PATHS,
@@ -266,8 +265,6 @@ def test_empty_log_reads_as_empty(tmp_path):
 
 
 def test_claude_md_and_adr_record_the_reversal():
-    import pathlib
-
     repo = pathlib.Path(__file__).resolve().parents[1]
     charter = (repo / "CLAUDE.md").read_text(encoding="utf-8")
     assert "ADR-031" in charter

@@ -9,7 +9,6 @@ copy-don't-rewrite contract.
 
 from __future__ import annotations
 
-from pathlib import Path
 
 from ai_venture_studio.paths import blocks_root
 

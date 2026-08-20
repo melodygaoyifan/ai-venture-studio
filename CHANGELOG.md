@@ -4,6 +4,65 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.104.0 — a name that resolves nowhere
+
+ADR-054 closed by observing that *running* `avs bench-criterion` found in one
+invocation what an audit of the module could not. True, and incomplete. The
+more useful question was why neither the audit nor the suite could have found
+it, and the answer generalises past that one command:
+
+> A test proves that the code it calls works. It says nothing whatsoever
+> about code that no test calls.
+
+The orphaned `streak_state` block was unreachable from every one of 2229
+hermetic tests. No coverage target reaches it, because coverage measures the
+code you ran. `ruff check` reads every line whether or not anything runs it —
+a different instrument, not a better test, and this project had none.
+
+- **A security boundary typed against a class nobody imported.**
+  `MCPHost.__init__` annotated `taint: "TaintGuard | None"` and no import of
+  `TaintGuard` existed in the module. Lazy under `from __future__ import
+  annotations`, so it never raised — it meant the declared type on the
+  risk-tier RBAC boundary (doc 11 §17.3) was verified by nothing, and
+  `typing.get_type_hints()` raised `NameError`. Confirmed against the
+  deployed v0.103.0 before the fix. Imported at runtime rather than under
+  `TYPE_CHECKING`: with postponed annotations already in force, the deferred
+  import satisfies the linter and leaves `get_type_hints()` raising the
+  identical error — the defect preserved and the report silenced.
+- **A guard whose failure message could not be printed.**
+  `test_every_stage_command_enforces_its_floor` formats `{floor.name}` into
+  its assertion message and `floor` is not in scope. That test guards eight
+  stages against running below their infrastructure floor (ADR-U15); the
+  message is built *only when the assertion fails*, so on the day it caught a
+  real regression it would have died with `NameError` instead of naming which
+  stage ran where. Now `STAGE_FLOORS[stage].name` — and the first draft of
+  that fix rendered `build`, which is the command's argv and not its stage
+  key, trading the `NameError` for a `KeyError`; the test now renders every
+  stage/rung pair rather than one sample.
+- **`ruff check src/ tests/` in CI, `F` rules only.** Pyflakes rules describe
+  code that cannot work, not code someone would format differently. Style
+  linting stays out: several hundred reformatted files is how a gate becomes
+  something people scroll past, and `select = ["F"]` is pinned by a test so a
+  later widening has to be deliberate.
+- **Both workflows run it, and a test reads both files.** `publish.yml` says
+  in a comment that it runs "the same gate as ci.yml" and then assembles it by
+  hand a second time — one control with two call paths (ADR-051), aimed at the
+  release path.
+- **The suite runs it too**, skipping when ruff is absent, the same
+  `shutil.which` pattern the git-dependent suites already use. A gate that
+  lives only in CI teaches the author to learn about it from a red workflow
+  after the push.
+- 85 mechanical findings cleared (dead imports, vestigial `f` prefixes, four
+  unused locals). `F401` is ignored in `__init__.py`: a package `__init__`
+  exists to re-export, and `lanes/__init__.py` computes `__all__` from
+  `dir()`, which no linter can follow — its 47 "unused" imports are the lanes'
+  public surface.
+
+**Not claimed:** that either undefined name ever caused an incident. Neither
+did `streak_state`, until it did. The claim is narrower — all three were
+invisible to the full suite and to a careful reading, and visible to a 300ms
+mechanical check the project did not have.
+
 ## v0.103.0 — the criterion must survive being read
 
 ADR-053 closed a defect class by auditing every aggregate in `src/` that

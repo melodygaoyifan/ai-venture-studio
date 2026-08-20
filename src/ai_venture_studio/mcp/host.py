@@ -27,6 +27,14 @@ import time
 from ai_venture_studio.mcp.client import MCPClient, MCPClientError
 from ai_venture_studio.mcp.server import SERVER_RISK, SERVER_TOOLS, server_for
 
+# Imported at runtime, not under TYPE_CHECKING: the annotation on `taint`
+# named a class nothing imported, so the type on this security boundary was
+# checked by no one. A TYPE_CHECKING import would silence the linter and
+# leave `get_type_hints()` raising the same NameError — the defect intact,
+# only quieter. `taint_guard` imports nothing but stdlib, so there is no
+# cycle and no startup cost to pay for resolving it here.
+from ai_venture_studio.harness.taint_guard import TaintGuard
+
 AUDIT_FILE = "mcp-audit.jsonl"
 
 
@@ -46,7 +54,7 @@ class MCPHost:
         timeout_s: float = 30.0,
         audit_dir: str | pathlib.Path | None = None,
         risk_ceiling: int = 0,
-        taint: "TaintGuard | None" = None,
+        taint: TaintGuard | None = None,
     ):
         self.root = pathlib.Path(repo_dir).resolve()
         self.voter = voter

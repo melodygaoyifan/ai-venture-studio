@@ -9,14 +9,12 @@ import datetime as dt
 import json
 from pathlib import Path
 
-import pytest
 import yaml
 from typer.testing import CliRunner
 
 from ai_venture_studio.cli import app
 from ai_venture_studio.editions import (
     EDITIONS,
-    EditionError,
     edition_lint,
     load_edition_preset,
     resolve_edition,

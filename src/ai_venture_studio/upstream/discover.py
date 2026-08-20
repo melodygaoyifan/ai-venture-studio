@@ -237,7 +237,7 @@ def _save(repo_dir: str | Path, brief: Brief) -> None:
         + "\n" + "\n".join(f"- never: {s}" for s in brief.scope_never)
         + "\n\n## Success metrics\n\n"
         + "\n".join(f"- {m}" for m in brief.success_metrics)
-        + f"\n\nApprove with: `avs brief-approve` (Gate U1)\n",
+        + "\n\nApprove with: `avs brief-approve` (Gate U1)\n",
         encoding="utf-8",
     )
 

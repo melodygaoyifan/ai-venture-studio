@@ -1,6 +1,12 @@
 # The suite IS the gate: hermetic tests, fixture gates, and the ADR-U29
 # self-lint (README claims vs claims/platform.yaml) all run here — an
 # unsubstantiated README edit fails this workflow, literally.
+#
+# Since ADR-055 the suite is no longer the WHOLE gate. A test proves that the
+# code it calls works; it says nothing about code no test calls, and that is
+# exactly where `avs bench-criterion` kept a call to a function that existed
+# nowhere (ADR-054). `ruff check` reads every line whether or not anything
+# runs it, which is the one thing the suite structurally cannot do.
 name: ci
 on:
   push: {branches: [main]}
@@ -15,4 +21,8 @@ jobs:
           git config --global user.email ci@example.invalid
           git config --global user.name autoproduct-ci
       - run: uv sync
+      # Before the suite, not after: this one is 300ms and needs no fixtures,
+      # so a name that resolves nowhere fails in seconds instead of at the end
+      # of a full run.
+      - run: uv run ruff check src/ tests/
       - run: uv run pytest -q

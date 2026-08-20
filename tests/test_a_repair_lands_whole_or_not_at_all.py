@@ -27,7 +27,6 @@ from __future__ import annotations
 import ast
 import inspect
 import subprocess
-from pathlib import Path
 
 import pytest
 

@@ -323,7 +323,7 @@ def _case_that_crashes(monkeypatch, exc):
 
 
 def test_a_crashed_case_keeps_the_workspace_it_crashed_in(monkeypatch, tmp_path):
-    pb = _case_that_crashes(monkeypatch, RuntimeError("pytest timed out"))
+    _case_that_crashes(monkeypatch, RuntimeError("pytest timed out"))
     case = load_cases(CASES)[0]
 
     with pytest.raises(RuntimeError) as caught:

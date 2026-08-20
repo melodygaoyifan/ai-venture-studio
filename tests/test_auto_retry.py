@@ -86,7 +86,7 @@ def test_a_failed_task_is_retried_and_the_run_completes(tmp_path, monkeypatch):
     """The founder's retry button, pressed by the machine: a task whose spec
     blocked on the first attempt recovers within the same run."""
     root = _workspace(tmp_path)
-    seen = _block_first_attempt(monkeypatch, "task:t2", "synthetic EARS wall")
+    _block_first_attempt(monkeypatch, "task:t2", "synthetic EARS wall")
 
     result = run_autopilot(root, root / "FDR.md", provider="mock", yes=True)
 

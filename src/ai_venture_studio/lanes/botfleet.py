@@ -32,7 +32,6 @@ import collections
 import json
 import pathlib
 import subprocess
-import sys
 from concurrent.futures import ThreadPoolExecutor
 
 from pydantic import BaseModel, Field

@@ -1,7 +1,6 @@
 import shutil
 
 import pytest
-import yaml
 
 from ai_venture_studio import testing as testing_mod
 from ai_venture_studio.tools.integrity import assertion_delta

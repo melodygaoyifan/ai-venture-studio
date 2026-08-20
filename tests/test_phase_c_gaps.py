@@ -8,13 +8,11 @@ import yaml
 from fastapi.testclient import TestClient
 
 from ai_venture_studio.module_specs import (
-    ModuleSpec,
     ModuleSpecError,
     load_module_specs,
     spec_drift_check,
 )
 from ai_venture_studio.observability import (
-    CostModel,
     ToolAuditEntry,
     append_tool_audit,
     estimate_cost,

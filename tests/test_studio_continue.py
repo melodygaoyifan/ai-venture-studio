@@ -13,7 +13,6 @@ forensics" bug, reintroduced on this path) and it did not inherit the
 Studio's --provider (a mock Studio spawned a retry that wanted a real key).
 """
 
-import os
 import shutil
 import subprocess
 

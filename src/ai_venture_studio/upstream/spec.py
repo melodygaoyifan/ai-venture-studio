@@ -13,7 +13,6 @@ per criterion, and the domain profile's extras baked in.
 from __future__ import annotations
 
 import re
-import time
 from pathlib import Path
 
 import yaml
@@ -275,11 +274,11 @@ def run_spec_stage(
         },
         sort_keys=False, allow_unicode=True,
     ) + (
-        f"\nproject_hard_constraints: |\n"
+        "\nproject_hard_constraints: |\n"
         + "".join(f"  {line}\n" for line in hard_constraints.splitlines())
         if hard_constraints.strip() else ""
     ) + (
-        f"\nmodule_invariants: |\n"
+        "\nmodule_invariants: |\n"
         + "".join(f"  {line}\n" for line in module_block.splitlines())
         if module_block.strip() else ""
     ) + (
@@ -287,8 +286,8 @@ def run_spec_stage(
         if design_memory
         else ""
     ) + (
-        f"\nsource_contract: |\n  (the founder's literal interface contract — "
-        f"reproduce exact paths, methods, field names, and values verbatim)\n"
+        "\nsource_contract: |\n  (the founder's literal interface contract — "
+        "reproduce exact paths, methods, field names, and values verbatim)\n"
         + "".join(f"  {line}\n" for line in source_contract[:3000].splitlines())
         if source_contract.strip()
         else ""

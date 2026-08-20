@@ -16,7 +16,6 @@ from __future__ import annotations
 import http.client
 import pathlib
 import sqlite3
-import statistics
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer

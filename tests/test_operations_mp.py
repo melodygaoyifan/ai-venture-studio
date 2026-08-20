@@ -13,7 +13,6 @@ from ai_venture_studio.lanes.miniprogram import (
     mp_size_check,
 )
 from ai_venture_studio.operations import (
-    HotFileEntry,
     OperationsError,
     OperationsPolicy,
     lane_check,

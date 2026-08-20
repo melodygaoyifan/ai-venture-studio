@@ -7,15 +7,14 @@ import yaml
 from ai_venture_studio import testing as testing_mod
 from ai_venture_studio.upstream import init_workspace
 from ai_venture_studio.upstream.autopilot import (
-    estimate_hint,
     run_autopilot,
     tag_checkpoint,
     undo_last,
 )
 from ai_venture_studio.upstream.blocks import blocks_context, catalog_summary, matching_blocks
 from ai_venture_studio.upstream.correction import run_correction
-from ai_venture_studio.upstream.telemetry import generate_digest, install_telemetry, read_events
-from ai_venture_studio.upstream.walkthrough import built_criteria, generate_walkthrough
+from ai_venture_studio.upstream.telemetry import generate_digest, read_events
+from ai_venture_studio.upstream.walkthrough import built_criteria
 
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None, reason="git not on PATH"

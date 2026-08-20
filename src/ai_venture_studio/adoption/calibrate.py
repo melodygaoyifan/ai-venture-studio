@@ -72,7 +72,6 @@ def calibration_report(
     result = benchmark_toolchain(report, defects)
 
     by_id = {d["id"]: d for d in defects}
-    slot_status = {s.slot: s for s in report.results}
 
     hits, misses = [], []
     for outcome in result.outcomes:

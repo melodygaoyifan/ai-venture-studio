@@ -294,7 +294,7 @@ def run_critique_roster(
 
     mas_dir = pathlib.Path(workspace) / ".mas"
     for seat in load_voter_charter_specs(skills_subdir, skills_root):
-        voter_name, system = seat.name, seat.system
+        voter_name = seat.name
         status = registry_status(mas_dir, stage_name, voter_name)
         if status == "failed":
             # §11.19: no agent registers without passing its fixture gate —

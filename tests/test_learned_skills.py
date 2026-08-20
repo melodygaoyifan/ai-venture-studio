@@ -5,7 +5,6 @@ import yaml
 
 from ai_venture_studio.maintenance import Incident, run_maintenance
 from ai_venture_studio.maintenance.skills_registry import (
-    LearnedSkill,
     load_registry,
     match,
     maybe_draft_skill,

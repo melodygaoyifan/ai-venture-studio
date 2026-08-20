@@ -1,6 +1,6 @@
 [project]
 name = "ai-venture-studio"
-version = "0.103.0"
+version = "0.104.0"
 description = "AI venture studio: a full-lifecycle multi-agent system that finds opportunities, writes PRDs, builds, launches, and measures — with typed claims and human gates"
 readme = "README.md"
 authors = [
@@ -61,4 +61,28 @@ dev = [
     "mutmut>=3.6.0",
     "pycryptodome>=3.20",
     "pytest>=9.1.1",
+    "ruff>=0.16.3",
 ]
+
+# ADR-055. `F` only — pyflakes rules, the ones that describe code that cannot
+# work rather than code someone would format differently. This project has
+# never had a style linter and is not acquiring one here: reformatting 300
+# files would bury the class of finding this gate exists to catch.
+#
+# F821 (undefined name) is the whole reason for the gate. `avs bench-criterion`
+# shipped ten orphaned lines calling a function that existed nowhere, and
+# crashed on every healthy run for eleven recorded benchmarks (ADR-054). It
+# was found by running the command; a linter finds it in 300ms without an
+# API key, a workspace, or five hours of benchmark.
+[tool.ruff]
+target-version = "py312"
+extend-exclude = ["blocks", "edition_data", "profiles", "skills"]
+
+[tool.ruff.lint]
+select = ["F"]
+
+[tool.ruff.lint.per-file-ignores]
+# A package __init__ exists to re-export; an unused import there is the job.
+# `lanes/__init__.py` computes `__all__` from `dir()`, which no linter can
+# follow, and the 47 names it lifts are the lanes' public surface.
+"__init__.py" = ["F401"]

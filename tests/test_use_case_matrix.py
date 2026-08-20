@@ -200,7 +200,8 @@ def test_every_stage_command_enforces_its_floor(tmp_path, stage, argv):
 
     result = CliRunner().invoke(app, [*argv, "--repo-dir", str(root)])
     assert result.exit_code == 4, (
-        f"{stage} ran at {below} despite a floor of {floor.name}: "
+        f"{stage} ran at {below.name} despite a floor of "
+        f"{STAGE_FLOORS[stage].name}: "
         f"exit={result.exit_code}\n{result.output[:400]}"
     )
     flat = " ".join(result.output.split())

@@ -30,7 +30,7 @@ from ai_venture_studio import forge, render, testing
 
 from ai_venture_studio import leader as leader_mod
 from ai_venture_studio import scoring, verify
-from ai_venture_studio.diff import ParsedDiff, fetch_diff, parse_unified_diff
+from ai_venture_studio.diff import fetch_diff, parse_unified_diff
 from ai_venture_studio.mirror import YamlMirror
 from ai_venture_studio.orchestrator.checkpoint import build_saver, encryption_status
 from ai_venture_studio.orchestrator.mode_router import select_mode

@@ -45,6 +45,11 @@ jobs:
           git config --global user.email ci@example.invalid
           git config --global user.name avs-ci
       - run: uv sync
+      # Kept in step with ci.yml deliberately. "The same gate" stated in prose
+      # and assembled twice by hand is one control with two call paths, and
+      # the one nobody looks at is the one that silently does less (ADR-051) —
+      # a release is a bad place to discover which of the two that is.
+      - run: uv run ruff check src/ tests/
       # The same gate as ci.yml: hermetic suite plus the ADR-U29 self-lint.
       # AVS_RELEASE_CHECK additionally makes PC-1 fatal: this run is the tag
       # PC-1's own wording points at ("at the current tag"), so a claimed test

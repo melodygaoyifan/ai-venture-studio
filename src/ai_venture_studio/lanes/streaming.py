@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 COMPAT_MODES = ("BACKWARD", "FORWARD", "FULL", "NONE")
 UPGRADE_ORDER = {  # derived, written into the deploy-review record (§80.1)

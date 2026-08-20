@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 DATA_NFR = re.compile(
     r"^(?P<dataset>[\w.]+)\s+SHALL\s+"
