@@ -130,21 +130,61 @@ def reusable_plan(repo_dir: str | Path, fdr_text: str | None = None) -> Plan | N
 def lane_check(tasks: list[Task]) -> list[str]:
     """§13: single-writer enforced AT PLAN TIME — two tasks in DIFFERENT
     lanes declaring the same expected file is a collision waiting to
-    happen. Same-lane overlap is fine (lanes serialize)."""
+    happen. Same-lane overlap is fine (lanes serialize).
+
+    NAMES A LEGAL REMEDY, not only the violation. It used to emit
+    `lane collision: t1 (api) and t3 (orders) both expect 'app/models*.py'`
+    and stop there. That sentence is true, it is precise, and a planner
+    cannot act on it: it says which arrangement is forbidden and nothing
+    about which arrangement is allowed. Run 18's `03-groupbuy-auto` was told
+    it verbatim three times, produced a materially identical plan each time,
+    exhausted `MAX_REVISIONS` and was blocked at Gate U2 — the case built no
+    tasks at all and cost the run its build rate. The same product's case 01
+    had already solved this exact collision by hoisting the shared file into
+    its own task; nothing in the message had ever said that was available
+    (ADR-041: a writer that is not told what would count as fixed cannot fix
+    it; ADR-048: feedback that cannot change the outcome is not feedback).
+    """
     from fnmatch import fnmatch
 
-    issues = []
+    # Per PAIR, not per glob pair. Three overlapping globs between two tasks
+    # is one problem with one fix, and emitting it three times used a third
+    # of the revision prompt restating it.
+    collisions: dict[tuple[str, str], list[str]] = {}
     for i, a in enumerate(tasks):
         for b in tasks[i + 1 :]:
             if a.lane == b.lane:
                 continue
-            for ga in a.files_expected:
-                for gb in b.files_expected:
-                    if ga == gb or fnmatch(ga, gb) or fnmatch(gb, ga):
-                        issues.append(
-                            f"lane collision: {a.id} ({a.lane}) and {b.id} "
-                            f"({b.lane}) both expect {ga!r}"
-                        )
+            shared = [
+                ga for ga in a.files_expected
+                for gb in b.files_expected
+                if ga == gb or fnmatch(ga, gb) or fnmatch(gb, ga)
+            ]
+            if shared:
+                key = (a.id, b.id)
+                for glob in shared:
+                    if glob not in collisions.setdefault(key, []):
+                        collisions[key].append(glob)
+
+    by_id = {t.id: t for t in tasks}
+    issues = []
+    for (a_id, b_id), globs in collisions.items():
+        a, b = by_id[a_id], by_id[b_id]
+        names = ", ".join(repr(g) for g in globs)
+        issues.append(
+            f"lane collision: {a.id} ({a.lane}) and {b.id} ({b.lane}) both "
+            f"expect {names}. FIX IT ONE OF THESE THREE WAYS, whichever "
+            f"matches what the work actually is: "
+            f"(1) HOIST — add a new task that owns {globs[0]!r} alone, and "
+            f"make {a.id} and {b.id} depend on it and drop that glob from "
+            f"their files_expected; "
+            f"(2) MERGE — put {b.id} in lane {a.lane!r} (tasks in the same "
+            f"lane run in sequence, so sharing a file there is allowed); "
+            f"(3) SPLIT — narrow files_expected so the two no longer "
+            f"overlap, e.g. one owns the model file and the other owns only "
+            f"its own module. Do not re-send the same arrangement with "
+            f"different wording."
+        )
     return issues
 
 

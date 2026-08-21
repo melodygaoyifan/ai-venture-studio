@@ -4,6 +4,69 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.107.0 — the run knew, and the record did not
+
+Six findings from inspecting run 17's credit-exhaustion abort and run 18's
+preserved workspaces. They look unrelated and they are one defect six times:
+the system established a fact, and the place that needed the fact did not
+receive it. Five of the six were sitting in the run's own artifacts.
+
+- **A preserved workspace is filed under the run that made it.** It was keyed
+  `workspaces/<case>` and `rmtree`'d first, so run N's opening act — per case —
+  was deleting the only copy of run N-1's evidence. Run 18 destroyed run 17's
+  four workspaces this way, and run 17 was the abort whose forensics were the
+  reason anyone would look. Now `workspaces/<run-stamp>/<case>`, stamped once
+  at the start of the run and carried in `BenchSummary.run_stamp` so the result
+  file and the directory name the same run. Bounded by dropping whole old runs
+  (five kept) — a decision about age, which is reviewable, instead of one about
+  name collision, which nobody made and nobody could see.
+- **An aborted run says so in its contents, not only in its filename.**
+  `bench_criterion` has two guards and run 17's file tripped exactly one; copy
+  it under a `result-` name and it re-enters the capability series as a
+  build-100% reading over 1 of 5 cases. The `aborted:` key is backfilled,
+  quoted from the status the run actually died on, and a test asserts every
+  `aborted-*.yaml` on disk carries one.
+- **Gate 2's reason reaches the bench row.** The test gate downgrades an
+  APPROVE deterministically and writes why into `leader.summary`, which nothing
+  read — so the one rejection that knows its exact cause arrived as the
+  worst-explained. Worse, where a voter was also blocked the row printed "this
+  is what rejected the task" about a voter that had not: that claim is about
+  `synthesize`'s trigger order and is false when something downstream decides.
+  Run 18's `01-groupbuy-api t3` is that row.
+- **A voter that asks for a tool is no longer read as a verdict.**
+  `_tool_request` returned `None` both for "not a tool request" and for "a tool
+  request that would not parse", so an investigation turn went to the verdict
+  parser, raised, and burned every retry re-sending an identical prompt for an
+  identical answer — landing as `BLOCKED_TOOL_FAILURE`, and two of those on one
+  task is a `REQUEST_CHANGES` nothing objected to. **Twelve of run 18's
+  seventeen blocked votes were this**, and the cause is one YAML rule: bare `*`
+  opens an alias, so `glob: **/*.py` unquoted is a scanner error. The voter is
+  now told what broke (twice, then the old behaviour), and the protocol doc
+  states the rule up front. This is the review ceiling HISTORY has attributed
+  to severity calibration for runs 14, 16 and 18.
+- **A change request is judged as a change, not as a product brief.**
+  `run_feature` called `assess_fdr` with no product context, so the first-FDR
+  bar read everything the request did not mention as *missing* rather than as
+  *unchanged*. All three of run 18's follow-up FDRs came back `needs_answers`
+  and returned at intake — **the increment axis's 0% is not a reading of the
+  gate**, and the row now says so. The assessor gets the relevant requirement
+  slice and a feature-scoped bar; an unreadable ledger falls back to the strict
+  one, because degrading toward more questions is the safe direction.
+- **A lane collision names a legal arrangement.** The message named the
+  forbidden one and stopped. `03-groupbuy-auto` was handed it three times,
+  produced a materially identical plan each time, exhausted `MAX_REVISIONS` and
+  built nothing — while case 01 had already solved the identical collision by
+  hoisting the shared file into its own task. HOIST, MERGE and SPLIT are now
+  spelled out with the actual ids and globs, once per colliding pair.
+
+Also closed, by measurement rather than by argument: run 18's `24.97s → 0.31s`
+test-suite collapse is real (the preserved suite re-runs in 0.45s), not a
+reporting artifact.
+
+- Suite: 2276 → 2307 hermetic tests (ledger PC-1 synced).
+
+ADR-058.
+
 ## v0.106.0 — the bench could never say what it cost
 
 Every product-bench result file records `duration_s`. Run 17's row says a case

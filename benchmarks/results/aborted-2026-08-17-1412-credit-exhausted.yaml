@@ -111,6 +111,17 @@ unmeasured:
 - 03-groupbuy-auto
 - 04-direction-workbench
 - 05-increment-repairs
+# BACKFILLED 2026-08-20 (ADR-058). This run predates the `aborted:` field --
+# v0.97.0's `save_summary` had no such key, so the abort was recorded only by
+# renaming the file. `bench_criterion` has two guards and this file was
+# tripping exactly one of them: the `aborted-*.yaml` glob. Rename it, or copy
+# it, or write the same run under a `result-` name, and the content check --
+# the guard meant to survive a filename mistake -- had nothing to read. The
+# text below is not reconstructed prose: it is the message the run actually
+# died on, quoted from the `autopilot_status` of case 02 above.
+aborted: 'environment: BadRequestError: Error code: 400 - invalid_request_error:
+  Your credit balance is too low (the account was exhausted during 02-shortener-api;
+  cases 02-05 never ran)'
 avs_version: 0.97.0
 rates:
   build_rate: 1.0

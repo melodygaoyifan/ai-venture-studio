@@ -304,3 +304,85 @@ def test_a_review_that_answered_carries_no_note():
     assert autopilot._blocked_voter_note(
         types.SimpleNamespace(findings=[], verdict=None)
     ) == ""
+
+
+# --- Gate 2's reason reaches the row (ADR-058) -------------------------------
+#
+# The test gate is the one rejection in the system that knows its exact cause
+# at the moment it decides: it downgrades an APPROVE deterministically and
+# writes why into `leader.summary`. Nothing read that field. So the best-
+# evidenced rejection arrived at the scoreboard as the worst-explained one —
+# and where a voter also happened to be blocked, the row printed "this is what
+# rejected the task" next to a voter that had not.
+
+
+def _gate2_review(findings=(), blocked=(), reason="failed: 1 failed, 27 passed"):
+    from ai_venture_studio.orchestrator.graph import GATE2_BLOCK_PREFIX
+
+    return LeaderResult(
+        verdict=Verdict.REQUEST_CHANGES,
+        summary=f"{GATE2_BLOCK_PREFIX}{reason}] suite is green on the diff",
+        findings=list(findings),
+        blocked_voters=list(blocked),
+    )
+
+
+def test_the_gate_2_reason_reaches_the_bench_row(monkeypatch, tmp_path):
+    review = _gate2_review()
+    monkeypatch.setattr(autopilot, "_review_head", lambda root, provider: review)
+    monkeypatch.setattr(
+        autopilot, "_fix_iteration", lambda *a, **k: (False, None, "")
+    )
+    _v, detail, _a, _bv = autopilot.review_and_repair(
+        tmp_path, provider="mock", model="m", label="t1",
+    )
+    assert "Gate 2 blocked" in detail
+    assert "1 failed, 27 passed" in detail, (
+        f"the row names the rejection but not the suite that caused it: {detail!r}"
+    )
+
+
+def test_gate_2_takes_the_decisive_claim_away_from_a_blocked_voter(
+    monkeypatch, tmp_path
+):
+    """Run 18's `01-groupbuy-api t3`: one blocked voter, zero findings.
+
+    Neither of `synthesize`'s triggers fires on that shape — one blocked voter
+    is not two, and there is no actionable finding — so the rejection did not
+    come from the leader at all. The old note said it did.
+    """
+    review = _gate2_review(blocked=("context",))
+    monkeypatch.setattr(autopilot, "_review_head", lambda root, provider: review)
+    monkeypatch.setattr(
+        autopilot, "_fix_iteration", lambda *a, **k: (False, None, "")
+    )
+    _v, detail, _a, _bv = autopilot.review_and_repair(
+        tmp_path, provider="mock", model="m", label="t3",
+    )
+    assert "Gate 2 blocked" in detail
+    assert "1 voter(s) returned no verdict" in detail   # still worth naming
+    assert "rejected the task" not in detail, (
+        f"the test gate rejected this task, not the voter: {detail!r}"
+    )
+
+
+def test_a_review_gate_2_did_not_touch_carries_no_gate_note():
+    assert autopilot._gate2_note(_blocked_review([_finding(Severity.LOW)])) == ""
+    assert autopilot._gate2_note(types.SimpleNamespace(findings=[])) == ""
+
+
+def test_the_marker_the_writer_writes_is_the_one_the_reader_reads():
+    """One constant, two files — the drift this replaced was a bare f-string."""
+    import inspect as _inspect
+
+    from ai_venture_studio.orchestrator import graph
+
+    source = _inspect.getsource(graph.test_gate_node)
+    assert "GATE2_BLOCK_PREFIX" in source, (
+        "Gate 2 is formatting its marker inline again; the bench-row reader "
+        "will not follow it"
+    )
+    assert graph.gate2_reason(
+        f"{graph.GATE2_BLOCK_PREFIX}mutation survived] rest"
+    ) == "mutation survived"
+    assert graph.gate2_reason("an ordinary summary") == ""

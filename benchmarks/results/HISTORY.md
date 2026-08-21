@@ -107,6 +107,14 @@ as unknown.
 > right — but it currently scores identically to the gate answering wrongly,
 > and those are different failures with different fixes.
 >
+> **Fixed in v0.107.0 (ADR-058).** `assess_fdr` now takes the relevant slice
+> of the requirement ledger and applies a feature-scoped bar that is forbidden
+> to re-ask what the existing requirements already answer; `run_feature` passes
+> it. A `needs_answers` row now records the assessor's questions and says
+> `STOPPED AT INTAKE, the gate never ran`, so the two failures stop being one
+> number. **The 0% above stands as run 18's reading and is not re-scored** —
+> it is what that run measured. What changes is what run 19 can measure.
+>
 > **Run 18, `03-groupbuy-auto` and the lane check that rewards giving up.**
 > The planner declared `t1 (api)` and `t3 (orders)` both touching
 > `app/models*.py`, was handed that exact sentence as revision feedback, and
@@ -131,6 +139,42 @@ as unknown.
 > shown it. This is ADR-048's shape aimed at the planner: a check whose pass
 > signal is indistinguishable from the check having nothing to look at.
 >
+> **Fixed in v0.107.0 (ADR-058).** The message now names three legal
+> arrangements — HOIST (a new task owning the shared glob, both others
+> depending on it, which is what case 01 did), MERGE (same lane, since lanes
+> serialize), SPLIT (narrow the globs) — concretely, with the actual ids and
+> globs, once per colliding pair. Each of the three is asserted to clear
+> `lane_check`, so the advice cannot recommend something the checker rejects.
+> The same-lane blind spot the note describes is NOT closed: three tasks
+> sharing `app/candidates.py` in one lane is still legal by construction, and
+> still means case 04 passed by removing the parallelism.
+>
+> **Run 18, twelve of seventeen blocked votes were one YAML rule.**
+> Thirty real review votes across the run's preserved workspaces: seventeen
+> came back blocked, and the `BLOCKED_TOOL_FAILURE` notes all read
+> `failed after retries: ValueError: no YAML mapping with any of
+> ('status','findings') found ... response began: 'tool_request: tool: grep
+> args: {pattern: "...", glob: **/*.py}'`. The voter asked for a tool. Bare
+> `*` opens a YAML alias, so the request did not parse; `_tool_request`
+> returned `None`, which is *also* what it returns for "this was not a tool
+> request"; the caller handed an investigation turn to the verdict parser,
+> which raised and burned every retry re-sending an identical prompt for an
+> identical answer. Two such blocks on one task is `len(blocked) == 2` —
+> a `REQUEST_CHANGES` nothing in the code was objecting to.
+>
+> This is the review-quality ceiling this table has called "the ceiling is the
+> review again" for runs 14, 16 and 18. It is not severity calibration. It is
+> a quoting rule, and the vendored demo edition data contains the same parse
+> failure, so it has been shipping since long before run 14. Fixed in v0.107.0
+> (ADR-058): the voter is told what broke and re-sends, and the protocol doc
+> states the rule up front. **Run 18's 50% clean rate is not re-scored.**
+>
+> One more row in the same run had no reachable cause at all:
+> `01-groupbuy-api t3`, one blocked voter and zero findings, which neither of
+> `synthesize`'s triggers rejects on. Gate 2 rejected it — the test gate writes
+> why into `leader.summary`, and nothing read that field, so the row named the
+> blocked voter as "what rejected the task" instead. Also ADR-058.
+>
 > **Run 18, one probe could not have passed in any run.**
 > `the-real-addition-still-landed` died on `SyntaxError: unexpected character
 > after line continuation character`. Probe scripts live in a YAML **folded**
@@ -143,6 +187,18 @@ as unknown.
 > run 12's `{}` failures and run 13's `Connection refused` again. Both probes
 > are fixed and `tests/test_every_probe_compiles.py` now compiles every probe
 > in `benchmarks/products*/` on every suite run, so the class cannot return.
+>
+> **Run 18, and run 17's workspaces are gone.** `_preserve_workspace` wrote to
+> `.mas/product-bench/workspaces/<case>` and deleted that path first, so run
+> 18's opening act — for each of its four cases — was destroying the only copy
+> of run 17's evidence for that case. Run 17 is the credit-exhaustion abort;
+> its workspaces were the record of what $-worth of run had bought before the
+> account died. The result file still points at the path, which now holds
+> different bytes, and nothing recorded the swap. Every finding above about
+> run 18 was reachable only because run 18's own workspaces still existed.
+> Fixed in v0.107.0 (ADR-058): keyed `workspaces/<run-stamp>/<case>`, with the
+> stamp shared with the result filename, and bounded by dropping whole old
+> runs rather than by collision.
 
 > **Comparability break after run 15 — read run 16's clean rate against
 > nothing above it.** Four ADRs landed between run 15 and the next run, and

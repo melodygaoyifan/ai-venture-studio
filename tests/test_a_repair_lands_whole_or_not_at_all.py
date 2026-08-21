@@ -310,7 +310,10 @@ def test_a_case_with_a_rejected_task_keeps_its_workspace():
     from ai_venture_studio import product_bench
 
     source = inspect.getsource(product_bench.run_case)
-    preserve = source.split("_preserve_workspace(workspace, case.name, keep_dir)")[0]
+    # Split on the CALL, not on its argument list — the arguments grew a
+    # `run_stamp` in v0.107.0 and this guard silently stopped matching, which
+    # is the shape of failure it exists to prevent one level up.
+    preserve = source.split("_preserve_workspace(")[0]
     condition = preserve.rsplit("if ", 1)[-1]
     assert "len(clean) < len(built)" in condition, (
         "a case whose work was rejected still throws away the reviews that "

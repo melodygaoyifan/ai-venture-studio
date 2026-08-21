@@ -3,10 +3,10 @@
 # the hermetic suite enforces it (tests/test_editions_platform.py).
 claims:
   - id: PC-1
-    text: "2276 hermetic tests pass via uv run pytest at the current tag"
+    text: "2307 hermetic tests pass via uv run pytest at the current tag"
     kind: demand
     source_type: primary_measured
-    n: 2276
+    n: 2307
     evidence:
       - {method: pytest_run, locator: "repo://tests (uv run pytest)",
          retrieved_at: "2026-08-20T00:00:00Z"}
@@ -201,6 +201,13 @@ claims:
       not parse (a Python line continuation inside a YAML folded scalar).
       The gate rate here measures the intake bar, not reconciliation.
       HISTORY.md records both in full.
+
+      Six defects found by inspecting this run and run 17 are fixed in
+      v0.107.0 (ADR-058) — the intake bar above among them, plus the YAML
+      quoting rule behind twelve of the run's seventeen blocked votes, which
+      is the ceiling under the 50% clean rate. NONE OF THE RECORDED VALUES
+      ABOVE ARE RE-SCORED. They are what run 18 measured on v0.106.0; a
+      reader comparing them to run 19 is comparing across those fixes.
 
       SPAN: run 18 is nine-plus releases from run 16 (v0.93.0 → v0.106.0),
       so ADR-044 through ADR-057 all moved at once between these two rows.

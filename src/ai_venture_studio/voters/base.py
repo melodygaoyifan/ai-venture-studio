@@ -21,6 +21,28 @@ from ai_venture_studio.state import VoterFinding, VoterOutput, VoterStatus
 from ai_venture_studio.tools.voter_tools import TOOL_PROTOCOL_DOC, ToolBox, ToolBudgetExceeded
 from ai_venture_studio.yamlx import extract_mapping
 
+# `_tool_request` needs to say three things, and `None` only says two. This is
+# the third: "the voter asked for a tool and the request did not parse" — as
+# distinct from `None`, "the voter did not ask for a tool". Run 18 spent twelve
+# of its seventeen blocked votes on the gap between them (ADR-058).
+_MALFORMED_TOOL_REQUEST: dict = {"__malformed__": True}
+
+# How many times to hand a voter its own broken request back before giving up
+# and letting the retry loop have it. Two, because the fix is one rule ("quote
+# the glob") and a voter that cannot apply it twice will not apply it a third
+# time — and every nudge is a paid round trip.
+_MAX_REQUOTE_NUDGES = 2
+
+
+def _carries_a_verdict(raw: str) -> bool:
+    """Whether this response can be read as a final verdict."""
+    try:
+        extract_mapping(raw, ("status", "findings"))
+    except ValueError:
+        return False
+    return True
+
+
 _SYSTEM_TEMPLATE = """You are the {name} voter in a multi-agent code review system.
 
 {body}
@@ -160,6 +182,7 @@ class Voter:
         provider = get_provider(provider_name)
         messages: list[dict[str, str]] = [{"role": "user", "content": user}]
         nudged = False
+        requote = 0
         while True:
             raw = provider.chat(model=model, system=system, messages=messages)
             if not raw.strip() and not nudged:
@@ -176,7 +199,58 @@ class Voter:
                 )
                 continue
             request = self._tool_request(raw)
-            if request is None or toolbox is None:
+            if request is _MALFORMED_TOOL_REQUEST and requote < _MAX_REQUOTE_NUDGES:
+                requote += 1
+                # THE VOTER ASKED FOR A TOOL AND WE READ IT AS A VERDICT.
+                # `_tool_request` used to swallow the YAML error and return
+                # None, which is also what it returns for "this was not a tool
+                # request at all" — so a legitimate investigation turn fell
+                # through to `_parse`, which demands status/findings, raised,
+                # and burned every retry re-sending the identical prompt to
+                # get the identical answer. The voter then landed as
+                # BLOCKED_TOOL_FAILURE with no finding, and two of those on one
+                # task is `len(blocked) == 2` — a REQUEST_CHANGES nothing in
+                # the code was objecting to. Twelve of run 18's seventeen
+                # blocks were this. Say what was wrong and let it try again
+                # (ADR-041: a writer that is not told what broke cannot fix it).
+                messages.append({"role": "assistant", "content": raw})
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "Your tool_request was not valid YAML and could not be "
+                        "run. Globs and regexes must be QUOTED — `glob: "
+                        '"**/*.py"`, not `glob: **/*.py`, because a bare `*` '
+                        "starts a YAML alias. Re-send the tool_request with "
+                        "every pattern and glob in double quotes, or send your "
+                        "final status/findings YAML if you have enough already."
+                    ),
+                })
+                continue
+            if request is _MALFORMED_TOOL_REQUEST:
+                # Nudged and still malformed. Fall through to `_parse`, which
+                # raises and consumes a retry — the old behaviour, now reached
+                # only after the voter was actually told what was wrong.
+                request = None
+            if request is not None and toolbox is None:
+                # It asked for a tool it was never given (`tools: []` in the
+                # skill, or no repo to read). That is not a failure of the
+                # voter — nothing told it. Same shape as the budget branch
+                # below, which has always done the right thing here.
+                messages.append({"role": "assistant", "content": raw})
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "No tools are available to you in this review. Respond "
+                        "now with ONLY the required status/findings YAML, based "
+                        "on the diff and context you already have. If that is "
+                        "genuinely not enough, return "
+                        "status: BLOCKED_MISSING_CONTEXT and list what you "
+                        "would need in missing_sources."
+                    ),
+                })
+                raw = provider.chat(model=model, system=system, messages=messages)
+                return self._parse(raw)
+            if request is None:
                 return self._parse(raw)
             messages.append({"role": "assistant", "content": raw})
             try:
@@ -201,20 +275,42 @@ class Voter:
 
     @staticmethod
     def _tool_request(raw: str) -> dict | None:
+        """A tool request, `None` for "not one", or `_MALFORMED_TOOL_REQUEST`.
+
+        THE THIRD ANSWER IS THE POINT. This used to return `None` both for a
+        response that was not a tool request and for one that plainly was and
+        would not parse — and the caller, reading `None`, sent a tool request
+        to the verdict parser. The two cases need opposite responses: parse the
+        first as a verdict, ask the second to fix its quoting.
+
+        The quoting is not hypothetical. `glob: **/*.py` unquoted is a YAML
+        scanner error, because a bare `*` opens an alias — and a model writing
+        a glob without quotes is the ordinary case, not the exotic one. It is
+        the same failure the bench probes hit from the other side (a Python
+        line continuation inside a folded scalar): correct payload, correct
+        YAML rules, a combination that cannot survive the trip.
+        """
+        def malformed() -> dict | None:
+            # A response that ALSO carries a readable verdict is not a broken
+            # tool request, whatever else is in it — the verdict wins and the
+            # old path (return None, let `_parse` read it) is kept exactly.
+            # Only a response with no verdict to fall back on is worth a nudge.
+            return None if _carries_a_verdict(raw) else _MALFORMED_TOOL_REQUEST
+
         if "tool_request" in raw:
             try:
                 data = extract_mapping(raw, ("tool_request",))
             except ValueError:
-                return None
+                return malformed()
             request = data.get("tool_request")
-            return request if isinstance(request, dict) else None
+            return request if isinstance(request, dict) else malformed()
         # Models sometimes emit the bare shape `tool: grep / args: {...}`
         # without the wrapper (seen from repo_graph on PR #9) — accept it.
         if "tool:" in raw and "findings" not in raw:
             try:
                 data = extract_mapping(raw, ("tool",))
             except ValueError:
-                return None
+                return malformed()
             if isinstance(data.get("tool"), str):
                 return {"tool": data["tool"], "args": data.get("args") or {}}
         return None

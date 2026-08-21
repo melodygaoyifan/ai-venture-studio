@@ -497,6 +497,12 @@ class BenchSummary(BaseModel):
     #: Resumed rows contribute nothing — their cost was paid by the run that
     #: measured them, and counting it twice would inflate the series.
     spend: CaseSpend | None = None
+    #: The stamp this run filed its preserved workspaces under, and the stamp
+    #: its result file is named with. One value for both, so `preserved_workspace`
+    #: paths in the rows below and the filename above them agree by
+    #: construction rather than by the clock happening not to tick between
+    #: the first case and the save (ADR-058).
+    run_stamp: str = ""
 
     def _axis(self, axis: str) -> list[CaseResult]:
         return [c for c in self.cases if c.axis == axis]
@@ -799,19 +805,80 @@ def _row_detail(status: str, verdict: str | None, detail: str) -> str:
     return detail[:200]
 
 
+# How many runs' preserved workspaces to keep on disk. Bounded, because each
+# one is a full product tree; but bounded at a number of RUNS, not at one slot
+# per case name. Five, so a comparison across two or three consecutive runs —
+# the thing the last four investigations all needed — is always available.
+_KEEP_WORKSPACE_RUNS = 5
+
+_WORKSPACES_ROOT = Path(".mas") / "product-bench" / "workspaces"
+
+
 def _preserve_workspace(
-    workspace: Path | None, case_name: str, keep_dir: str | Path | None
+    workspace: Path | None,
+    case_name: str,
+    keep_dir: str | Path | None,
+    run_stamp: str = "",
 ) -> str:
-    """Copy a case workspace out of the temp dir before that dir is deleted."""
+    """Copy a case workspace out of the temp dir before that dir is deleted.
+
+    KEYED BY RUN, NOT BY CASE NAME. It used to be `workspaces/<case>`, with an
+    `rmtree` of that path first — so run N's first act, for each case, was to
+    delete the only copy of run N-1's evidence for that case. The result file
+    kept pointing at the path, which now held different bytes; nothing recorded
+    that the swap had happened. Run 18 destroyed run 17's four workspaces this
+    way, and run 17 was the credit-exhaustion abort whose forensics were the
+    reason anyone would look.
+
+    A run stamp in the path makes the collision impossible rather than
+    survivable, and `_prune_workspace_runs` bounds the disk cost by dropping
+    whole old runs — a decision about age, which is reviewable, instead of a
+    decision about name collision, which was invisible.
+    """
     if workspace is None or not Path(workspace).exists():
         return ""
     import shutil as _shutil
 
-    keep = Path(keep_dir or Path(".mas") / "product-bench" / "workspaces") / case_name
-    _shutil.rmtree(keep, ignore_errors=True)
+    root = Path(keep_dir) if keep_dir else _WORKSPACES_ROOT
+    keep = (root / run_stamp / case_name) if run_stamp else (root / case_name)
+    if keep.exists():
+        # Same run, same case, twice — should not happen, but overwriting is
+        # what this function is being fixed for. Take a new name instead.
+        for n in range(2, 100):
+            candidate = keep.parent / f"{case_name}-{n}"
+            if not candidate.exists():
+                keep = candidate
+                break
     keep.parent.mkdir(parents=True, exist_ok=True)
     _shutil.copytree(workspace, keep, ignore=_shutil.ignore_patterns(".probe-venv"))
     return str(keep)
+
+
+def _prune_workspace_runs(
+    root: str | Path | None = None, keep: int = _KEEP_WORKSPACE_RUNS
+) -> list[str]:
+    """Drop all but the newest `keep` run directories. Returns what it removed.
+
+    Only touches directories whose name looks like a run stamp, so a stray
+    path under the root (including the pre-fix `workspaces/<case>` layout) is
+    left alone rather than deleted by a rule that was not written for it.
+    """
+    import re
+    import shutil as _shutil
+
+    base = Path(root) if root else _WORKSPACES_ROOT
+    if not base.is_dir() or keep < 1:
+        return []
+    stamped = sorted(
+        (p for p in base.iterdir()
+         if p.is_dir() and re.fullmatch(r"\d{4}-\d{2}-\d{2}-\d{4}", p.name)),
+        key=lambda p: p.name,
+    )
+    removed = []
+    for path in stamped[:-keep]:
+        _shutil.rmtree(path, ignore_errors=True)
+        removed.append(path.name)
+    return removed
 
 
 def _proposed_scrs(workspace: Path) -> set[str]:
@@ -838,6 +905,7 @@ def _proposed_scrs(workspace: Path) -> set[str]:
 
 def _score_increment(
     *, index: int, fdr: str, expected: str, status: str, new_scrs: set[str],
+    intake_questions: list[str] | None = None,
 ) -> IncrementResult:
     """What the increment path actually did, against what the case asked.
 
@@ -860,6 +928,17 @@ def _score_increment(
     detail = f"status={status}; new proposed SCR(s): " + (
         ", ".join(sorted(new_scrs)) if new_scrs else "none"
     )
+    # AND WHAT INTAKE ASKED FOR, when intake is where it stopped. A
+    # `needs_answers` row is indistinguishable from a gate that answered
+    # wrongly — same 0, same denominator — and the difference is the whole
+    # reading: run 18's gate rate of 0% was three FDRs that never reached the
+    # gate, which nobody could tell from the result file (ADR-058). The
+    # questions are the evidence for which of the two it was.
+    if status == "needs_answers" and intake_questions:
+        asked = "; ".join(str(q) for q in intake_questions[:3])
+        detail += (
+            f"; STOPPED AT INTAKE, the gate never ran — assessor asked: {asked}"
+        )
     return IncrementResult(
         index=index,
         fdr=fdr[:200],
@@ -874,6 +953,7 @@ def run_case(
     case: ProductCase, *, provider: str | None = None,
     keep_dir: str | Path | None = None,
     cost_model: CostModel | None = None,
+    run_stamp: str = "",
 ) -> CaseResult:
     import time
 
@@ -917,6 +997,10 @@ def run_case(
                             expected=case.feature_expectations[i],
                             status=feature_result.status,
                             new_scrs=_proposed_scrs(workspace) - scrs_before,
+                            intake_questions=list(
+                                getattr(feature_result.assessment, "questions", None)
+                                or []
+                            ),
                         )
                     )
             result.outcomes = all_outcomes
@@ -978,7 +1062,9 @@ def run_case(
             # finding about the machine, not just about the product, and it
             # deserves the same forensics a crash gets. (ADR-036's family:
             # the run that could have proved what happened deleted itself.)
-            preserved = _preserve_workspace(workspace, case.name, keep_dir)
+            preserved = _preserve_workspace(
+                workspace, case.name, keep_dir, run_stamp
+            )
         return CaseResult(
             name=case.name,
             autopilot_status=result.status,
@@ -1031,7 +1117,7 @@ def run_case(
         # bookkeeping error where the real failure was.
         try:
             exc.avs_preserved_workspace = _preserve_workspace(  # type: ignore[attr-defined]
-                workspace, case.name, keep_dir
+                workspace, case.name, keep_dir, run_stamp
             )
             # A crashed case is where "what did that cost" matters MOST: run
             # 17 spent 3438 seconds and died, and the money was as
@@ -1074,6 +1160,16 @@ def _run_product_bench(
     # `bench_cost_model`). Reading it per case would also let a price table
     # edited mid-run split one result file across two of them.
     cost_model = bench_cost_model(repo_dir)
+    # STAMPED AT THE START, not at save time. Preserved workspaces are written
+    # while the run is still going, so the name they are filed under has to
+    # exist before the first case does. It is the same format the result file
+    # uses, which is what lets a reader move from `result-<stamp>.yaml` to
+    # `workspaces/<stamp>/` without a lookup table (ADR-058).
+    run_stamp = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d-%H%M")
+    dropped = _prune_workspace_runs(Path(repo_dir) / _WORKSPACES_ROOT)
+    if dropped:
+        print(f"  pruned preserved workspaces from {len(dropped)} older run(s): "
+              f"{', '.join(dropped)}")
     results = []
     aborted = ""
     recent: list[str] = []
@@ -1100,7 +1196,11 @@ def _run_product_bench(
                 continue
         start = time.monotonic()
         try:
-            result = run_case(case, provider=provider, cost_model=cost_model)
+            result = run_case(
+                case, provider=provider, cost_model=cost_model,
+                keep_dir=Path(repo_dir) / _WORKSPACES_ROOT,
+                run_stamp=run_stamp,
+            )
         except Exception as exc:  # noqa: BLE001 — one case never kills the bench
             # ...but one ENVIRONMENT does. The comment above stayed true for
             # eleven runs and was wrong for exactly one kind of failure, which
@@ -1219,6 +1319,7 @@ def _run_product_bench(
         ],
         aborted=aborted,
         spend=run_spend,
+        run_stamp=run_stamp,
     )
 
 
@@ -1231,7 +1332,12 @@ def save_summary(
 ) -> Path:
     out_dir = Path(repo_dir) / ".mas" / "product-bench"
     out_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d-%H%M")
+    # The run's own stamp when it has one, so the result file and
+    # `.mas/product-bench/workspaces/<stamp>/` name the same run. Falling back
+    # to now() keeps hand-built summaries (and the tests) working.
+    stamp = summary.run_stamp or datetime.datetime.now(datetime.UTC).strftime(
+        "%Y-%m-%d-%H%M"
+    )
     path = out_dir / f"result-{stamp}.yaml"
     payload = summary.model_dump(mode="json")
     # Which build produced these numbers. Attributing run 14 to a version took

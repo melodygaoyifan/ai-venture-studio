@@ -166,6 +166,11 @@ tool_request:
   tool: grep
   args: {{pattern: "def cancel_order", glob: "**/*.py"}}
 
+QUOTE EVERY PATTERN AND GLOB, exactly as above. `glob: **/*.py` without the
+quotes is not valid YAML — a bare `*` opens an alias — so the request cannot
+be run and you will be asked to send it again. Same for regexes containing
+`*`, `[`, `{{`, `#`, `:` or a leading `&`.
+
 Available tools and args:
 - read_file: {{path, start (default 1), limit (default 200)}} — numbered lines
 - grep: {{pattern (regex), glob (default "**/*.py"), max_results (default 50)}}

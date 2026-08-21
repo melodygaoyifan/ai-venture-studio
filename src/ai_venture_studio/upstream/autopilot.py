@@ -1207,8 +1207,17 @@ def review_and_repair(
     # stage over: a reviewer rejecting everything correctly and one rejecting
     # everything spuriously produce byte-identical records.
     if verdict not in CLEAN_VERDICT_VALUES:
+        # GATE 2 FIRST, because when it fired it is the whole answer. The test
+        # gate downgrades an APPROVE deterministically and writes why into
+        # `leader.summary` — where nothing read it. So the one rejection in
+        # the system that already knows its exact cause was the one that
+        # reached the row with no cause at all, and the notes beside it
+        # blamed whatever else was lying around (ADR-042: a cause recorded as
+        # decoration instead of as a fact).
+        gate2 = _gate2_note(final_review)
         why = " ".join(filter(None, (
-            _blocked_voter_note(final_review),
+            gate2,
+            _blocked_voter_note(final_review, gate2_blocked=bool(gate2)),
             _findings_summary(final_review.findings if final_review else []),
         )))
         if why:
@@ -1236,7 +1245,20 @@ def _blocking_by_voter(review) -> dict[str, int]:
     return dict(counts.most_common())
 
 
-def _blocked_voter_note(review) -> str:
+def _gate2_note(review) -> str:
+    """`[Gate 2 blocked — <reason>]`, or "" if the test gate did not fire.
+
+    Read from `leader.summary`, which is where `test_gate_node` has always put
+    it. The marker is a shared constant so the writer and this reader cannot
+    drift apart.
+    """
+    from ai_venture_studio.orchestrator.graph import gate2_reason
+
+    reason = gate2_reason(str(getattr(review, "summary", "") or ""))
+    return f"[Gate 2 blocked — {reason}]" if reason else ""
+
+
+def _blocked_voter_note(review, *, gate2_blocked: bool = False) -> str:
     """A REVIEWER THAT NEVER ANSWERED IS A REASON, AND THE ROW MUST SAY SO.
 
     `leader.synthesize` rejects on two triggers, not one: a finding at an
@@ -1260,7 +1282,14 @@ def _blocked_voter_note(review) -> str:
     # Whether these voters merely contributed to the rejection or ARE the
     # rejection is knowable, so state which. Without the distinction a
     # reader has to re-derive the leader's trigger order from the findings.
-    decisive = not any(
+    # ...and "decisive" is a claim about the LEADER's trigger order, so it is
+    # false whenever something downstream of the leader made the call. Gate 2
+    # downgrades an APPROVE after synthesis; a row that said "this is what
+    # rejected the task" about a blocked voter, when the suite had failed, was
+    # confidently naming the wrong cause. `01-groupbuy-api t3` in run 18 is
+    # that row: one blocked voter, zero findings, and no path through
+    # `synthesize` that rejects on either.
+    decisive = not gate2_blocked and not any(
         f.severity in ACTIONABLE_SEVERITIES for f in (review.findings or [])
     )
     return (
@@ -1642,7 +1671,39 @@ def run_feature(
     fdr_text = Path(fdr_path).read_text(encoding="utf-8")
     provider_impl = get_provider(provider)
 
-    assessment = assess_fdr(fdr_text, provider=provider, model=model)
+    # WHAT ALREADY EXISTS, handed to the assessor. Without it the intake bar
+    # is the first-FDR bar — "does this document establish users, actions and
+    # scope" — asked of a request whose entire job is to change one thing
+    # about a product that established all of those already. Run 18's three
+    # follow-up FDRs each came back `needs_answers` and returned right here,
+    # so the reconciliation gate this function exists to run never ran, and
+    # the increment axis recorded 0% for a gate that had not been asked
+    # anything (ADR-058).
+    from ai_venture_studio.upstream.requirements import (
+        load_ledger as _load_ledger,
+        relevant as _relevant,
+        render_slice as _render_slice,
+        sync_ledger as _sync_ledger,
+    )
+
+    try:
+        # SYNCED FIRST, the same order the planner's own read below obeys: a
+        # slice read before the sync misses a spec built moments earlier, and
+        # an assessor shown a stale ledger can ask for something the product
+        # already promises. `sync_ledger` is idempotent, so the later call
+        # stands unchanged.
+        _sync_ledger(root)
+        existing = (
+            _render_slice(_relevant(root, fdr_text)) if _load_ledger(root) else ""
+        )
+    except (OSError, ValueError):
+        # A product with no readable ledger is assessed as a first FDR — the
+        # stricter bar. Degrading toward MORE questions is the safe direction.
+        existing = ""
+
+    assessment = assess_fdr(
+        fdr_text, provider=provider, model=model, product_context=existing
+    )
     if not assessment.ready:
         questions = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(assessment.questions))
         (root / "FDR-QUESTIONS.md").write_text(

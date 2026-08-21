@@ -229,6 +229,27 @@ def leader_node(state: ReviewState, *, provider_override: str | None) -> dict[st
     return {"leader": result.model_dump(mode="json")}
 
 
+#: How Gate 2 marks a verdict it downgraded. A CONSTANT because two files
+#: read it: this one writes the marker into `leader.summary`, and the bench
+#: row (`upstream/autopilot._gate2_note`) pulls it back out to say why a task
+#: was rejected. It was a bare f-string here and nothing anywhere else, so a
+#: Gate-2 downgrade reached the scoreboard as REQUEST_CHANGES with no reason —
+#: or worse, next to `[1 voter(s) returned no verdict — this is what rejected
+#: the task]`, which named a voter for a rejection the test gate had made
+#: (ADR-058).
+GATE2_BLOCK_PREFIX = "[Gate 2 blocked — "
+
+
+def gate2_reason(summary: str) -> str:
+    """The Gate-2 reason inside a leader summary, or "" if it was not blocked."""
+    if not summary.startswith(GATE2_BLOCK_PREFIX):
+        return ""
+    end = summary.find("] ", len(GATE2_BLOCK_PREFIX))
+    if end == -1:
+        return summary[len(GATE2_BLOCK_PREFIX):].rstrip("] ")
+    return summary[len(GATE2_BLOCK_PREFIX):end]
+
+
 def test_gate_node(state: ReviewState, *, repo_dir: str) -> dict[str, Any]:
     """Gate 2 — Test Gate. An APPROVE-class verdict cannot survive a failing
     suite; the downgrade is deterministic code, not model judgment."""
@@ -256,7 +277,7 @@ def test_gate_node(state: ReviewState, *, repo_dir: str) -> dict[str, Any]:
             reason = report.mutation.summary
         else:
             reason = f"{report.status}: {report.summary}"
-        leader["summary"] = f"[Gate 2 blocked — {reason}] " + leader["summary"]
+        leader["summary"] = f"{GATE2_BLOCK_PREFIX}{reason}] " + leader["summary"]
         update["leader"] = leader
     return update
 

@@ -162,13 +162,66 @@ def write_template(workspace: str | Path, lang: str | None = None) -> Path:
     return path
 
 
+_FEATURE_ASSESSOR_SYSTEM = f"""You are the {FDR_ASSESSOR_MARKER}, reading a
+CHANGE REQUEST against a product THAT ALREADY EXISTS. The existing product's
+requirements are given to you below the FDR; they are already built, already
+true, and you must not ask for them again.
+
+The only question is whether this ONE change is specific enough to act on:
+what should be different after it lands, and for whom. Everything the FDR
+does not mention stays exactly as it is — that is the default, not a gap.
+
+Rules:
+- DO NOT ask who the users are, what the product is for, what is out of
+  scope, or anything the existing requirements below already answer. A
+  change request is not a product brief and must not be judged as one.
+- ready: false ONLY if you cannot tell what should change — the request
+  names no observable difference, or names two incompatible ones. Then ask
+  AT MOST 3 specific questions A NON-TECHNICAL PERSON CAN ANSWER, in the
+  FDR's language. Never ask about technology choices.
+- Otherwise ready: true with a one-line summary in the FDR's language. A
+  one-sentence change request that says what should be different IS ready.
+  "Also let people cancel an order" is ready. Prefer ready: true.
+
+Respond with ONLY YAML:
+ready: true|false
+summary: "..."
+questions: ["...", "..."]
+"""
+
+
 def assess_fdr(
-    fdr_text: str, *, provider: str = "anthropic", model: str = "claude-opus-4-8"
+    fdr_text: str, *, provider: str = "anthropic", model: str = "claude-opus-4-8",
+    product_context: str = "",
 ) -> Assessment:
+    """Is this FDR buildable? Two bars, because there are two questions.
+
+    WITHOUT `product_context` this is a first FDR: nothing exists yet, so the
+    document has to establish users, actions, scope and non-scope, and asking
+    about a gap is the only way to fill it.
+
+    WITH it, the FDR is a change to a product that already answered all of
+    that. The same bar becomes wrong in a specific way: it reads "everything
+    this request does not mention" as missing rather than as unchanged, so a
+    perfectly clear one-line change ("also let people cancel an order") comes
+    back `ready: false` with five questions about users and scope — and
+    `run_feature` returns at intake, before the reconciliation gate it exists
+    to exercise. All three of run 18's follow-up FDRs stopped here, which is
+    why the increment axis scored 0% without the gate ever running: one
+    control, two call paths, and the second silently applying a bar
+    calibrated for the first (ADR-051's shape, ADR-058).
+    """
+    user = f"<fdr>\n{fdr_text}\n</fdr>"
+    if product_context:
+        user += (
+            "\n\n<existing_product_requirements>\n"
+            f"{product_context}\n"
+            "</existing_product_requirements>"
+        )
     raw = get_provider(provider).complete(
         model=model,
-        system=_ASSESSOR_SYSTEM,
-        user=f"<fdr>\n{fdr_text}\n</fdr>",
+        system=_FEATURE_ASSESSOR_SYSTEM if product_context else _ASSESSOR_SYSTEM,
+        user=user,
         max_tokens=1024,
     )
     try:

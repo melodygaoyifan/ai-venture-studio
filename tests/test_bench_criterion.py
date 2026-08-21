@@ -18,6 +18,7 @@ from ai_venture_studio.bench_criterion import (
     BUILD_FLOOR,
     CONSECUTIVE_RUNS_TO_FIRE,
     PROBE_FLOOR,
+    _scan,
     evaluate,
     load_runs,
 )
@@ -192,3 +193,46 @@ def test_the_loop_reports_the_capability_axis():
     assert state.capability.fires is False
     v3_3 = next(c for c in state.criteria if c.id == "V3-3")
     assert "below the floors" in v3_3.detail
+
+
+# --- The two abort guards must not disagree (ADR-058) ------------------------
+
+
+def test_every_aborted_file_on_disk_says_so_in_its_content():
+    """The filename guard and the content guard must agree on every real file.
+
+    `_scan` excludes an aborted run two ways: the `aborted-*.yaml` glob and a
+    `data.get("aborted")` content check. Two guards are only worth having if
+    they cover for each other, and run 17's file was tripping exactly one —
+    the filename. Copy that file under a `result-` name, or restore it from a
+    backup that lost the prefix, and it re-enters the series as a build-100%
+    reading over 1 of 5 cases. The redundancy has to be real on disk, not just
+    present in the reader.
+    """
+    root = pathlib.Path(__file__).parent.parent / "benchmarks" / "results"
+    files = sorted(root.glob("aborted-*.yaml"))
+    assert files, "no aborted results on disk — this test has stopped checking anything"
+    for path in files:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        assert data.get("aborted"), (
+            f"{path.name} is excluded from the series only by its filename. "
+            "Add an `aborted:` key naming why the run stopped, so the content "
+            "check catches it too."
+        )
+
+
+def test_the_run_17_abort_is_excluded_by_content_alone(tmp_path):
+    """Rename it to a `result-` name and it must still be kept out."""
+    src = (
+        pathlib.Path(__file__).parent.parent
+        / "benchmarks" / "results"
+        / "aborted-2026-08-17-1412-credit-exhausted.yaml"
+    )
+    results = tmp_path / "benchmarks" / "results"
+    results.mkdir(parents=True)
+    (results / "result-2026-08-17-1412.yaml").write_text(
+        src.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    runs, aborted, _simulated = _scan(tmp_path)
+    assert runs == []
+    assert aborted == ["benchmarks/results/result-2026-08-17-1412.yaml"]
