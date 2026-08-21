@@ -197,6 +197,53 @@ as unknown.
 > are fixed and `tests/test_every_probe_compiles.py` now compiles every probe
 > in `benchmarks/products*/` on every suite run, so the class cannot return.
 >
+> **Extended in v0.109.0 (ADR-061).** That test cannot reach the probes
+> `probegen` WRITES during a run, which is the larger population — case 03
+> declares none of its own. `run_probe` now compiles every probe, generated
+> ones included, and a script that does not parse comes back
+> `harness_fault=True`: still in the row, still visible, and out of the
+> denominator, because charging our own broken instrument to the product is
+> the failure this note is about.
+
+> **Run 18, `03-groupbuy-auto` was charged for the same failure twice.**
+> The case was blocked at planning on the lane collision above, built 0 of 0
+> tasks, and its row reads `build 0.0` — correct, and ADR-035 is explicit
+> that a case which ran and built nothing scores a real zero. It **also**
+> reads `probes 0.0`, from one synthetic entry saying `probegen produced no
+> probes ... scored as a failure`. There was no product. The probe rate over
+> the four build-axis cases was therefore 75% (1.0, 1.0, 0.0, 1.0) when three
+> of them had been probed and all three passed.
+>
+> One failure moved two of the three headline numbers by the same amount, and
+> the correct rule was already written down, verbatim, on `clean_review_rate`
+> one property below the one that got it wrong: *"a case that built nothing
+> has no review to be clean, and the failure is already fully counted one
+> column left."* `probe_pass_rate` now applies it. **Run 18's 75% is not
+> re-scored** — it is what that run measured under the rule in force, and the
+> file records the version that produced it. Under the new rule the same rows
+> would have read `probes 100% over 3 of 4 cases`.
+>
+> **This reverses half of the run-16 correction below, deliberately.** That
+> note says of case 02 — also blocked at planning, also unbuilt — "its two
+> probes failing were *correct*: there was no product, and that is a fact
+> about the run." Both cannot be true. The reason this reading wins is that
+> the three rates exist to say *where* the pipeline failed, and a probe
+> column that mirrors the build column is not an independent measurement of
+> anything; it is the build failure, printed twice, in a scoreboard whose one
+> job is to answer "did this get better". What run 16 got right, and what is
+> kept, is the other half: **the exclusion must be per-case and it must be
+> visible.** A rate silently averaged over fewer cases than the run is the
+> defect, not the exclusion. `no_probe_reading` now names those cases, the
+> CLI prints the narrower denominator under the rates, and the Discord alert
+> carries the same sentence — a caveat that reaches only the operator's
+> screen is one the 3am reader did not get.
+>
+> The trap on the way: once a nothing-built case has no probe reading, a run
+> where *every* case failed writes a null probe rate — and `bench_criterion`
+> skipped any run with one. The worst reading the series can produce would
+> have become the one the kill criterion could not see. `BenchRun` now
+> carries the probe rate as optional and judges the floor it has.
+>
 > **Run 18, and run 17's workspaces are gone.** `_preserve_workspace` wrote to
 > `.mas/product-bench/workspaces/<case>` and deleted that path first, so run
 > 18's opening act — for each of its four cases — was destroying the only copy
@@ -262,6 +309,14 @@ as unknown.
 > not over the cases that were asked for a product. Under ADR-043 the run
 > would have reported those numbers with case 02 named as a 0.0 that says
 > why, and `unmeasured` empty.
+>
+> **Superseded in part by ADR-061 (see run 18, above).** The build half of
+> this reading stands: case 02 ran, produced nothing, and its build 0.0 is
+> real. The probe half does not. Counting its probes as a second 0.0 charges
+> one failure to two of the three headline rates, and under the current rule
+> run 16's honest reading is `build 75% · probes 100% over 3 of 4 · clean
+> 31%`. What this note got right and ADR-061 keeps is that the exclusion has
+> to be per-case and has to be printed.
 
 > **Run 16, the three rejections that were not about the code.** `01-t4`
 > (`1 low — B310: blacklist`), `03-t3` (`1 low`) and `04-t6` (`2 low`) were

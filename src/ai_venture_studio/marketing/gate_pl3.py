@@ -141,9 +141,27 @@ def assemble_gate_packet(
         )
     dirty = {name: reports for name, reports in preflight_reports.items() if reports}
     if dirty:
+        # Which of them have no override path. Every preflight scanner sets
+        # `hard_fail` on the findings that cannot be argued down — consent,
+        # suppression, a missing disclosure — and until ADR-060 no reader
+        # anywhere consulted the flag, so the block message flattened "fix the
+        # wording" and "this may never ship" into one list of check names.
+        # The gate refuses on ANY finding either way; what changes is that the
+        # human reading the refusal can now tell which kind of work is in
+        # front of them.
+        unoverridable = sorted(
+            name for name, reports in dirty.items()
+            if any(getattr(r, "hard_fail", False) for r in reports)
+        )
+        detail = ""
+        if unoverridable:
+            detail = (
+                f"; {unoverridable} raised HARD failures — those have no "
+                "override path and are not a wording problem"
+            )
         raise GateBlockedError(
             f"backstops not green: {sorted(dirty)} — Gate PL3 entry requires "
-            "every deterministic check clean (§21.61.5)"
+            f"every deterministic check clean (§21.61.5){detail}"
         )
     return GatePL3Packet(
         artifact_id=draft.id,
@@ -152,8 +170,20 @@ def assemble_gate_packet(
         channel=draft.channel,
         substantiation_map=build_substantiation_map(draft, register),
         disclosure_block=disclosure_block,
+        # Counted, not asserted. Both numbers were literals — `findings=0`
+        # written in, `hard_fails` never written at all — which is true today
+        # only because the entry condition above refuses any non-empty report.
+        # A packet that states a fact it did not measure is a packet that will
+        # keep stating it after the condition that made it true changes.
         preflight=[
-            PreflightSummary(check=name, findings=0) for name in preflight_reports
+            PreflightSummary(
+                check=name,
+                findings=len(reports),
+                hard_fails=sum(
+                    1 for r in reports if getattr(r, "hard_fail", False)
+                ),
+            )
+            for name, reports in preflight_reports.items()
         ],
         diff_vs_last_approved="\n".join(
             difflib.unified_diff(

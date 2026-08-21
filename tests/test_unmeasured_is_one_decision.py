@@ -85,7 +85,14 @@ def test_a_case_that_ran_and_produced_no_tasks_is_measured(monkeypatch, tmp_path
     )
     assert summary.cases_measured == 2
     assert summary.build_rate == 0.5, "(1.0 + 0.0) / 2 — it was asked for a product"
-    assert summary.probe_pass_rate == 0.5
+    # AMENDED BY ADR-061. This asserted 0.5 — the failing case's two probes
+    # averaged in as a second 0.0 — and that was one failure charged to two
+    # of the three headline rates. There was no product to probe. The case is
+    # out of the probe average and NAMED, which is the half of this record
+    # that survives: an exclusion nobody can see is the defect it was written
+    # about.
+    assert summary.probe_pass_rate == 1.0
+    assert summary.no_probe_reading == ["planned-nothing"]
 
 
 def test_the_build_rate_does_not_round_up_by_forgetting_a_case(
@@ -185,9 +192,14 @@ def test_run_16_reads_as_the_adr_says_it_does():
     """The instance, read from the artifact rather than retyped.
 
     ADR-043, HISTORY.md, the CHANGELOG and PC-17 all assert the same
-    corrected reading of run 16 — build 75%, probes 75%, clean 31%, no case
-    excluded. That claim is only as good as the rule that produces it, so
-    it is computed here from the run's own recorded per-case rows.
+    corrected reading of run 16 — no case excluded, build 75%, clean 31%.
+    That claim is only as good as the rule that produces it, so it is
+    computed here from the run's own recorded per-case rows.
+
+    AMENDED BY ADR-061: the probe figure is 100% over 3 of 4, not 75%.
+    02-shortener-api built nothing, so its two failing probes were the build
+    failure printed a second time. Its exclusion is now named rather than
+    silent, which is what ADR-043's correction was actually about.
     """
     import yaml
 
@@ -209,7 +221,11 @@ def test_run_16_reads_as_the_adr_says_it_does():
         "ran and produced nothing, which is a 0.0"
     )
     assert round(_avg([c.build_rate for c in cases]), 2) == 0.75
-    assert round(_avg([c.probe_pass_rate for c in cases]), 2) == 0.75
+    probed = [c for c in cases if c.probe_pass_rate is not None]
+    assert [c.name for c in cases if c.probe_pass_rate is None] == [
+        "02-shortener-api"
+    ]
+    assert round(_avg([c.probe_pass_rate for c in probed]), 2) == 1.0
     assert round(_avg([c.clean_review_rate for c in cases]), 2) == 0.31
 
 

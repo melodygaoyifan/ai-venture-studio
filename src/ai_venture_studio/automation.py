@@ -274,6 +274,13 @@ def record(repo_dir: str | pathlib.Path, decision: Decision, detail: str = "") -
         "action": decision.action,
         "allowed": decision.allowed,
         "reasons": decision.reasons,
+        # WHICH policy file said yes. `Decision` has carried this since the
+        # field was added and the log — the only durable record of a merge or
+        # a deploy the machine performed — dropped it (ADR-060). These policies
+        # expire, get re-armed by a named human, and are the entire authority
+        # for the action; an audit line that omits the authorizing document
+        # answers "did it?" and not "on whose say-so?".
+        "policy_path": decision.policy_path,
         "detail": detail,
     }
     with path.open("a", encoding="utf-8") as fh:

@@ -90,9 +90,13 @@ def wired(repo, monkeypatch):
         _git(tree, "add", "-A")
         _git(tree, "commit", "-qm", f"feat({slug})")
         _git(root, "worktree", "remove", "--force", str(tree))
+        # Every diagnosis field a real BuildResult carries, including the two
+        # ADR-060 added — a stand-in that is thinner than the thing it stands
+        # in for tests a narrower path than the one that ships.
         return types.SimpleNamespace(
             slug=slug, status="built", detail="", iterations=2,
             files_written=[f"{slug}.py"], test_summary="3 passed",
+            modified_existing=[], wireup_issues=[],
         )
 
     def _fake_finalize(root, slug, files):

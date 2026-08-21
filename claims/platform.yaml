@@ -3,10 +3,10 @@
 # the hermetic suite enforces it (tests/test_editions_platform.py).
 claims:
   - id: PC-1
-    text: "2326 hermetic tests pass via uv run pytest at the current tag"
+    text: "2367 hermetic tests pass via uv run pytest at the current tag"
     kind: demand
     source_type: primary_measured
-    n: 2326
+    n: 2367
     evidence:
       - {method: pytest_run, locator: "repo://tests (uv run pytest)",
          retrieved_at: "2026-08-20T00:00:00Z"}
@@ -161,10 +161,21 @@ claims:
       02-shortener-api was dropped from build and clean while its two probes
       — run against a product that was never built — were averaged in as
       0.0. The exclusion itself was the error: the case ran and produced
-      nothing, which ADR-035 already calls a real 0.0. Read honestly the run
-      is build 75%, probes 75%, clean 31% over 4 of 4 cases. ADR-043 makes
+      nothing, which ADR-035 already calls a real 0.0. ADR-043 makes
       measured one per-case decision; the recorded numbers above are not
       rewritten, and run 17 is the first comparable build rate.
+
+      CORRECTED READING, AMENDED BY ADR-061: build 75%, probes 100% over 3
+      of 4, clean 31%, no case excluded. This supersedes the "probes 75%"
+      this note carried between ADR-043 and ADR-061. The build half is
+      unchanged — 02-shortener-api ran, produced nothing, and scores a real
+      0.0. The probe half was wrong in the other direction: a case that
+      built nothing has no product to probe, so counting its two failing
+      probes charged ONE failure to TWO of the three headline rates, and a
+      probe column that mirrors the build column measures nothing
+      independently. What ADR-043 got right and ADR-061 keeps is that the
+      exclusion must be per-case and must be printed — `no_probe_reading`
+      names it now, on the CLI and in the alert.
 
       CURRENCY: this is the newest bench reading and it is NOT a reading of
       the current build. Run 16 ran on v0.93.0; every release since —
@@ -208,6 +219,14 @@ claims:
       is the ceiling under the 50% clean rate. NONE OF THE RECORDED VALUES
       ABOVE ARE RE-SCORED. They are what run 18 measured on v0.106.0; a
       reader comparing them to run 19 is comparing across those fixes.
+
+      THE 75% PROBE RATE IS A DOUBLE COUNT, found by mining this run's rows
+      rather than by another run (ADR-061, v0.109.0). 03-groupbuy-auto was
+      blocked at planning, built 0 of 0 tasks, and was charged a hard 0.0 in
+      the probe column as well as the build column — one failure moving two
+      of the three headline numbers. Three cases were probed and all three
+      passed, so under the current rule these rows read `probes 100% over 3
+      of 4`. The recorded 0.75 stands and is not rewritten; a test pins it.
 
       SPAN: run 18 is nine-plus releases from run 16 (v0.93.0 → v0.106.0),
       so ADR-044 through ADR-057 all moved at once between these two rows.

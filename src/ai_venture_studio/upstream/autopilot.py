@@ -120,6 +120,17 @@ class TaskOutcome(BaseModel):
     iterations: int = 0
     files_written: list[str] = Field(default_factory=list)
     test_summary: str = ""
+    #: The other two `BuildResult` fields this record dropped, found by the
+    #: sweep in ADR-060 rather than by another expensive run: the comment
+    #: above says "`BuildResult` has always carried these", and it was only
+    #: ever made true of three of the five.
+    #:
+    #: `wireup_issues` is the sharp one. It is computed ONLY on a successful
+    #: build, so the one outcome the record had no way to state was the one
+    #: that looks best and is worst: built, tests green, nothing imports it.
+    #: Every reader saw `status: built` and stopped.
+    modified_existing: list[str] = Field(default_factory=list)
+    wireup_issues: list[str] = Field(default_factory=list)
     #: Blocking findings per voter on the FINAL review — `{"security": 2}`.
     #: A rejection rate says how often the review said no; this says who said
     #: it, which is the difference between tightening the code and fixing a
@@ -547,7 +558,10 @@ def _build_plan(
         "\nThis is billed to your own API key — the framework never spends "
         "money on your behalf.\n"
     )
-    report_path.write_text(report + tally_block + cost_block, encoding="utf-8")
+    report_path.write_text(
+        report + tally_block + _wireup_block(outcomes, report_lang) + cost_block,
+        encoding="utf-8",
+    )
 
     built_count = sum(1 for o in outcomes if o.status == "built")
     if halted_at:
@@ -595,6 +609,16 @@ _TALLY_TEXT = {
         "ours": "（这不是你的需求写得不好，是我们这边没过；可以单独重试）"
                 " / not your requirements — ours; retry it on its own",
         "cost_heading": "花了多少 / What this cost",
+        "wireup_heading": "建好了但没接上 / Built, but not wired up",
+        "wireup_lead": "下面这些模块建成、测试也过了，但没有任何代码引用它们。"
+                       "测试通过不等于接进了产品。"
+                       " / These modules built and their tests pass, but "
+                       "nothing in the product imports them. A green test "
+                       "suite is not the same as being reachable.",
+        "modified_heading": "改到了原有文件 / Pre-existing files changed",
+        "modified_lead": "这些不是新建的文件，是原来就有、被改动过的。"
+                         " / These files already existed and were modified, "
+                         "not created.",
     },
     "en": {
         "heading": "What happened, counted",
@@ -604,8 +628,53 @@ _TALLY_TEXT = {
         "changes": "built, but the review asked for changes",
         "ours": " — not your requirements, ours; you can retry it on its own",
         "cost_heading": "What this cost",
+        "wireup_heading": "Built, but not wired up",
+        "wireup_lead": "These modules built and their tests pass, but nothing "
+                       "in the product imports them. A green test suite is not "
+                       "the same as being reachable.",
+        "modified_heading": "Pre-existing files changed",
+        "modified_lead": "These files already existed and were modified, not "
+                         "created.",
     },
 }
+
+
+def _wireup_block(outcomes, lang: str = "zh") -> str:
+    """What the build already knew about a SUCCESSFUL task, and never said.
+
+    `wireup_check` runs at the end of every build that reaches `built`, and
+    its findings went onto `BuildResult.wireup_issues` — where, until ADR-060,
+    nothing read them. The failure mode that hid there is the expensive one:
+    a task whose tests pass and whose code nothing calls reports `built`, and
+    a founder reading the report has no way to tell it from a task that
+    actually shipped.
+
+    Deterministic, for the reason `_outcome_tally` is: the reporter is an LLM
+    and this is a list of facts. `modified_existing` rides here too — the
+    field's own description promised "visible, reviewed, never silent" and it
+    had no reader to be visible to.
+    """
+    words = _TALLY_TEXT[lang]
+    unwired = [o for o in outcomes if o.status == "built" and o.wireup_issues]
+    touched = [o for o in outcomes if o.modified_existing]
+    if not unwired and not touched:
+        return ""
+    block = ""
+    if unwired:
+        block += f"\n\n---\n\n## {words['wireup_heading']}\n\n{words['wireup_lead']}\n\n"
+        for outcome in unwired:
+            block += f"- **{outcome.task_id} {outcome.title}**\n"
+            for issue in outcome.wireup_issues:
+                block += f"  - {issue}\n"
+    if touched:
+        block += (
+            f"\n\n---\n\n## {words['modified_heading']}\n\n"
+            f"{words['modified_lead']}\n\n"
+        )
+        for outcome in touched:
+            files = ", ".join(f"`{f}`" for f in outcome.modified_existing)
+            block += f"- **{outcome.task_id}**: {files}\n"
+    return block
 
 
 def _outcome_tally(outcomes, lang: str = "zh") -> str:
@@ -722,6 +791,8 @@ def _attempt_task(
         iterations=built.iterations,
         files_written=built.files_written,
         test_summary=built.test_summary,
+        modified_existing=built.modified_existing,
+        wireup_issues=built.wireup_issues,
         blocking_by_voter=by_voter,
     )
 
@@ -2089,6 +2160,8 @@ def _build_wave_parallel(
                 iterations=result.iterations,
                 files_written=result.files_written,
                 test_summary=result.test_summary,
+                modified_existing=result.modified_existing,
+                wireup_issues=result.wireup_issues,
                 blocking_by_voter=by_voter,
             )
         )

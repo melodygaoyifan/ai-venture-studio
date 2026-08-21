@@ -236,6 +236,14 @@ class ProbeResult(BaseModel):
     name: str
     passed: bool
     detail: str = ""
+    #: True when the PROBE was broken, not the product — a script that does
+    #: not compile, most of all. Run 18's `05-increment-repairs` shipped a
+    #: probe that could never have parsed in any run, and the product wore
+    #: the failure: one of that case's two probes was a syntax error in our
+    #: own YAML, scored against the software it was supposed to be measuring.
+    #: Excluded from `probe_pass_rate` and still shown in the row, because
+    #: the reading is missing and the reason a reader needs is why.
+    harness_fault: bool = False
 
 
 class IncrementResult(BaseModel):
@@ -435,14 +443,32 @@ class CaseResult(BaseModel):
     def probe_pass_rate(self) -> float | None:
         if not self.measured:
             return None
+        # A case that built nothing has no product to probe. This is the rule
+        # `clean_review_rate` states four lines down and has always applied —
+        # "the failure is already fully counted one column left" — and the
+        # probe column did not apply it, so a case blocked before it built
+        # anything scored a hard 0.0 on TWO independent axes for ONE failure.
+        #
+        # Run 18 is the worked example (ADR-061). `03-groupbuy-auto` was
+        # blocked at Gate U2 on a lane collision, built 0 of 0 tasks, and its
+        # probe column read 0.0 — dragging the run's probe rate from 100% to
+        # 75% with a reading nobody took. Its build 0.0 is correct and stays
+        # (ADR-035: a case that ran and built nothing scores a real zero).
+        # Being unable to build is one failure, not two.
+        #
+        # Run 18's recorded rates are NOT restated. They were computed under
+        # the rule in force, the file says which version produced it, and
+        # re-scoring history to match new code is how a series stops meaning
+        # anything (ADR-051).
+        if not self.tasks_built:
+            return None
         # A measured case that declares no probes has no probe denominator
         # — the instrument is absent, which is not the same as the case
         # being excluded. `probegen` failing to produce any appends a
         # failing probe rather than reaching here (see run_case).
+        scored = [p for p in self.probes if not p.harness_fault]
         return (
-            sum(1 for p in self.probes if p.passed) / len(self.probes)
-            if self.probes
-            else None
+            sum(1 for p in scored if p.passed) / len(scored) if scored else None
         )
 
     @property
@@ -482,6 +508,17 @@ class BenchSummary(BaseModel):
     # averaged over 4 are different measurements, and the reader cannot
     # tell them apart from the percentages alone.
     unmeasured: list[str] = Field(default_factory=list)
+    #: Build-axis cases that WERE measured and still contribute nothing to
+    #: the probe rate, because they built nothing to probe (ADR-061).
+    #:
+    #: This list is the price of that exclusion, and it is not optional.
+    #: Run 16's correction says the quiet part: "the exclusion is per-rate,
+    #: and it should be per-case" — a rate that silently covers fewer cases
+    #: than the run is the defect, not the exclusion itself. `unmeasured`
+    #: cannot carry these; an unbuilt case is measured, and its 0.0 build
+    #: rate is real. So the probe rate gets its own list, and every renderer
+    #: that prints the rate prints the scope with it.
+    no_probe_reading: list[str] = Field(default_factory=list)
     # The increment axis (ADR-049). Separate rate, separate denominator,
     # separate cases: "did it build what was asked" and "did it correctly
     # decline to build" are different questions, and a case whose CORRECT
@@ -756,6 +793,28 @@ def run_probe(workspace: Path, probe: Probe) -> ProbeResult:
     """The probe runs IN the built workspace with the product's runtime
     env — it observes the product from outside, like a user's script."""
     import os
+
+    # Compile before running. A probe that is not valid Python cannot be
+    # measuring anything, and running it anyway produces a `SyntaxError` on
+    # stderr that is indistinguishable, in the row, from the product being
+    # broken — which is exactly how run 18 scored one of our own malformed
+    # YAML scalars against `05-increment-repairs` (ADR-061).
+    #
+    # `tests/test_every_probe_compiles.py` already catches that for probes
+    # written into a case file, before a run is ever paid for. It cannot
+    # catch a probe `probegen` WRITES during the run, and that is the larger
+    # population: case `03` declares none of its own. This is the guard for
+    # the generated ones, and it names the failure as ours.
+    try:
+        compile(probe.script, probe.name, "exec")
+    except (SyntaxError, ValueError) as exc:
+        return ProbeResult(
+            name=probe.name,
+            passed=False,
+            harness_fault=True,
+            detail=f"probe does not parse — this is OUR bug, not the "
+                   f"product's, and it is not counted against it: {exc}"[:200],
+        )
 
     with tempfile.NamedTemporaryFile(
         "w", suffix=f"-{probe.name}.py", delete=False
@@ -1077,12 +1136,25 @@ def run_case(
             case_probes += [Probe(name=g.name, script=g.script) for g in generated]
         probes = [run_probe(workspace, probe) for probe in case_probes]
         if probegen_dry:
+            # Two different facts wore the same sentence. With tasks built,
+            # probegen coming back empty is a real signal about the product:
+            # it has no surface anything can observe. With NOTHING built, it
+            # is a restatement of the build failure — there was no product to
+            # find a surface on — and saying "scored as a failure" of a case
+            # that never got to try is how one failure became two columns.
+            why = "; ".join(gen_notes[:3]) if gen_notes else "no notes"
             probes.append(ProbeResult(
                 name="probe-generation",
                 passed=False,
-                detail=("probegen produced no probes after a retry — case "
-                        "behavior UNMEASURED, scored as a failure. Why: "
-                        + ("; ".join(gen_notes[:3]) if gen_notes else "no notes"))[:400],
+                harness_fault=not built,
+                detail=(
+                    (f"nothing was built, so there was no product to probe — "
+                     f"this case's failure is counted in the build column and "
+                     f"not again here. Why probegen found nothing: {why}")
+                    if not built else
+                    (f"probegen produced no probes after a retry — case "
+                     f"behavior UNMEASURED, scored as a failure. Why: {why}")
+                )[:400],
             ))
         preserved = ""
         if (
@@ -1136,7 +1208,16 @@ def run_case(
                  # to discover that one deterministic tool raised 60% of every
                  # blocking finding; the row now carries that on its own.
                  **({"blocking_by_voter": o.blocking_by_voter}
-                    if getattr(o, "blocking_by_voter", None) else {})}
+                    if getattr(o, "blocking_by_voter", None) else {}),
+                 # A `built` row that nothing imports scores as a build. It
+                 # still does — the build rate is a build rate, and quietly
+                 # redefining it would break the series (ADR-051) — but the
+                 # row now SAYS so, which is the difference between a number
+                 # that is wrong and a number a reader can interrogate.
+                 **({"wireup_issues": o.wireup_issues}
+                    if getattr(o, "wireup_issues", None) else {}),
+                 **({"modified_existing": o.modified_existing}
+                    if getattr(o, "modified_existing", None) else {})}
                 for o in result.outcomes
             ],
             preserved_workspace=preserved,
@@ -1299,6 +1380,22 @@ def _run_product_bench(
             # re-run, which is the cost of the world before this existed.
             pass
 
+    return summarise(results, aborted=aborted, run_stamp=run_stamp)
+
+
+def summarise(
+    results: list[CaseResult], *, aborted: str = "", run_stamp: str = "",
+) -> BenchSummary:
+    """Turn finished case rows into the run's scoreboard.
+
+    A module-level function rather than the tail of `_run_product_bench`,
+    where it lived: every rule about what counts toward which rate is decided
+    here, and none of it was reachable without executing a whole bench run.
+    Run 16's per-rate exclusion and run 18's double-counted zero both live in
+    these fifteen lines, and both were found by reading result files instead
+    of by a test, because there was no way to write one (ADR-061).
+    """
+
     def _avg(values: list[float | None]) -> float | None:
         # Only cases that produced the denominator count. A case with no
         # data is dropped from that rate, never entered as a zero.
@@ -1352,6 +1449,13 @@ def _run_product_bench(
         # rate — deriving it from `build_rate is None` is what let the list
         # disagree with the averages it was describing.
         unmeasured=[r.name for r in build if not r.measured],
+        # Measured, and still outside the probe average. Named for the same
+        # reason `unmeasured` is, and separately from it because the two
+        # facts are different: one case was never asked, the other was asked
+        # and produced no product to observe.
+        no_probe_reading=[
+            r.name for r in build if r.measured and r.probe_pass_rate is None
+        ],
         # None, not 0.0, when no increment case reported: a rate of zero
         # says the gate answered wrongly every time, and a run that never
         # asked must not be readable as that.

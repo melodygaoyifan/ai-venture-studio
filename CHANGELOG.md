@@ -4,6 +4,97 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.109.0 — finding the issues that are already here
+
+Asked why the system needs endless batch running when the existing issues
+could just be found and fixed, this release answers it twice: once by sweeping
+the source for a defect class mechanically (ADR-060), and once by mining the
+result files already on disk (ADR-061). Seven defects, one afternoon, no API
+spend — including two that v0.107.0's own hand-written fix touched and missed.
+
+### ADR-060 — the sweep
+
+ADR-058's six findings were one defect six times: a component established a
+fact, put it on the record, and the reader that needed it never got it. Every
+one was found by hand, after a $67.88 bench run had already paid to expose the
+symptom. That shape is mechanical, so `tests/write_without_reader.py` now asks
+it mechanically — an AST walk over every record class under `src/`, against a
+deliberately generous notion of a reader, in 1.2 seconds.
+
+Five defects it found that no run had ever surfaced:
+
+- **Built, tests green, nothing imports it.** `BuildResult.wireup_issues` is
+  computed only on a **successful** build, so the one outcome the record had no
+  way to state was the one that looks best and is worst. Every reader saw
+  `status: built` and stopped. It and `modified_existing` — whose own field
+  description promised the changes would be "visible, reviewed, never silent" —
+  are the two `BuildResult` fields v0.107.0 walked past while adding three of
+  their neighbours. Both now ride on `TaskOutcome`, into a deterministic
+  `_wireup_block` in the founder report (both languages) and a named line in
+  the CLI summary.
+- **On whose say-so.** `Decision.policy_path` says which human-authored policy
+  file authorised a merge or a deploy, and the automation log — the only
+  durable record that the machine performed one — dropped it. Now recorded on
+  the refusal path too, because *"why didn't it"* is the question an auditor
+  opens that file with.
+- **A trigger tuple nothing consulted.** `CascadePolicy.escalate_on` shipped
+  with `low_confidence` in its default for its entire life while `cascade_route`
+  had no confidence input to judge it by. `escalate_on` now defaults to the
+  mandatory triggers, `low_confidence` is opt-in, and opting in without
+  supplying a confidence **raises** — neither silently clean nor
+  blanket-escalating, which turns the cascade off while looking like it is on.
+- **Gate PL3 counts its preflights** instead of asserting zero, and names which
+  failures are hard — the ones with no override path — in the refusal.
+- **The kill criterion states the floor it judged against**, read off the state
+  object rather than from a second copy of the constant, including in the
+  no-runs branch where a reader is deciding whether the bar is worth clearing.
+
+The allowlist is where the judgment lives: 24 fields are legitimately written
+without an in-repo reader, each with a written reason. `test_every_excuse_is_an
+_actual_sentence` fails an entry shorter than four words; it caught five shrugs
+on its first run. Deliberately a subset check — a field that gains a reader
+must not break an unrelated change, because noise is how a check gets disabled.
+
+### ADR-061 — one failure, one column
+
+The same question aimed at run 18's recorded rows rather than the source. Both
+findings had gone unnoticed because each moved a headline number in the
+direction of **worse**, which is the direction nobody audits.
+
+- **A case that built nothing has no probe reading.** `03-groupbuy-auto` was
+  blocked at planning, built 0 of 0 tasks, and was charged a hard `0.0` in the
+  probe column as well — one failure moving two of the three headline rates,
+  dragging the run's probe rate to 75% when three cases had been probed and all
+  three passed. The correct rule was already written verbatim on
+  `clean_review_rate`, one property below the one that got it wrong.
+- **A probe that cannot parse is our defect.**  `run_probe` compiles every
+  probe before running it and returns `harness_fault=True` when it will not.
+  `test_every_probe_compiles` already covers probes written into a case file;
+  it cannot reach the ones `probegen` writes during a run, which is the larger
+  population — case 03 declares none of its own. Harness faults stay in the row
+  and leave the denominator, and a case whose every probe was ours has **no**
+  reading rather than 100%.
+- **The exclusion is per-case and it is printed.** `BenchSummary.no_probe
+  _reading` names the measured cases outside the probe average; the CLI prints
+  the narrower denominator under the rates and `bench_alert` carries the same
+  sentence, because a qualifier that reaches only the operator's screen is one
+  the 3am reader did not get. This is the half of run 16's correction that
+  ADR-061 keeps while reversing its other half.
+- **The worst run stays visible.** Once a nothing-built case has no probe
+  reading, a run where *every* case failed writes a null probe rate — and
+  `bench_criterion` skipped any run with one. `BenchRun.probe_pass_rate` is
+  optional now and `below_floor` judges the floor it has; a run with no
+  `build_rate` at all is still skipped, because that one made no claim.
+- **`summarise` is a module-level function.** Every rule about what counts
+  toward which rate lived in the tail of `_run_product_bench`, unreachable
+  without executing a whole bench run — which is why both defects above were
+  found by reading result files instead of by a test.
+
+**No re-scoring.** Run 18's file says `probe_pass_rate: 0.75` and keeps saying
+it; run 16's numbers stand as recorded. `HISTORY.md` carries both corrected
+readings beside the originals, and a test pins run 18's 0.75 against exactly
+that temptation.
+
 ## v0.108.0 — a check that cannot fire, and the plan that learned to keep it quiet
 
 The one finding ADR-058 named and deliberately left open. `lane_check`

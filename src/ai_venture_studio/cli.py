@@ -976,6 +976,16 @@ def create(
         # answerable only by opening outcomes.yaml.
         if o.status != "built" and o.detail:
             console.print(f"      [dim]why: {o.detail}[/dim]")
+        # And a BUILT module names the one thing that makes `built` a lie.
+        # The build ran `wireup_check` on every success and put the findings
+        # on the record; no reader ever asked for them (ADR-060), so a module
+        # nothing imports printed the same single green line as one the
+        # product actually calls.
+        if o.status == "built" and getattr(o, "wireup_issues", None):
+            console.print(
+                f"      [yellow]built, but nothing imports it: "
+                f"{'; '.join(o.wireup_issues[:3])}[/yellow]"
+            )
     console.print(f"报告 / report: {result.report_path}")
     # What it cost, unprompted. The founder signal asked to SEE this number,
     # and a figure you must know to go looking for does not answer it.
@@ -1527,6 +1537,17 @@ def product_bench(
         f"probe pass {_rate(summary.probe_pass_rate)} · "
         f"clean reviews {_rate(summary.clean_review_rate)}{scope}"
     )
+    # The probe rate can cover fewer cases than the other two even when
+    # nothing is unmeasured, and a narrower denominator that does not say so
+    # is how run 16's reading went wrong in the other direction (ADR-061).
+    if summary.no_probe_reading:
+        console.print(
+            f"  [dim]probe pass is over "
+            f"{summary.cases_measured - len(summary.no_probe_reading)} of "
+            f"{summary.cases_total} cases — "
+            f"{', '.join(summary.no_probe_reading)} built nothing to probe. "
+            f"That failure is in the build rate, counted once.[/dim]"
+        )
     # The increment axis is reported on its own line, never folded into the
     # three above: it has its own cases and its own denominator, and a
     # reader who sees one number cannot tell which question it answered.

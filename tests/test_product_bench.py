@@ -180,7 +180,13 @@ def test_a_real_zero_is_still_a_zero(monkeypatch, tmp_path):
     )
     summary = pb.run_product_bench(CASES, limit=2, repo_dir=tmp_path)
     assert summary.build_rate == 0.5          # (1.0 + 0.0) / 2
-    assert summary.probe_pass_rate == 0.5     # (1.0 + 0.0) / 2
+    # AMENDED BY ADR-061. `bad` asked for four tasks and built none, so its
+    # build 0.0 is real and stays. It had no product for its two probes to
+    # observe, and counting them as a second 0.0 charged ONE failure to two
+    # of the three headline rates — the same reasoning the clean-review
+    # assertion four lines down has always applied. Named, never silent:
+    assert summary.probe_pass_rate == 1.0     # over the one case that built
+    assert summary.no_probe_reading == ["bad"]
     assert summary.unmeasured == []
     # It built nothing, so it has no reviews to be clean — that axis has no
     # denominator and the failure is already fully visible in build_rate.

@@ -46,7 +46,13 @@ CONSECUTIVE_RUNS_TO_FIRE = 2
 class BenchRun(BaseModel):
     path: str
     build_rate: float
-    probe_pass_rate: float
+    #: None when the run built nothing anywhere, so there was no product to
+    #: probe (ADR-061). Optional rather than skip-the-run: a run where every
+    #: case failed to build is the WORST reading the series can produce, and
+    #: dropping it for lacking a probe number would make the criterion blind
+    #: to exactly the outcome it exists to catch. It is judged on the floor
+    #: it does have.
+    probe_pass_rate: float | None = None
     clean_review_rate: float | None = None
     # Runs from v0.83.0 on record how much of the bench they actually
     # measured (ADR-035). Older files carry neither, and are read as
@@ -64,12 +70,20 @@ class BenchRun(BaseModel):
 
     @property
     def below_floor(self) -> bool:
-        return self.build_rate < BUILD_FLOOR or self.probe_pass_rate < PROBE_FLOOR
+        # A missing probe rate is not a passing one and not a failing one —
+        # the floor it has no reading for simply does not apply. The build
+        # floor still does, and a run with no probe reading is almost always
+        # a run that is already through it.
+        return self.build_rate < BUILD_FLOOR or (
+            self.probe_pass_rate is not None and self.probe_pass_rate < PROBE_FLOOR
+        )
 
     def summary(self) -> str:
         return (
             f"{pathlib.Path(self.path).name}: build {self.build_rate:.0%}, "
-            f"probes {self.probe_pass_rate:.0%}"
+            + (f"probes {self.probe_pass_rate:.0%}"
+               if self.probe_pass_rate is not None
+               else "probes not measured (nothing built to probe)")
             + (f", clean {self.clean_review_rate:.0%}"
                if self.clean_review_rate is not None else "")
             # A human at Gate PL5 is deciding whether to kill the project on
@@ -189,14 +203,24 @@ def _scan(
         # criterion that asks a human to consider killing the project. The
         # null case used to be caught only by `float(None)` raising into the
         # handler below, which is accidental correctness, not a rule.
-        if data.get("build_rate") is None or data.get("probe_pass_rate") is None:
+        #
+        # `probe_pass_rate` is deliberately NOT part of this test any more
+        # (ADR-061). It is null both when the build axis was empty — caught
+        # by `build_rate` above — and when the run built nothing to probe,
+        # and skipping the second case would hide the worst run the series
+        # can produce. `BenchRun` carries it as optional and judges the floor
+        # it has.
+        if data.get("build_rate") is None:
             continue
         rates = data.get("rates") if isinstance(data.get("rates"), dict) else {}
         try:
             runs.append(BenchRun(
                 path=rel,
                 build_rate=float(data["build_rate"]),
-                probe_pass_rate=float(data["probe_pass_rate"]),
+                probe_pass_rate=(
+                    float(data["probe_pass_rate"])
+                    if data.get("probe_pass_rate") is not None else None
+                ),
                 clean_review_rate=(
                     float(data["clean_review_rate"])
                     if data.get("clean_review_rate") is not None else None
@@ -244,40 +268,47 @@ def simulated_runs(repo_dir: str | pathlib.Path) -> list[str]:
 def evaluate(repo_dir: str | pathlib.Path) -> BenchCriterionState:
     """Has the capability criterion fired? Mechanically, from the ledger."""
     runs, aborted, simulated = _scan(repo_dir)
+    # Build the state FIRST and read the floors back off it, rather than
+    # interpolating the module constants into a message about a state that
+    # separately carries its own copy. The two agreed only by coincidence:
+    # `build_floor` and `probe_floor` had no reader at all (ADR-060), so a
+    # change to either field would have left every sentence below still
+    # printing the old number, and the ledger's own record of the bar it
+    # judged against would have been the half nobody saw.
+    state = BenchCriterionState(aborted_skipped=aborted, simulated_skipped=simulated)
+    bars = f"build {state.build_floor:.0%} / probes {state.probe_floor:.0%}"
     if not runs:
-        return BenchCriterionState(
-            aborted_skipped=aborted,
-            simulated_skipped=simulated,
-            detail="no recorded bench runs — the criterion cannot fire on "
-                   "data that does not exist, and cannot be declared safe on "
-                   "it either (run `avs product-bench`)",
+        state.detail = (
+            f"no recorded bench runs — the criterion cannot fire on data that "
+            f"does not exist, and cannot be declared safe on it either (run "
+            f"`avs product-bench`). The floors it would judge against: {bars}."
         )
+        return state
     # Streak over the most recent runs, newest last.
     streak = 0
     for run in runs:
         streak = streak + 1 if run.below_floor else 0
-    fires = streak >= CONSECUTIVE_RUNS_TO_FIRE
-    recent = runs[-CONSECUTIVE_RUNS_TO_FIRE:]
+    fires = streak >= state.needed
+    recent = runs[-state.needed:]
     if fires:
         detail = (
-            f"{streak} consecutive run(s) below the floors "
-            f"(build {BUILD_FLOOR:.0%} / probes {PROBE_FLOOR:.0%}) — the "
+            f"{streak} consecutive run(s) below the floors ({bars}) — the "
             "capability criterion HAS FIRED; Gate PL5 requires a recorded "
             "human decision (invariant 14.20). Latest: "
             + "; ".join(r.summary() for r in recent)
         )
     else:
-        remaining = CONSECUTIVE_RUNS_TO_FIRE - streak
+        remaining = state.needed - streak
         detail = (
-            f"{streak}/{CONSECUTIVE_RUNS_TO_FIRE} consecutive run(s) below the "
-            f"floors (build {BUILD_FLOOR:.0%} / probes {PROBE_FLOOR:.0%}); "
-            f"{remaining} more would fire it. Latest: "
+            f"{streak}/{state.needed} consecutive run(s) below the floors "
+            f"({bars}); {remaining} more would fire it. Latest: "
             + "; ".join(r.summary() for r in recent)
         )
-    return BenchCriterionState(
-        runs_considered=recent, streak=streak, fires=fires, detail=detail,
-        aborted_skipped=aborted, simulated_skipped=simulated,
-    )
+    state.runs_considered = recent
+    state.streak = streak
+    state.fires = fires
+    state.detail = detail
+    return state
 
 
 def movement(repo_dir: str | pathlib.Path) -> str:

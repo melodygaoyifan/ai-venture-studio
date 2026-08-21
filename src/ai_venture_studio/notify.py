@@ -291,6 +291,17 @@ def bench_alert(
             "  Excluded from the rates, not scored as zero — the harness "
             "broke, and nothing else will say so."
         )
+    # The probe rate's denominator can be narrower than the other two even in
+    # a run with nothing unmeasured. The alert carries the caveat for the same
+    # reason `render_spend` is shared: a qualifier that appears only on the
+    # operator's screen is one the 3am reader did not get (ADR-061).
+    no_probe = list(getattr(summary, "no_probe_reading", []) or [])
+    if no_probe:
+        lines.append(
+            f"**probes is over {total - len(unmeasured) - len(no_probe)} of "
+            f"{total} cases:** {', '.join(no_probe)} built nothing to probe. "
+            "That failure is in the build rate, counted once."
+        )
     # Its own line, never folded into the three rates above: separate cases,
     # separate denominator, and a reader shown one number cannot tell which
     # question it answered (ADR-049).
