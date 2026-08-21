@@ -1,0 +1,353 @@
+cases:
+- name: 01-groupbuy-api
+  autopilot_status: completed
+  axis: build
+  increments: []
+  tasks_total: 5
+  tasks_built: 5
+  clean_reviews: 2
+  outcomes:
+  - task_id: t1
+    title: 数据库持久化与schema基础
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(after fix iteration) [review: 1 medium, 1 low — Pre-populated SQLite
+      database committed to the repo on the default DB path; B310: blacklist] (recovered
+      on auto-retry)'
+    test_summary: 32 passed in 0.31s
+    iterations: 1
+    blocking_by_voter:
+      correctness: 1
+  - task_id: t2
+    title: 创建团购接口 POST /api/groupbuys
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(repair attempted, not applied: the repair broke the suite (failed) and
+      was discarded) [2 voter(s) returned no verdict: context, security] [review:
+      1 high, 1 medium — Response status code contradicts API contract in handlers;
+      Schema DDL re-executed on every request via get_conn()]'
+    test_summary: 12 passed in 0.05s
+    iterations: 2
+    blocking_by_voter:
+      style: 1
+      performance: 1
+  - task_id: t3
+    title: 读取团购接口 GET /api/groupbuys/<id>
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(after fix iteration) [1 voter(s) returned no verdict: correctness —
+      this is what rejected the task, not the findings below] (recovered on auto-retry)'
+    test_summary: 35 passed in 0.32s
+    iterations: 2
+  - task_id: t4
+    title: 创建订单接口 POST /api/orders
+    status: built
+    review: APPROVE
+    detail: ''
+    test_summary: 25 passed in 0.13s
+    iterations: 1
+  - task_id: t5
+    title: 团购汇总接口 GET /api/groupbuys/<id>/summary
+    status: built
+    review: APPROVE_WITH_NOTES
+    detail: ''
+    test_summary: 25 passed in 0.12s
+    iterations: 1
+  preserved_workspace: .mas/product-bench/workspaces/01-groupbuy-api
+  probes:
+  - name: create-and-read
+    passed: true
+    detail: create/read ok
+  - name: order-summary-math
+    passed: true
+    detail: summary math ok
+  - name: unknown-id-is-client-error
+    passed: true
+    detail: 404 ok
+  duration_s: 4145.9
+  spend:
+    calls: 400
+    input_tokens: 2518587
+    output_tokens: 342903
+    usd: 14.0754
+    unpriced_calls: 0
+  failure_reason: ''
+  resumed: false
+- name: 02-shortener-api
+  autopilot_status: completed
+  axis: build
+  increments: []
+  tasks_total: 3
+  tasks_built: 3
+  clean_reviews: 2
+  outcomes:
+  - task_id: t1
+    title: Link persistence and short-code minting POST endpoint
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(after fix iteration) [review: 1 medium — Duplicate DB-access logic left
+      behind after introducing resolve_and_increment]'
+    test_summary: 12 passed in 7.09s
+    iterations: 1
+    blocking_by_voter:
+      context: 1
+  - task_id: t2
+    title: Redirect endpoint with atomic click-count increment
+    status: built
+    review: APPROVE
+    detail: (after fix iteration)
+    test_summary: 18 passed in 10.65s
+    iterations: 1
+  - task_id: t3
+    title: Click-count stats endpoint
+    status: built
+    review: APPROVE
+    detail: (after fix iteration)
+    test_summary: 22 passed in 12.98s
+    iterations: 1
+  preserved_workspace: .mas/product-bench/workspaces/02-shortener-api
+  probes:
+  - name: shorten-and-redirect
+    passed: true
+    detail: redirect ok
+  - name: click-counting
+    passed: true
+    detail: click count ok
+  duration_s: 2416.7
+  spend:
+    calls: 306
+    input_tokens: 1588334
+    output_tokens: 228255
+    usd: 8.5754
+    unpriced_calls: 0
+  failure_reason: ''
+  resumed: false
+- name: 03-groupbuy-auto
+  autopilot_status: failed
+  axis: build
+  increments: []
+  tasks_total: 0
+  tasks_built: 0
+  clean_reviews: 0
+  outcomes: []
+  preserved_workspace: .mas/product-bench/workspaces/03-groupbuy-auto
+  probes:
+  - name: probe-generation
+    passed: false
+    detail: 'probegen produced no probes after a retry — case behavior UNMEASURED,
+      scored as a failure. Why: no observed backend routes and no entry point — nothing
+      to probe over HTTP'
+  duration_s: 805.1
+  spend:
+    calls: 94
+    input_tokens: 121708
+    output_tokens: 55448
+    usd: 1.2944
+    unpriced_calls: 0
+  failure_reason: 'planning blocked: lane collision: t1 (api) and t3 (orders) both
+    expect ''app/models*.py'''
+  resumed: false
+- name: 04-direction-workbench
+  autopilot_status: completed
+  axis: build
+  increments: []
+  tasks_total: 7
+  tasks_built: 7
+  clean_reviews: 3
+  outcomes:
+  - task_id: t1
+    title: Create candidate
+    status: built
+    review: REQUEST_CHANGES
+    detail: '[2 voter(s) returned no verdict: context, repo_graph — this is what rejected
+      the task, not the findings below] (recovered on auto-retry)'
+    test_summary: 49 passed in 29.24s
+    iterations: 2
+  - task_id: t2
+    title: Score candidate with veto and downgrade
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(repair attempted, not applied: the repair was reviewed, found high findings
+      of its own, and was discarded) [2 voter(s) returned no verdict: repo_graph,
+      security] [review: 1 high, 1 info — Catch-all handler reports all server errors
+      as client 400 and leaks internal error text; Removed protocol_version assignment]
+      (recovered on auto-retry)'
+    test_summary: 64 passed in 38.15s
+    iterations: 2
+    blocking_by_voter:
+      correctness: 1
+  - task_id: t3
+    title: Compare candidate rounds
+    status: built
+    review: APPROVE
+    detail: (after fix iteration) (recovered on auto-retry)
+    test_summary: 71 passed in 38.63s
+    iterations: 3
+  - task_id: t4
+    title: Get single candidate with rounds
+    status: built
+    review: null
+    detail: ''
+    test_summary: 26 passed in 15.23s
+    iterations: 1
+  - task_id: t5
+    title: List candidates by round
+    status: built
+    review: APPROVE
+    detail: (after fix iteration)
+    test_summary: 31 passed in 18.24s
+    iterations: 1
+  - task_id: t6
+    title: Eliminate candidate with reason
+    status: built
+    review: APPROVE
+    detail: (after fix iteration)
+    test_summary: 39 passed in 22.85s
+    iterations: 1
+  - task_id: t7
+    title: List eliminated candidates
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(repair attempted, not applied: the repair was reviewed, found high findings
+      of its own, and was discarded) [1 voter(s) returned no verdict: repo_graph]
+      [review: 2 high, 1 medium, 1 low — Empty POST body now yields None instead of
+      {} for handlers expecting a dict; Generic exception handler now returns 500
+      instead of the required 4xx for malformed input; Misleading function name –
+      _read_body'
+    test_summary: 45 passed in 26.34s
+    iterations: 2
+    blocking_by_voter:
+      context: 2
+      style: 1
+  preserved_workspace: .mas/product-bench/workspaces/04-direction-workbench
+  probes:
+  - name: score-veto-qualify-sort
+    passed: true
+    detail: score/veto/sort ok
+  - name: score-validation-and-evidence-downgrade
+    passed: true
+    detail: validation ok
+  - name: eliminate-and-two-round-compare
+    passed: true
+    detail: eliminate/compare ok
+  duration_s: 8113.0
+  spend:
+    calls: 740
+    input_tokens: 5794313
+    output_tokens: 734356
+    usd: 32.0542
+    unpriced_calls: 0
+  failure_reason: ''
+  resumed: false
+- name: 05-increment-repairs
+  autopilot_status: failed
+  axis: increment
+  increments:
+  - index: 0
+    fdr: 我希望住户可以把家里坏掉的东西报上来，让物业知道。必须有：报修入口。
+    expected: already_satisfied
+    actual: needs_answers
+    correct: false
+    detail: 'status=needs_answers; new proposed SCR(s): none'
+  - index: 1
+    fdr: 住户应该能自己删掉自己发的报修单，发错了很尴尬。必须有：删除入口。
+    expected: raises_scr
+    actual: needs_answers
+    correct: false
+    detail: 'status=needs_answers; new proposed SCR(s): none'
+  - index: 2
+    fdr: 报修完成以后，住户可以给这次维修打个分。必须有：评分入口。
+    expected: completed
+    actual: needs_answers
+    correct: false
+    detail: 'status=needs_answers; new proposed SCR(s): none'
+  tasks_total: 5
+  tasks_built: 5
+  clean_reviews: 3
+  outcomes:
+  - task_id: t1
+    title: 报修数据模型与持久化
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(repair attempted, not applied: the repair was reviewed, found high findings
+      of its own, and was discarded) [review: 1 medium, 1 low — Committed SQLite binary
+      and default DB path contradict the new data/ directory convention; Copy-pasted
+      connect/execute/close boilerplate repeated across every db.py function]'
+    test_summary: 14 passed in 6.86s
+    iterations: 2
+    blocking_by_voter:
+      context: 1
+  - task_id: t2
+    title: POST 报修端点
+    status: built
+    review: APPROVE
+    detail: ''
+    test_summary: 14 passed in 6.87s
+    iterations: 1
+  - task_id: t3
+    title: GET 住户自己的报修列表
+    status: built
+    review: APPROVE
+    detail: ''
+    test_summary: 19 passed in 9.50s
+    iterations: 1
+  - task_id: t4
+    title: GET 全部报修（物业视角）
+    status: built
+    review: REQUEST_CHANGES
+    detail: '[2 voter(s) returned no verdict: context, performance — this is what
+      rejected the task, not the findings below]'
+    test_summary: 23 passed in 11.64s
+    iterations: 2
+  - task_id: t5
+    title: 标记报修为已完成（幂等）
+    status: built
+    review: APPROVE
+    detail: (after fix iteration) (recovered on auto-retry)
+    test_summary: 23 passed in 11.61s
+    iterations: 1
+  preserved_workspace: .mas/product-bench/workspaces/05-increment-repairs
+  probes:
+  - name: the-duplicate-was-not-built-twice
+    passed: true
+    detail: no second submit path across 0 follow-up modules
+  - name: the-real-addition-still-landed
+    passed: false
+    detail: 'SyntaxError: unexpected character after line continuation character'
+  duration_s: 3374.1
+  spend:
+    calls: 373
+    input_tokens: 2225524
+    output_tokens: 279615
+    usd: 11.8777
+    unpriced_calls: 0
+  failure_reason: ''
+  resumed: false
+build_rate: 0.75
+probe_pass_rate: 0.75
+clean_review_rate: 0.4984126984126984
+unmeasured: []
+gate_rate: 0.0
+gate_unmeasured: []
+aborted: ''
+avs_version: 0.106.0
+provider: anthropic
+rates:
+  build_rate: 0.75
+  probe_pass_rate: 0.75
+  clean_review_rate: 0.498
+  cases_measured: 4
+  cases_total: 4
+  unmeasured: []
+  resumed: []
+  increment:
+    gate_rate: 0.0
+    cases_measured: 1
+    cases_total: 1
+    unmeasured: []
+cost:
+  calls: 1913
+  input_tokens: 12248466
+  output_tokens: 1640577
+  usd: 67.8771
+  unpriced_calls: 0

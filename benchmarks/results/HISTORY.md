@@ -33,6 +33,7 @@ as unknown.
 | 13 | result-2026-08-13-0837.yaml | c3aa2e3 | **94%** | **92%** | **75%** | **best composite by a wide margin, and the first run where all four cases were measured** (`cases_measured: 4` of 4). The two v0.83.0 fixes were judged in anger: case 03 went **5/5 on probes**, up from 3/5 — both of its old failures were the `{}` error-body pair, now readable; case 04 **completed 6/6 with no timeout at all**, so `_run_and_classify` never fired and run 12's hang remains unexplained rather than fixed. Case 02 is the one real failure: the build gate never went green on *database-backed short-link store with atomic CLI* (first attempt an `ImportError` loading conftest, auto-retry `test_create_returns_201_with_code`), nothing committed, workspace reset — the system refusing to ship broken work. Case 04's single probe failure was `URLError: Connection refused` — **the harness again, fixed below** |
 | 14 | result-2026-08-14-0139.yaml | f05f69d (v0.86.0) | **100%** | **100%** | 38% | **every task in every case built, and every probe passed** — 17/17 and 13/13, four of four cases measured. The composite's ceiling moved to the review: 37.5% clean, *down* from run 13's 75% on a run that built strictly more. That gap is what ADR-037 was written from — the repair pass filtered by a hard-coded severity list while the leader blocked on its own wider one, so MEDIUM could block a verdict that nothing would ever try to fix. Case 03 (0 of 3) and case 04 (0 of 6) took no clean review at all despite building everything. The file carries **no `avs_version`** — the run predates ADR-037's rule that a result names the build that produced it, which is why "which code scored this" had to be recovered from commit times |
 | 16 | result-2026-08-16-0612.yaml | 08d8ba9 (v0.93.0) | **100%** | 75% | 31% | 3 of 4 cases measured — `02-shortener-api` is **excluded**, and both halves of that exclusion are wrong in opposite directions (see the note below). Every task in every case that ran was built: **16/16**, and **16/16 probes passed**. The ceiling is the review again: 5 clean of 16 tasks. **ADR-039 did what it was built to do and it did not move this number** — reviews now arrive at one or two findings each rather than one issue wearing nine hats, and a repair pass fires on all of them, but **6 of the 11 rejections read "a fix was attempted and rolled back — it did not clear the review"**. Two rejections are the reviewer earning its keep: `04-t1` held a shared `sqlite3` connection across `ThreadingHTTPServer` worker threads without `check_same_thread=False` (3 critical), and `04-t3` removed the non-integer id guard, answering 404 where it owed 400 — `ESCALATE_SECURITY_RISK`. Three more were not about severity at all (see below) |
+| 18 | result-2026-08-20-1459.yaml | (v0.106.0) | 75% | 75% | 50% | **the first run that says what it cost: $67.88** over 1913 calls and 13.9M tokens, fully priced, 0 unpriced calls (ADR-057). Also the first run with a **`provider: anthropic`** stamp (ADR-056) and the first to score the **increment axis** — `gate_rate: 0%` over the one increment case, which is a separate denominator and is *not* in the four columns. Five cases, four in these rates, none unmeasured. Two failures, and **neither is what its row looks like**: `05-increment-repairs` scored 0/3 on the gate because all three follow-up FDRs stopped at **intake** (`status=needs_answers`) and never reached the reconciliation gate at all — the gate was not wrong, it never ran (see below) — and one of its two probes could never have passed in any run, because it did not parse. `03-groupbuy-auto` never built a task: the planner produced the same `lane collision: t1 (api) and t3 (orders) both expect 'app/models*.py'` three times, was told so verbatim each time, and the run was blocked at Gate U2. Cost by case: 01 $14.08 · 02 $8.58 · 03 $1.29 · 04 $32.05 · 05 $11.88 |
 | 15 | result-2026-08-14-0702.yaml | 9807c32 (v0.88.0) | 83% | **100%** | 55% | 3 of 4 cases measured — **04-direction-workbench died on a provider `529 Overloaded` and is excluded, not scored `0.0`** (ADR-035). Probes stayed perfect on everything that shipped. Two independent cases were blocked by a spec containing *nothing* — no criteria, no skeletons — reported as the flat sentence "no acceptance criteria"; an empty spec passed every quality check by having nothing to check, so the revision loop's good-enough break fired on it (ADR-041). Case 01 also lost a task to a build that failed `1 failed, 27 passed` three times, whose recorded cause was 240 characters of pytest banner art naming no assertion (ADR-042); re-running the preserved workspace showed a genuine product defect — a 40-digit id matching the spec's own `^[0-9]+$` criterion answered 400 where it owed 404 |
 
 > **Reading gap: runs 16 → 17 spans nine releases, not one.** Run 16 ran on
@@ -76,6 +77,72 @@ as unknown.
 > 8h ceiling over four cases, and a fifth case that builds a base product then
 > runs three follow-up builds should add roughly 2h. The ceiling is unchanged;
 > if run 18 comes near it, the run will say so.
+
+> **Run 18, the gate rate of 0% is not a reading of the gate.** All three
+> follow-up FDRs came back `status=needs_answers` with no proposed SCR, which
+> means `run_feature` returned at its **first** step — `assess_fdr` judged each
+> one not ready to build — and the reconciliation gate ADR-046 added, the thing
+> this case exists to measure, was never reached. The gate is not wrong here.
+> It did not run. `0%` in the column reads as "the gate answered wrongly three
+> times" and the truth is "the gate was never asked".
+>
+> The cause is one control on two call paths, ADR-051's shape once more.
+> `run_autopilot` and `run_feature` call the *same* `assess_fdr` with the same
+> prompt, which asks whether the text "says who the users are, what they do,
+> what must exist, and what is out of scope". For a first FDR that is the right
+> bar. For a follow-up on a product that already exists, every one of those
+> four is already on disk — in the spec, the requirements ledger, the prior
+> features — and the assessor is handed **none** of it. It sees one sentence
+> with no product behind it and does the only correct thing available to it.
+> Sharper still: `FDR-GUIDE.md` tells the founder in its fourth rule that
+> "every later feature or change is its OWN small FDR", and the gate that
+> receives those small FDRs rejects them for being small. The documented
+> workflow is refused by the system that documents it.
+>
+> Two things follow. The result file records `status=needs_answers` and **not
+> the questions the assessor asked**, though `AutopilotResult.assessment`
+> carries them — the one piece of evidence that explains the row was in memory
+> and was not written down (ADR-042's shape). And `needs_answers` is a fourth
+> outcome outside `EXPECTATIONS`, so it can never be a correct answer, which is
+> right — but it currently scores identically to the gate answering wrongly,
+> and those are different failures with different fixes.
+>
+> **Run 18, `03-groupbuy-auto` and the lane check that rewards giving up.**
+> The planner declared `t1 (api)` and `t3 (orders)` both touching
+> `app/models*.py`, was handed that exact sentence as revision feedback, and
+> returned the same collision on all three attempts (`MAX_REVISIONS = 2`).
+> The plan was saved `blocked` and the case built nothing.
+>
+> The other three plans in the same run show why. Case 01 found the right
+> answer — a dedicated `data` lane holding `models.py` and `db.py`, with the
+> feature work in `api` beside it. Cases 02 and 04 found the *cheap* answer:
+> put everything in one lane. `lane_check` skips same-lane pairs by
+> construction ("lanes serialize", which is true), so a single-lane plan cannot
+> collide no matter what it touches — case 04 has seven tasks, three of which
+> all expect `app/candidates.py`, and passes unexamined.
+>
+> So two of the three passing plans passed by removing the parallelism the
+> check exists to protect, and the one plan that kept two honest lanes is the
+> one that died. The feedback names the violation and never names a legal
+> resolution, and the resolution is not obvious: both a groupbuy lane and an
+> orders lane genuinely need the shared model, so every honest plan collides
+> until someone thinks to hoist the shared file into a lane of its own. The
+> planner had that example available in run 18's own case 01 and was never
+> shown it. This is ADR-048's shape aimed at the planner: a check whose pass
+> signal is indistinguishable from the check having nothing to look at.
+>
+> **Run 18, one probe could not have passed in any run.**
+> `the-real-addition-still-landed` died on `SyntaxError: unexpected character
+> after line continuation character`. Probe scripts live in a YAML **folded**
+> scalar, which joins a paragraph's lines with a space, so a Python backslash
+> continuation arrives at `exec` as `..., \ f"..."` — and nothing may follow a
+> backslash but a newline. The Python was right, the YAML was right, the
+> combination could never run, and it shipped in two case files. A probe that
+> raises before its first statement scores exactly like a probe whose assertion
+> failed, so a defect in the instrument was recorded against the product —
+> run 12's `{}` failures and run 13's `Connection refused` again. Both probes
+> are fixed and `tests/test_every_probe_compiles.py` now compiles every probe
+> in `benchmarks/products*/` on every suite run, so the class cannot return.
 
 > **Comparability break after run 15 — read run 16's clean rate against
 > nothing above it.** Four ADRs landed between run 15 and the next run, and

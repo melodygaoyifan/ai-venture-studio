@@ -39,8 +39,7 @@ probes:
 
     text = "\n".join(open(m, encoding="utf-8").read() for m in modules)
 
-    assert any(w in text.lower() for w in ("rating", "rate", "score", "评分")), \
-      f"the second follow-up added nothing: {modules}"
+    assert any(w in text.lower() for w in ("rating", "rate", "score", "评分")), f"the second follow-up added nothing: {modules}"
 
     print("rating feature present")
 
