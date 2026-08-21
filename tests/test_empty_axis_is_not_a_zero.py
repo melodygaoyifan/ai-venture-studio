@@ -140,16 +140,29 @@ def test_a_run_with_no_build_axis_never_reaches_the_floor(monkeypatch, tmp_path)
     assert [r.path for r in state.runs_considered] == []
 
 
-def test_the_cadence_reports_nothing_rather_than_zero(tmp_path):
-    path = tmp_path / "r.yaml"
-    path.write_text(
-        "build_rate: null\nprobe_pass_rate: null\n"
-        "rates: {cases_measured: 0, cases_total: 0}\n",
-        encoding="utf-8",
+def test_the_cadence_reports_nothing_rather_than_zero(monkeypatch, tmp_path):
+    """The run this ADR is about, written and then read back.
+
+    This test used to hand-write `build_rate: null` into a file and assert the
+    reader said nothing about it. That passed on the PRE-ADR-053 build too, and
+    for a reason that had nothing to do with the fix: `float(None)` raised
+    TypeError, the reader's `except` swallowed it, and the empty string came
+    back by accident. The defect was never in the reader — the writer put
+    `0.0` there, and no reader can decline to print a zero it was handed.
+
+    So the file is the one `save_summary` actually produces. On the pre-fix
+    build that file says `build_rate: 0.0` and the cadence line reads
+    "build 0%, probes 0%" — which would NOT have carried the "over N of M
+    cases" qualifier either, because that clause appears only when measured <
+    total, and 0 < 0 is false.
+    """
+    monkeypatch.setattr(
+        pb, "run_case", lambda case, provider=None, **_: _increment_result()
     )
-    # "build 0%, probes 0%" is the reading this prevents — and note it would
-    # NOT have carried the "over N of M cases" qualifier, because that line
-    # only appears when measured < total, and 0 < 0 is false.
+    summary = pb.run_product_bench(
+        _increment_case_dir(tmp_path), provider="mock", repo_dir=str(tmp_path)
+    )
+    path = pb.save_summary(summary, tmp_path)
     assert cadence._bench_rates(str(path)) == ""
 
 

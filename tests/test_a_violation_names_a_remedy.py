@@ -68,7 +68,25 @@ def test_same_lane_overlap_is_not_a_collision():
 
 
 def test_the_remedy_the_message_recommends_actually_clears_the_check():
-    """Do not tell a planner to do something the checker still rejects."""
+    """Do not tell a planner to do something the checker still rejects.
+
+    The three arrangements below are only meaningful if they are the three
+    the message actually recommends. Until this assertion was added, the link
+    between them was a comment: the message could have dropped a remedy or
+    renamed one and these arrangements would have gone on clearing the check
+    in silence, still labelled `(1)`, `(2)`, `(3)`.
+    """
+    advice = lane_check([
+        _task("t1", "api", ["app/models*.py"]),
+        _task("t3", "orders", ["app/models*.py"]),
+    ])
+    assert len(advice) == 1
+    for remedy in ("HOIST", "MERGE", "SPLIT"):
+        assert remedy in advice[0], (
+            f"the message no longer offers {remedy}, but a case below still "
+            f"proves {remedy} clears the check"
+        )
+
     # (1) HOIST
     assert lane_check([
         _task("t0", "models", ["app/models*.py"]),

@@ -101,10 +101,18 @@ def test_a_folded_finding_is_inside_what_one_repair_pass_can_fix():
 
 def test_folding_keeps_the_worst_severity_any_site_was_raised_at():
     """Folding must never soften what blocks — otherwise deduping is a way
-    to launder a critical finding into a note."""
+    to launder a critical finding into a note.
+
+    The severity assertion needs the fold assertion beside it. On the build
+    with no folding at all, nine findings come back and the HIGH one is first
+    anyway, because the list is ordered by severity — so `findings[0]` was
+    green on a build that had nothing to soften. What makes the severity
+    meaningful is that the nine sites really did collapse into one row.
+    """
     findings = [_mktemp_finding(p) for p in NINE_FILES]
     findings[4].severity = Severity.HIGH
     result = synthesize([_output(findings)])
+    assert len(result.findings) == 1, "there was nothing here to soften"
     assert result.findings[0].severity is Severity.HIGH
 
 

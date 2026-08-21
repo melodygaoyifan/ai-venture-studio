@@ -92,6 +92,17 @@ change touched: `--limit N` had become the standard shorthand for "the suite is
 N cases", and tests that need a small denominator now build a small suite. The
 targeted runs were green; only the full suite found them.
 
+**After the release, tests and docs only — no version bump** (ADR-067, and
+`7646b03` before it). ADR-066's control was generalised from one change to the
+whole population: for each of the twenty-six test files an ADR names as its
+mechanism, check out the parent of the commit that added it and run today's
+test file there. Anything green is a test that would not have caught the defect
+it is named for. Forty-four passed; most are the deliberately narrow half of a
+guard and must stay that way, but **five were named for behaviour they did not
+pin** and have been fixed — two of them by reading the artifact they guard
+instead of keeping their own copy of it. Eleven files fail to *collect* against
+their parent commit and are recorded as unresolved rather than clean.
+
 **Buying run 19 in slices is now the recommended way** to run an expensive
 bench on a constrained account: slice as far as credit allows, then close with
 one un-limited `--resume` run, which is the reading. All pieces must share a

@@ -27,6 +27,8 @@ its assumptions was not updated with it.
 
 from __future__ import annotations
 
+import pathlib
+
 import ai_venture_studio.bench_criterion as bc
 
 
@@ -168,7 +170,19 @@ def test_the_newest_run_is_last_even_beside_an_abort(tmp_path):
            aborted="credit balance too low")
 
     runs = bc.load_runs(tmp_path)
-    assert runs[-1].path.endswith("result-2026-08-16-0100.yaml")
+    # The WHOLE order, not just the tail. Asserting only `runs[-1]` passed on
+    # the pre-fix build as well: `aborted-` sorts before `result-`, so the
+    # misplaced file went to the FRONT and the newest *result* stayed last
+    # either way. The defect this test is named for is visible only at the
+    # position the abort actually took.
+    assert [pathlib.Path(r.path).name for r in runs] == [
+        "result-2026-08-01-0100.yaml",
+        "result-2026-08-16-0100.yaml",
+    ]
+    # Excluded, and excluded is not invisible (ADR-054's own second draft).
+    assert bc.aborted_runs(tmp_path) == [
+        "benchmarks/results/aborted-2026-08-17-credit.yaml"
+    ]
 
 
 def test_a_stray_yaml_is_not_a_capability_reading(tmp_path):

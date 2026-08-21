@@ -62,17 +62,49 @@ def test_the_floor_diagnostic_can_actually_be_printed():
     """The message is built only when the assertion FAILS, so a broken name
     in it costs nothing until the exact moment it is needed most: a real
     regression in a stage-gating guard, reported as a NameError."""
+    import ast
+    import pathlib
+
     from ai_venture_studio.adoption.substrate import STAGE_FLOORS, Rung
 
-    # Every combination the parametrization can reach, not one sample: the
-    # first draft of this test rendered `build`, which is the stage's ARGV
-    # and not its key, and traded the NameError for a KeyError — the same
-    # defect wearing a different exception.
+    # The message that SHIPS, lifted out of the file it lives in — not a copy
+    # of it retyped here. The first draft of this test kept its own f-string
+    # and rendered that, which is ADR-051's shape wearing a regression test's
+    # clothes: two copies of one fact, and the guard watching the copy it
+    # owns. A NameError put back into the real message would not have failed
+    # anything, which is the exact failure this test exists to prevent.
+    src = pathlib.Path("tests/test_use_case_matrix.py").read_text(encoding="utf-8")
+    messages = [
+        segment
+        for node in ast.walk(ast.parse(src))
+        if isinstance(node, ast.Assert) and node.msg is not None
+        for segment in [ast.get_source_segment(src, node.msg) or ""]
+        if "despite a floor of" in segment
+    ]
+    assert len(messages) == 1, (
+        "the floor diagnostic moved, was deleted, or was duplicated — this "
+        "guard reads it by its text and has just lost its subject"
+    )
+
+    class _Result:
+        """The CliRunner result the message interpolates when it fires."""
+
+        exit_code = 0
+        output = ""
+
+    # Every combination the parametrization can reach, not one sample: an
+    # earlier draft of the real message rendered `build`, which is the
+    # stage's ARGV and not its key, and traded the NameError for a KeyError —
+    # the same defect wearing a different exception.
     for stage in STAGE_FLOORS:
         for below in Rung:
-            rendered = (
-                f"{stage} ran at {below.name} despite a floor of "
-                f"{STAGE_FLOORS[stage].name}: "
+            # Parenthesised: the message is implicitly concatenated across
+            # three indented source lines, and only inside brackets does
+            # Python stop reading that indentation as structure.
+            rendered = eval(  # noqa: S307 — the repo's own source, read above
+                f"(\n{messages[0]}\n)",
+                {"STAGE_FLOORS": STAGE_FLOORS},
+                {"stage": stage, "below": below, "result": _Result()},
             )
             assert f"{stage} ran at {below.name}" in rendered
 
