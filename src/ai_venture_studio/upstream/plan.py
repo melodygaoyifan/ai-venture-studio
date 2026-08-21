@@ -127,10 +127,32 @@ def reusable_plan(repo_dir: str | Path, fdr_text: str | None = None) -> Plan | N
     )
 
 
+def _shared_globs(a: Task, b: Task) -> list[str]:
+    """The globs two tasks both expect to touch, in `a`'s order.
+
+    Overlap is symmetric under fnmatch in either direction: `app/*.py` and
+    `app/models.py` overlap whichever one is the pattern.
+    """
+    from fnmatch import fnmatch
+
+    shared: list[str] = []
+    for ga in a.files_expected:
+        for gb in b.files_expected:
+            if (ga == gb or fnmatch(ga, gb) or fnmatch(gb, ga)) and ga not in shared:
+                shared.append(ga)
+    return shared
+
+
 def lane_check(tasks: list[Task]) -> list[str]:
     """§13: single-writer enforced AT PLAN TIME — two tasks in DIFFERENT
     lanes declaring the same expected file is a collision waiting to
     happen. Same-lane overlap is fine (lanes serialize).
+
+    That last sentence is TRUE — `schedule_waves` admits at most one task
+    per lane per wave, so same-lane tasks never build concurrently — and it
+    is also this check's blind spot, which is why `lane_advisories` exists
+    below. Read the two together: this one refuses illegal plans, that one
+    describes the legal plan nobody would have chosen on purpose.
 
     NAMES A LEGAL REMEDY, not only the violation. It used to emit
     `lane collision: t1 (api) and t3 (orders) both expect 'app/models*.py'`
@@ -145,8 +167,6 @@ def lane_check(tasks: list[Task]) -> list[str]:
     (ADR-041: a writer that is not told what would count as fixed cannot fix
     it; ADR-048: feedback that cannot change the outcome is not feedback).
     """
-    from fnmatch import fnmatch
-
     # Per PAIR, not per glob pair. Three overlapping globs between two tasks
     # is one problem with one fix, and emitting it three times used a third
     # of the revision prompt restating it.
@@ -155,16 +175,9 @@ def lane_check(tasks: list[Task]) -> list[str]:
         for b in tasks[i + 1 :]:
             if a.lane == b.lane:
                 continue
-            shared = [
-                ga for ga in a.files_expected
-                for gb in b.files_expected
-                if ga == gb or fnmatch(ga, gb) or fnmatch(gb, ga)
-            ]
+            shared = _shared_globs(a, b)
             if shared:
-                key = (a.id, b.id)
-                for glob in shared:
-                    if glob not in collisions.setdefault(key, []):
-                        collisions[key].append(glob)
+                collisions[(a.id, b.id)] = shared
 
     by_id = {t.id: t for t in tasks}
     issues = []
@@ -179,13 +192,92 @@ def lane_check(tasks: list[Task]) -> list[str]:
             f"make {a.id} and {b.id} depend on it and drop that glob from "
             f"their files_expected; "
             f"(2) MERGE — put {b.id} in lane {a.lane!r} (tasks in the same "
-            f"lane run in sequence, so sharing a file there is allowed); "
+            f"lane run in sequence, so sharing a file there is allowed). "
+            f"This one COSTS PARALLELISM: {a.id} and {b.id} will then build "
+            f"one after the other, never at the same time. Choose it when "
+            f"they really are one surface, not to quiet this message — "
+            f"collapsing every task into one lane silences the check and "
+            f"builds the whole plan serially; "
             f"(3) SPLIT — narrow files_expected so the two no longer "
             f"overlap, e.g. one owns the model file and the other owns only "
             f"its own module. Do not re-send the same arrangement with "
             f"different wording."
         )
     return issues
+
+
+# Two tasks in one lane is an ordinary decomposition, not a collapse. Three
+# is where "these are one surface" stops being the likeliest explanation —
+# and it is what run 18's case 04 did (three tasks, one lane, all three
+# expecting `app/candidates.py`).
+_COLLAPSE_TASK_FLOOR = 3
+
+
+def lane_advisories(tasks: list[Task]) -> list[str]:
+    """What `lane_check` cannot see, BECAUSE OF HOW IT IS BUILT.
+
+    `lane_check` only compares tasks in different lanes, so a plan with one
+    lane cannot collide, and a plan that resolves a collision by merging the
+    two lanes is rewarded with silence. The check meant to protect
+    parallelism is quiet exactly when there is none left to protect, and the
+    MERGE remedy `lane_check` now recommends is a way to buy that silence on
+    purpose.
+
+    Run 18 is the evidence on both sides. Case 03 kept two honest lanes, hit
+    a real collision, and was blocked at Gate U2 having built nothing. Cases
+    02 and 04 collapsed to a single lane and sailed through — case 04 with
+    three tasks all expecting `app/candidates.py`. The run's plans were
+    scored as if 03 were the bad one.
+
+    THESE ARE NOT ISSUES AND MUST NEVER BE. `run_planning` sets
+    `status="blocked"` from `dag_issues` alone, which is what cost case 03
+    its whole product: a planner handed a bar it cannot clear burns
+    `MAX_REVISIONS` and builds nothing. A single-lane plan is legal, is
+    sometimes exactly right, and there is no honest deterministic rule
+    separating "one surface" from "gave up". So these describe rather than
+    refuse: they are recorded as minor critic issues, printed in plan.md,
+    and added to revision feedback only when a revision is happening
+    anyway — never causing one.
+    """
+    advisories: list[str] = []
+    lanes = {t.lane for t in tasks}
+
+    if len(tasks) >= _COLLAPSE_TASK_FLOOR and len(lanes) == 1:
+        only = next(iter(lanes))
+        advisories.append(
+            f"parallelism: all {len(tasks)} tasks are in lane {only!r}, so "
+            f"the build runs {len(tasks)} waves of one task — nothing ever "
+            f"builds concurrently, and `lane collision` cannot be reported "
+            f"for this plan at all (it only compares tasks in different "
+            f"lanes). This is legal and may be right: keep it if the tasks "
+            f"genuinely touch one surface. If instead lanes were merged to "
+            f"settle a shared file, HOIST that file into its own task the "
+            f"others depend on and give them back their own lanes."
+        )
+
+    # Same-lane overlap is safe and worth SAYING, because it is usually the
+    # reason a lane was collapsed — and the fix is the same hoist.
+    contention: dict[tuple[str, str], list[str]] = {}
+    for i, a in enumerate(tasks):
+        for b in tasks[i + 1 :]:
+            if a.lane != b.lane:
+                continue
+            for glob in _shared_globs(a, b):
+                owners = contention.setdefault((a.lane, glob), [])
+                for task_id in (a.id, b.id):
+                    if task_id not in owners:
+                        owners.append(task_id)
+
+    for (lane, glob), owners in contention.items():
+        advisories.append(
+            f"parallelism: {', '.join(owners)} are all in lane {lane!r} and "
+            f"all expect {glob!r}. That is SAFE — one task per lane per "
+            f"wave, so they serialize — and it is why no collision is "
+            f"reported for them. If they share a lane only because of "
+            f"{glob!r}, hoist it into its own task they each depend on and "
+            f"they can then run in parallel in different lanes."
+        )
+    return advisories
 
 
 def review_train_check(tasks: list[Task]) -> list[str]:
@@ -455,6 +547,7 @@ def run_planning(
     feedback = ""
     tasks: list[Task] = []
     dag_issues: list[str] = []
+    advisories: list[str] = []
     critics: list[dict] = []
     for revision in range(MAX_REVISIONS + 1):
         raw = provider_impl.complete(
@@ -476,7 +569,9 @@ def run_planning(
                 "was incomplete and was discarded. Return the SAME plan with "
                 "shorter descriptions — every task, fewer words each."
             )
-            tasks, dag_issues, critics = [], ["planner response truncated at the output cap"], []
+            tasks, dag_issues, critics, advisories = (
+                [], ["planner response truncated at the output cap"], [], []
+            )
             continue
         try:
             data = extract_mapping(raw, ("tasks",))
@@ -503,10 +598,10 @@ def run_planning(
                 f"{why}. Fix that exact problem. Respond with ONLY the YAML "
                 "schema given, double-quoting every string value."
             )
-            tasks, dag_issues, critics = [], [
+            tasks, dag_issues, critics, advisories = [], [
                 f"unparseable planner output ({type(exc).__name__}: {why}); "
                 f"response began: {opening!r}"
-            ], []
+            ], [], []
             continue
         for task in tasks:
             if not task.files_expected:
@@ -526,6 +621,9 @@ def run_planning(
             + budget_check(tasks, budget) + review_train_check(tasks)
             + tier_check(tasks, scope_tier)
         )
+        # DELIBERATELY NOT in dag_issues: these describe a legal plan, and
+        # `status` is computed from dag_issues alone. See `lane_advisories`.
+        advisories = lane_advisories(tasks)
         # Charter roster (doc 13 §25.1): Completeness, DependencyRealism,
         # RiskSequencing, ParallelizationSafety, EstimateSanity — the
         # single "plan critic panel" prompt retired here (plan phase D13).
@@ -550,10 +648,14 @@ def run_planning(
         majors = [c for c in critics if c.get("severity") == "major"]
         if not dag_issues and not majors:
             break
-        feedback = yaml.safe_dump(
-            {"dag_issues": dag_issues, "critic_majors": majors},
-            sort_keys=False, allow_unicode=True,
-        )
+        # A revision is happening anyway, so the advisories ride along free.
+        # They are listed LAST and under their own key, because a planner
+        # that reads them as blockers will merge lanes to clear them — the
+        # exact move they exist to discourage.
+        payload = {"dag_issues": dag_issues, "critic_majors": majors}
+        if advisories:
+            payload["advisories_not_blocking"] = advisories
+        feedback = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
 
     source_fdr = fdr_text if fdr_text is not None else read_fdr(repo_dir)
     plan = Plan(
@@ -565,6 +667,10 @@ def run_planning(
         revisions=revision,
         fdr_fingerprint=fdr_fingerprint(source_fdr) if source_fdr else "",
     )
+    for advisory in advisories:
+        plan.critic_issues.append(
+            {"severity": "minor", "lens": "parallelism", "problem": advisory}
+        )
     note = calibration_note(repo_dir, tasks)
     if note:
         plan.critic_issues.append({"severity": "minor", "lens": "estimates", "problem": note})
@@ -583,10 +689,31 @@ def _save(repo_dir: str | Path, plan: Plan) -> None:
         f"| {t.id} | {t.title} | {', '.join(t.depends_on) or '—'} | {t.lane} | {t.estimate_hours}h |"
         for t in plan.tasks
     )
+    # The lane column above says which lane each task is in and never how
+    # many lanes there are — the one number that decides whether this plan
+    # builds concurrently or one task at a time.
+    lane_names = sorted({t.lane for t in plan.tasks})
+    parallelism = (
+        f"{len(lane_names)} lane(s): {', '.join(lane_names)}"
+        + (" — no task ever builds concurrently" if len(lane_names) == 1 else "")
+        + "\n\n"
+        if plan.tasks
+        else ""
+    )
+    advisories = [
+        str(c.get("problem", ""))
+        for c in plan.critic_issues
+        if c.get("lens") == "parallelism"
+    ]
+    advisory_md = (
+        "".join(f"- {a}\n" for a in advisories) + "\n" if advisories else ""
+    )
     (directory / "plan.md").write_text(
         f"# Plan — {plan.brief_title}\n\nstatus: **{plan.status}** · "
         f"{len(plan.tasks)} task(s) · revisions: {plan.revisions}\n\n"
         f"| id | task | depends on | lane | est |\n|---|---|---|---|---|\n{rows}\n\n"
+        + parallelism
+        + advisory_md
         + (
             "Scope is **locked** (Gate U2): later runs reuse this plan "
             "instead of re-deciding it. Changes go through `avs add` or an "

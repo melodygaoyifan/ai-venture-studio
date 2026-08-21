@@ -4,6 +4,57 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.108.0 — a check that cannot fire, and the plan that learned to keep it quiet
+
+The one finding ADR-058 named and deliberately left open. `lane_check`
+compares tasks in **different** lanes — same-lane overlap is skipped because
+`schedule_waves` admits one task per lane per wave, which is true and was
+verified rather than assumed. The consequence is that a single-lane plan
+cannot collide however many tasks share a file: the check that exists to
+protect parallelism is silent exactly when there is none left to protect, and
+a planner can clear a real collision by merging the two lanes.
+
+Run 18 scored both sides of that in one run. Cases 02 and 04 collapsed to a
+single lane and passed unexamined — case 04 with three tasks all expecting
+`app/candidates.py`. Case 03 kept two honest lanes, could not resolve the
+collision in three attempts, and built nothing. Two of the three passing plans
+passed by removing the parallelism the check protects, and the honest one
+died. v0.107.0's own MERGE remedy made that dodge easier to find.
+
+- **`lane_advisories` describes the arrangement; it never refuses it.**
+  `run_planning` computes `status="blocked"` from `dag_issues` alone, so a new
+  rule there blocks the plan — and a planner handed a bar it cannot clear is
+  exactly what killed case 03. There is also no honest deterministic rule
+  separating "these are one surface" from "the planner gave up". So the
+  advisory names the wave count, states that `lane collision` *cannot be
+  reported for this plan at all*, says the arrangement may well be right, and
+  offers the hoist if it is not. A test reads the source of `run_planning` and
+  fails if an advisory is ever spliced into `dag_issues`.
+- **Three readers, none of which can force a revision.** A `minor` critic issue
+  under lens `parallelism` in `plan.yaml`; the lane **count** in `plan.md` (the
+  task table has always named each task's lane and never how many lanes there
+  are); and revision feedback under `advisories_not_blocking` **only when a
+  revision is already happening** — the clean-plan `break` comes first, pinned
+  by a test.
+- **MERGE admits its price.** It stays on `lane_check`'s list of remedies — it
+  is often correct — but now says in the same sentence that the two tasks will
+  build one after the other, and that collapsing every task into one lane
+  silences the check and builds the plan serially.
+- **`CaseResult.lanes` keeps the arrangement after the workspace is gone.**
+  Establishing that run 18's cases 02 and 04 had collapsed meant opening
+  preserved workspaces by hand, and run 18 had already overwritten run 17's.
+  The row now records `1 lane(s) over 3 task(s): core` plus the advisory count,
+  read from a `plan.yaml` the bench already had.
+
+Run 18's rates are not re-scored: case 04 passed and still passes. What changes
+is that run 19's row will say how. The blind spot was confirmed present in the
+shipped 0.106.0 build before any of this was written, so it is a property of
+the released system and not an artifact of this change's own refactor.
+
+- Suite: 2307 → 2326 hermetic tests (ledger PC-1 synced).
+
+ADR-059.
+
 ## v0.107.0 — the run knew, and the record did not
 
 Six findings from inspecting run 17's credit-exhaustion abort and run 18's

@@ -145,9 +145,18 @@ as unknown.
 > serialize), SPLIT (narrow the globs) — concretely, with the actual ids and
 > globs, once per colliding pair. Each of the three is asserted to clear
 > `lane_check`, so the advice cannot recommend something the checker rejects.
-> The same-lane blind spot the note describes is NOT closed: three tasks
-> sharing `app/candidates.py` in one lane is still legal by construction, and
-> still means case 04 passed by removing the parallelism.
+> **The same-lane blind spot is closed in v0.108.0 (ADR-059) — described, not
+> refused.** Three tasks sharing `app/candidates.py` in one lane is still
+> legal, because no deterministic rule separates "one surface" from "gave up",
+> and because a new bar the planner cannot clear is exactly what killed case
+> 03. `lane_advisories` now reports the arrangement as a minor critic issue,
+> prints the lane COUNT in plan.md, and rides along in revision feedback only
+> when a revision is already happening — it can never cause one and can never
+> block a plan. The MERGE remedy added above now says in the same breath that
+> it costs parallelism and is not for quieting the message. The bench row
+> carries `lanes:` so the next run's collapse is visible without opening a
+> workspace. **Run 18's rates are not re-scored:** case 04 still passed, and
+> what changes is that the next run's row will say how.
 >
 > **Run 18, twelve of seventeen blocked votes were one YAML rule.**
 > Thirty real review votes across the run's preserved workspaces: seventeen

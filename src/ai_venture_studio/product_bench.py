@@ -382,6 +382,14 @@ class CaseResult(BaseModel):
     #: from a refused plan is indistinguishable from a 0.0 from a pipeline
     #: that tried everything (ADR-043). Empty on cases that built.
     failure_reason: str = ""
+    #: How the plan was laned: `"2 lane(s): api, data"`, plus any
+    #: `lane_advisories` the plan carried. Discovering that run 18's cases 02
+    #: and 04 had collapsed to a single lane — which is how a plan makes
+    #: `lane_check` unable to fire — meant opening preserved workspaces by
+    #: hand, and those workspaces had already been overwritten once. The
+    #: arrangement is a deterministic fact about the plan; the row is where
+    #: it survives the workspace.
+    lanes: str = ""
     #: True when this row was REUSED from a checkpoint rather than measured
     #: in this run. A resumed run that did not say so would be a scoreboard
     #: claiming to have measured what it actually read off disk — the same
@@ -790,6 +798,39 @@ def run_probe(workspace: Path, probe: Probe) -> ProbeResult:
 CLEAN_VERDICTS = CLEAN_VERDICT_VALUES
 
 
+def _lane_arrangement(workspace) -> str:
+    """How the plan was laned, read off the workspace's own `plan.yaml`.
+
+    A single-lane plan is the one arrangement `lane_check` can never object
+    to, and until now the only way to notice a run had produced one was to
+    open the preserved workspace — which run 18 had already overwritten
+    (ADR-058). Best-effort by design: a case that never planned has no
+    arrangement to report and that is not an error.
+    """
+    path = Path(workspace) / "product" / "plan.yaml"
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    tasks = data.get("tasks")
+    if not isinstance(tasks, list) or not tasks:
+        return ""
+    lanes = sorted(
+        {str(t.get("lane", "core")) for t in tasks if isinstance(t, dict)}
+    )
+    arrangement = f"{len(lanes)} lane(s) over {len(tasks)} task(s): " + ", ".join(lanes)
+    advisories = [
+        str(c.get("problem", ""))
+        for c in (data.get("critic_issues") or [])
+        if isinstance(c, dict) and c.get("lens") == "parallelism"
+    ]
+    if advisories:
+        arrangement += f" — {len(advisories)} parallelism advisory(ies)"
+    return arrangement
+
+
 def _row_detail(status: str, verdict: str | None, detail: str) -> str:
     """How much of a task's reason survives into the durable scoreboard row.
 
@@ -1078,6 +1119,7 @@ def run_case(
             # with no tasks, and the reason — the planner's output would not
             # parse, twice — was sitting in `product/plan.yaml` unread.
             failure_reason=result.blocked_reason,
+            lanes=_lane_arrangement(workspace),
             # 200 chars cut the diagnosis mid-word in the scoreboard ("does not
             # match any EAR"), and the row is the durable record of the run —
             # the workspace it points at is gitignored and has been lost before.
