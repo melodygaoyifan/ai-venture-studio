@@ -36,6 +36,7 @@ from ai_venture_studio.maintenance.signals import (
     prometheus_query,
     sentry_get_issue,
 )
+from ai_venture_studio.executables import resolve
 
 TOKEN = "sntrys_test_token_value"  # long enough to be scrubbed
 
@@ -396,11 +397,11 @@ def test_maintenance_run_enriches_a_sentry_incident(tmp_path, monkeypatch, http)
     http.returns(dict(ISSUE))
     repo = tmp_path / "repo"
     repo.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run([resolve("git"), "init", "-q"], cwd=repo, check=True)
     (repo / "billing.py").write_text("def invoice_total(items):\n    return sum(items)\n")
-    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run([resolve("git"), "add", "."], cwd=repo, check=True)
     subprocess.run(
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm",
+        [resolve("git"), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm",
          "billing: invoice_total over items"], cwd=repo, check=True,
     )
     incident = Incident(
@@ -429,7 +430,7 @@ def test_a_manual_incident_never_calls_out(tmp_path, monkeypatch):
     )
     repo = tmp_path / "repo"
     repo.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run([resolve("git"), "init", "-q"], cwd=repo, check=True)
     incident = Incident(id="inc-manual", title="cosmetic typo", body="cosmetic only")
     result = run_maintenance(incident, repo_dir=str(repo), provider="mock")
     assert "sentry" not in result.summary

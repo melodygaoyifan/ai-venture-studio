@@ -36,6 +36,7 @@ from ai_venture_studio.state import (
 from ai_venture_studio.tools.integrity import assertion_delta
 from ai_venture_studio.upstream import autopilot
 from ai_venture_studio.upstream.build import _write_files
+from ai_venture_studio.executables import resolve
 
 
 # --- the wall tells a move from a deletion ----------------------------------
@@ -85,7 +86,7 @@ def workspace(tmp_path):
     (root / "tests").mkdir(parents=True)
     (root / "tests" / "test_api1.py").write_text(_DUPLICATED, encoding="utf-8")
     (root / "tests" / "test_api2.py").write_text(_DUPLICATED, encoding="utf-8")
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run([resolve("git"), "init", "-q"], cwd=root, check=True)
     return root
 
 
@@ -144,8 +145,8 @@ def test_a_repair_the_write_guard_partly_refused_is_applied_to_none(
     A batch whose helper landed and whose call sites were dropped must leave
     the tree as it found it, not commit the half.
     """
-    subprocess.run(["git", "add", "-A"], cwd=workspace, check=True)
-    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+    subprocess.run([resolve("git"), "add", "-A"], cwd=workspace, check=True)
+    subprocess.run([resolve("git"), "-c", "user.email=t@t", "-c", "user.name=t",
                     "commit", "-qm", "feat"], cwd=workspace, check=True)
     (workspace / "tests" / "helpers.py").write_text(_HOISTED_HELPER, encoding="utf-8")
     _repair_returning(
@@ -163,7 +164,7 @@ def test_a_repair_the_write_guard_partly_refused_is_applied_to_none(
     assert after is None, "a refused repair was never reviewed"
     assert "refused by the write-guard" in why
     assert "test_api1.py" in why, "the row must name the file that was dropped"
-    log = subprocess.run(["git", "log", "--oneline"], cwd=workspace,
+    log = subprocess.run([resolve("git"), "log", "--oneline"], cwd=workspace,
                          capture_output=True, text=True).stdout
     assert "address serious review findings" not in log, (
         "a half-applied repair was committed"

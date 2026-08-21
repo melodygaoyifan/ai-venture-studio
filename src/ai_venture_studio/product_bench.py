@@ -21,6 +21,7 @@ exactly that.
 
 from __future__ import annotations
 
+import logging
 import datetime
 import os
 import subprocess
@@ -38,6 +39,14 @@ from ai_venture_studio.testing import _run as _run_killing_the_group
 from ai_venture_studio.upstream import init_workspace
 from ai_venture_studio.upstream.autopilot import run_autopilot
 from ai_venture_studio.upstream.provisioning import preview_env
+from ai_venture_studio.executables import find
+
+#: Where a deliberate degradation says what it degraded. Every handler
+#: below that skips a row, a page, or a piece of bookkeeping logs here
+#: first: CLAUDE.md forbids swallowing an exception silently, and until
+#: ADR-062 nothing enforced it (`S110`/`S112` found 15). DEBUG, so it is
+#: silent unless asked for — `AVS_DEBUG=1` is the ask.
+_log = logging.getLogger(__name__)
 
 _PROBE_TIMEOUT_S = 60
 
@@ -769,14 +778,21 @@ def workspace_python(workspace: Path) -> str:
     venv_python = workspace / ".probe-venv" / bin_dir / exe
     if venv_python.exists():
         return str(venv_python)
+    # Every other failure below degrades to the ambient interpreter; a `uv`
+    # that is not installed is the same answer arrived at earlier, and before
+    # ADR-064 it was an uncaught `FileNotFoundError` off the bare name
+    # instead — the one path out of this function that was not a fallback.
+    uv = find("uv")
+    if uv is None:
+        return sys.executable
     created = subprocess.run(
-        ["uv", "venv", str(workspace / ".probe-venv")],
+        [uv, "venv", str(workspace / ".probe-venv")],
         capture_output=True, text=True, timeout=120,
     )
     if created.returncode != 0:
         return sys.executable
     installed = subprocess.run(
-        ["uv", "pip", "install", "-r", str(requirements),
+        [uv, "pip", "install", "-r", str(requirements),
          "--python", str(venv_python)],
         capture_output=True, text=True, timeout=300,
     )
@@ -996,7 +1012,8 @@ def _proposed_scrs(workspace: Path) -> set[str]:
     for path in scr_dir.glob("SCR-*.yaml"):
         try:
             data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        except Exception:  # noqa: BLE001 — a malformed SCR is not a crash here
+        except Exception as exc:  # noqa: BLE001 — a malformed SCR is not a crash here
+            _log.debug("skipping unreadable SCR %s: %s", path, exc)
             continue
         if isinstance(data, dict) and data.get("status") == "proposed":
             found.add(path.name)
@@ -1248,8 +1265,9 @@ def run_case(
             # the same reason the workspace path does — the caller builds the
             # error row and this is the only way the number reaches it.
             exc.avs_case_spend = _case_spend(workspace, cost_model or CostModel())  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001 — forensics must not mask the failure
-            pass
+        except Exception as exc:  # noqa: BLE001 — forensics must not mask the failure
+            _log.debug("could not attach forensics to the crashed case — the\n"
+                       "original failure is re-raised below and wins: %s", exc)
         raise
     finally:
         import shutil as _shutil_cleanup

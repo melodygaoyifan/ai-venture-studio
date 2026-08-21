@@ -320,7 +320,9 @@ def run_spec_stage(
     lint: list = []
     critics: list[dict] = []
     truncated = False
-    for revision in range(MAX_REVISIONS + 1):
+    # `revision` is read after the loop as the revision count, which is
+    # why it is not `_revision`; B007 does not look past the loop body.
+    for revision in range(MAX_REVISIONS + 1):  # noqa: B007
         raw = provider_impl.complete(
             model=writer_model,
             system=_WRITER_SYSTEM,

@@ -23,6 +23,7 @@ import pytest
 
 from ai_venture_studio.state import Confidence, LeaderResult, Severity, Verdict, VoterFinding
 from ai_venture_studio.upstream import autopilot
+from ai_venture_studio.executables import resolve
 
 
 def _finding(sev):
@@ -39,9 +40,9 @@ def repo(tmp_path):
     root = tmp_path / "p"
     root.mkdir()
     (root / "cart.js").write_text("onAdd(){}\n", encoding="utf-8")
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
-    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+    subprocess.run([resolve("git"), "init", "-q"], cwd=root, check=True)
+    subprocess.run([resolve("git"), "add", "-A"], cwd=root, check=True)
+    subprocess.run([resolve("git"), "-c", "user.email=t@t", "-c", "user.name=t",
                     "commit", "-qm", "feat: cart"], cwd=root, check=True)
     return root
 
@@ -72,7 +73,7 @@ def _patch(monkeypatch, review_after, written=("cart.js",)):
 
 
 def test_a_fix_that_still_has_criticals_is_rolled_back(repo, monkeypatch):
-    head_before = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo,
+    head_before = subprocess.run([resolve("git"), "rev-parse", "HEAD"], cwd=repo,
                                  capture_output=True, text=True).stdout.strip()
     (repo / "cart.js").write_text("gutted\n", encoding="utf-8")
     _patch(monkeypatch, LeaderResult(
@@ -83,7 +84,7 @@ def test_a_fix_that_still_has_criticals_is_rolled_back(repo, monkeypatch):
 
     assert landed is False
     assert after is not None and after.verdict == Verdict.REQUEST_CHANGES
-    head_now = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo,
+    head_now = subprocess.run([resolve("git"), "rev-parse", "HEAD"], cwd=repo,
                               capture_output=True, text=True).stdout.strip()
     assert head_now == head_before, "the bad fix stayed in history"
     assert (repo / "cart.js").read_text() == "onAdd(){}\n", "the file was not restored"
@@ -97,7 +98,7 @@ def test_a_clean_fix_lands(repo, monkeypatch):
 
     assert landed is True
     assert after.verdict == Verdict.APPROVE
-    log = subprocess.run(["git", "log", "--oneline"], cwd=repo,
+    log = subprocess.run([resolve("git"), "log", "--oneline"], cwd=repo,
                          capture_output=True, text=True).stdout
     assert "address serious review findings" in log
 

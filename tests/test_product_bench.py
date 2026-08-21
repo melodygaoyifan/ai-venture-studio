@@ -7,6 +7,7 @@ import pytest
 
 from ai_venture_studio import testing as testing_mod
 from ai_venture_studio.product_bench import load_cases, run_case
+from ai_venture_studio.executables import resolve
 
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None, reason="git not on PATH"
@@ -404,7 +405,7 @@ def test_a_wedged_probe_does_not_leave_the_product_server_running(tmp_path, monk
     # The last thing it said, not a bare 'probe timed out'.
     assert "serving" in result.detail
     survivors = subprocess.run(
-        ["pgrep", "-f", "time.sleep(120)"], capture_output=True, text=True
+        [resolve("pgrep"), "-f", "time.sleep(120)"], capture_output=True, text=True
     )
     assert "time.sleep(120)" not in survivors.stdout, (
         "the probe's server outlived the probe and still holds its port"
@@ -435,7 +436,7 @@ def _increment_case(name, *, expected, actual, axis="increment"):
             IncrementResult(
                 index=i, fdr=f"f{i}", expected=e, actual=a, correct=e == a
             )
-            for i, (e, a) in enumerate(zip(expected, actual))
+            for i, (e, a) in enumerate(zip(expected, actual, strict=True))
         ],
         tasks_total=2,
         tasks_built=2,

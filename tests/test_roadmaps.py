@@ -16,6 +16,7 @@ from ai_venture_studio.upstream.provisioning import (
     write_cloud_guide,
 )
 from ai_venture_studio.upstream.ship import ship
+from ai_venture_studio.executables import resolve
 
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None, reason="git not on PATH"
@@ -144,7 +145,7 @@ def test_parallel_autopilot_builds_wave_in_worktrees(tmp_path):
     assert all(o.status == "built" for o in result.outcomes)
     # Wave 1 (t1 api + t2 ui) merged via --no-ff merge commits.
     log = subprocess.run(
-        ["git", "log", "--oneline"], cwd=root, capture_output=True, text=True
+        [resolve("git"), "log", "--oneline"], cwd=root, capture_output=True, text=True
     ).stdout
     assert log.count("merge build/") >= 3
     assert (root / "feature_t1.py").exists() and (root / "feature_t2.py").exists()

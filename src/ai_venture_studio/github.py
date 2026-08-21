@@ -10,13 +10,19 @@ from __future__ import annotations
 import re
 import subprocess
 
+from ai_venture_studio.executables import resolve
+
 PR_URL = re.compile(r"^https://github\.com/[^/]+/[^/]+/pull/\d+")
 
 
 def _gh(args: list[str], cwd: str | None = None) -> tuple[bool, str]:
     try:
+        # `resolve` inside the try: a missing `gh` raises `ExecutableNotFound`,
+        # which IS a `FileNotFoundError`, so this degrades exactly as it did
+        # when PATH resolution happened inside `subprocess` (ADR-064).
         proc = subprocess.run(
-            ["gh", *args], capture_output=True, text=True, timeout=60, cwd=cwd
+            [resolve("gh"), *args],
+            capture_output=True, text=True, timeout=60, cwd=cwd,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
         return False, str(exc)

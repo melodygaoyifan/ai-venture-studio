@@ -6,6 +6,8 @@ range such as `main...HEAD`.
 
 from __future__ import annotations
 
+import logging
+import os
 import sys
 from pathlib import Path
 
@@ -21,6 +23,7 @@ app = typer.Typer(add_completion=False, no_args_is_help=True)
 console = Console()
 
 from ai_venture_studio.paths import skills_root as _skills_root
+from ai_venture_studio.executables import resolve
 
 _DEFAULT_SKILLS = _skills_root()
 
@@ -30,7 +33,7 @@ def _version_callback(value: bool) -> None:
         from ai_venture_studio import __version__
 
         console.print(__version__)
-        raise typer.Exit()
+        raise typer.Exit
 
 
 @app.callback()
@@ -308,7 +311,7 @@ def compound(
     branch = f"avs/compound-{date}"
     def git(*args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
-            ["git", *args], cwd=repo_dir, capture_output=True, text=True
+            [resolve("git"), *args], cwd=repo_dir, capture_output=True, text=True
         )
 
     git("checkout", "-B", branch)
@@ -2610,7 +2613,9 @@ def cost_cmd(
 
     console.print(f"month {window}: {len(entries)} call(s)")
     by_model: dict[str, tuple[int, int, float, int]] = {}
-    for entry, record in zip(entries, records):
+    # strict: `spend.priced` returns one record per entry. A truncation
+    # here would silently drop spend from a cost report.
+    for entry, record in zip(entries, records, strict=True):
         calls, tokens, usd, unpriced = by_model.get(entry.model, (0, 0, 0.0, 0))
         by_model[entry.model] = (
             calls + 1,
@@ -4043,6 +4048,20 @@ for _info in app.registered_commands:
 
 
 def main() -> None:
+    # The reader for every `_log.debug` this codebase writes. Fifteen handlers
+    # skip a row, a page, or a piece of bookkeeping and say so; without this
+    # they say it to a logger with no handler, which is the ADR-060 defect
+    # wearing a different hat. Off by default and it must stay off: these lines
+    # go to stderr, and the CLI's real output is Rich on stdout (ADR-062).
+    if os.environ.get("AVS_DEBUG"):
+        logging.basicConfig(
+            level=logging.DEBUG, stream=sys.stderr,
+            format="%(levelname)s %(name)s: %(message)s",
+        )
+        console.print(
+            "[dim]AVS_DEBUG=1 — skipped rows, unreadable files and dropped "
+            "bookkeeping are logged to stderr.[/dim]"
+        )
     sys.exit(app())
 
 

@@ -29,6 +29,7 @@ from ai_venture_studio.upstream import constitution as con
 from ai_venture_studio.upstream import requirements as req
 from ai_venture_studio.upstream import roadmap as rm
 from ai_venture_studio.upstream.requirements import Requirement
+from ai_venture_studio.executables import resolve
 
 # --------------------------------------------------------------------------
 # helpers
@@ -505,7 +506,7 @@ def test_a_checkpoint_freezes_what_the_product_promised(tmp_path) -> None:
 
     root = tmp_path / "prod"
     root.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True, timeout=60)
+    subprocess.run([resolve("git"), "init", "-q"], cwd=root, check=True, timeout=60)
     _ledger(root, "a resident shall cancel their own order")
 
     tag = tag_checkpoint(root)
@@ -551,7 +552,7 @@ def test_a_baseline_that_will_not_write_does_not_cost_the_checkpoint(
 
     root = tmp_path / "prod"
     root.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True, timeout=60)
+    subprocess.run([resolve("git"), "init", "-q"], cwd=root, check=True, timeout=60)
     monkeypatch.setattr(
         req, "write_baseline",
         lambda *_a, **_kw: (_ for _ in ()).throw(OSError("read-only")),

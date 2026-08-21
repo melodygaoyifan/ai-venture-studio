@@ -33,7 +33,8 @@ def test_k6_script_compiles_the_ac_into_thresholds():
 
 
 def test_run_k6_skips_visibly_without_the_binary(monkeypatch):
-    monkeypatch.setattr("ai_venture_studio.lanes.runners.shutil.which", lambda _: None)
+    # Since ADR-064 the lookup lives in one place, so this patches there.
+    monkeypatch.setattr("ai_venture_studio.executables.shutil.which", lambda _: None)
     report = run_k6("UNDER 50 rps open THE SYSTEM SHALL http_req_duration "
                     "< 500ms AT p95 FOR 60s", url="http://127.0.0.1:1/")
     assert report.status == "skipped"
@@ -68,7 +69,7 @@ def test_registry_wrapper_and_reconciliation(monkeypatch):
     assert ("users", "mode_drift") in rules
     assert ("ghost", "not_in_registry") in rules
     assert ("rogue", "undeclared_topic") in rules
-    assert ("orders", "mode_drift") not in {r for r in rules}
+    assert ("orders", "mode_drift") not in set(rules)
 
 
 def test_calibration_catches_the_seeded_manifest():

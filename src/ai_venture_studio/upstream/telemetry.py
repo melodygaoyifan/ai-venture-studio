@@ -10,6 +10,7 @@ observed reality instead of vibes.
 
 from __future__ import annotations
 
+import logging
 import datetime
 import json
 from collections import Counter
@@ -20,6 +21,13 @@ import yaml
 from ai_venture_studio.providers import get_provider
 
 DIGEST_MARKER = "weekly digest writer for non-technical founders"
+
+#: Where a deliberate degradation says what it degraded. Every handler
+#: below that skips a row, a page, or a piece of bookkeeping logs here
+#: first: CLAUDE.md forbids swallowing an exception silently, and until
+#: ADR-062 nothing enforced it (`S110`/`S112` found 15). DEBUG, so it is
+#: silent unless asked for — `AVS_DEBUG=1` is the ask.
+_log = logging.getLogger(__name__)
 
 _TELEMETRY_PY = '''"""avs telemetry — zero-dependency event tracking.
 
@@ -150,8 +158,9 @@ def generate_digest(
                 ),
                 max_tokens=1024,
             ) or fallback
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001 — the fallback digest ships
+            _log.debug("digest narration failed; shipping the counted "
+                       "fallback instead: %s", exc)
     path = root / "product" / "DIGEST.md"
     path.parent.mkdir(exist_ok=True)
     path.write_text(text, encoding="utf-8")

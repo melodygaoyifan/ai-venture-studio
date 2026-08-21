@@ -15,6 +15,7 @@ import pytest
 
 from ai_venture_studio.upstream import init_workspace
 from ai_venture_studio.upstream.build import _miniprogram_gate, _miniprogram_root
+from ai_venture_studio.executables import resolve
 
 
 @pytest.fixture
@@ -81,7 +82,7 @@ def test_the_scaffold_is_committed_so_tasks_extend_it(mp):
     import subprocess
 
     tracked = subprocess.run(
-        ["git", "ls-files"], cwd=mp, capture_output=True, text=True, timeout=60
+        [resolve("git"), "ls-files"], cwd=mp, capture_output=True, text=True, timeout=60
     ).stdout
     assert "miniprogram/app.json" in tracked
     assert "project.config.json" in tracked

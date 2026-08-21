@@ -6,6 +6,7 @@ from ai_venture_studio import testing as testing_mod
 from ai_venture_studio.upstream import init_workspace
 from ai_venture_studio.upstream.autopilot import run_autopilot
 from ai_venture_studio.upstream.fdr import write_template
+from ai_venture_studio.executables import resolve
 
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None, reason="git not on PATH"
@@ -79,7 +80,7 @@ def test_full_autopilot_builds_every_task(tmp_path):
     import subprocess
 
     log = subprocess.run(
-        ["git", "log", "--oneline"], cwd=root, capture_output=True, text=True
+        [resolve("git"), "log", "--oneline"], cwd=root, capture_output=True, text=True
     ).stdout
     assert log.count("feat(") == 3
 

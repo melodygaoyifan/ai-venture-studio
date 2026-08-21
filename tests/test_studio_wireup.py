@@ -23,6 +23,7 @@ from fastapi.testclient import TestClient
 
 from ai_venture_studio.studio import create_studio_app
 from ai_venture_studio.upstream import init_workspace
+from ai_venture_studio.executables import resolve
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git not on PATH")
 
@@ -46,7 +47,8 @@ def _resolves(path: str, route: str) -> bool:
     path = path.split("?", 1)[0]  # ?mode=… routes by its path, not its query
     parts, route_parts = path.split("/"), route.split("/")
     return len(parts) == len(route_parts) and all(
-        r.startswith("{") or p == r for p, r in zip(parts, route_parts)
+        r.startswith("{") or p == r
+        for p, r in zip(parts, route_parts, strict=True)
     )
 
 
@@ -155,14 +157,14 @@ def _walk_all_states(client, root) -> dict[str, list[tuple[str, str]]]:
     # 4b. Real history: the report page's change list is built from the
     # checkpoint tags, and each row carries its own go-back form.
     if not (root / ".git").exists():
-        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run([resolve("git"), "init", "-q"], cwd=root, check=True)
     from ai_venture_studio.upstream.autopilot import tag_checkpoint
 
     for number, message in enumerate(("first build", "second build"), start=1):
         (root / f"change{number}.txt").write_text(message, encoding="utf-8")
-        subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+        subprocess.run([resolve("git"), "add", "-A"], cwd=root, check=True)
         subprocess.run(
-            ["git", "-c", "user.email=t@t", "-c", "user.name=t",
+            [resolve("git"), "-c", "user.email=t@t", "-c", "user.name=t",
              "commit", "-qm", f"feat({number}): {message}"],
             cwd=root, check=True,
         )
@@ -258,12 +260,12 @@ def _walk_all_states(client, root) -> dict[str, list[tuple[str, str]]]:
     # needs a correlatable commit so the mock proposes a root cause and
     # the fix form actually renders.
     if not (root / ".git").exists():
-        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run([resolve("git"), "init", "-q"], cwd=root, check=True)
     (root / "app").mkdir(exist_ok=True)
     (root / "app" / "main.py").write_text("def main(): ...\n", encoding="utf-8")
-    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run([resolve("git"), "add", "-A"], cwd=root, check=True)
     subprocess.run(
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t",
+        [resolve("git"), "-c", "user.email=t@t", "-c", "user.name=t",
          "commit", "-qm", "handle TypeError in app main"],
         cwd=root, check=True,
     )

@@ -42,6 +42,7 @@ from ai_venture_studio.upstream.correction import (
     CorrectionRoute,
     draft_change,
 )
+from ai_venture_studio.executables import resolve
 
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None, reason="git not on PATH"
@@ -68,9 +69,9 @@ def _workspace(tmp_path, lang="en"):
         "criteria": ["The system shall keep items in a cart."],
         "test_skeletons": [],
     }), encoding="utf-8")
-    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run([resolve("git"), "add", "-A"], cwd=root, check=True)
     subprocess.run(
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t",
+        [resolve("git"), "-c", "user.email=t@t", "-c", "user.name=t",
          "commit", "-qm", "built"],
         cwd=root, check=True, capture_output=True,
     )
@@ -366,7 +367,7 @@ def test_a_redraft_writes_nothing_to_the_workspace(tmp_path):
 
     assert (root / "specs" / "cart" / "spec.yaml").read_text(encoding="utf-8") == before
     assert subprocess.run(
-        ["git", "status", "--porcelain"], cwd=root,
+        [resolve("git"), "status", "--porcelain"], cwd=root,
         capture_output=True, text=True, check=True,
     ).stdout.strip() == ""
 

@@ -101,8 +101,11 @@ def cross_build_replay(
 ) -> ReplayVerdict:
     """The same stream on two builds diverges only where the diff says it
     should — silent behavior change is a finding."""
+    # Deliberately the common prefix: the length mismatch is a separate
+    # answer, given on the next line, and it is not "no divergence".
     first_divergence = next(
-        (i for i, (a, b) in enumerate(zip(old_hashes, new_hashes)) if a != b), None)
+        (i for i, (a, b) in enumerate(
+            zip(old_hashes, new_hashes, strict=False)) if a != b), None)
     if first_divergence is None and len(old_hashes) == len(new_hashes):
         passed = change_expected_from_tick is None
         detail = ("identical, as the diff predicts" if passed else
@@ -110,6 +113,16 @@ def cross_build_replay(
     elif change_expected_from_tick is not None and first_divergence is not None \
             and first_divergence >= change_expected_from_tick:
         passed, detail = True, f"diverges at tick {first_divergence}, at/after the declared change"
+    elif first_divergence is None:
+        # Identical over the prefix, different lengths. Reported as what it is
+        # rather than as "divergence at tick None", which is what this branch
+        # used to say (ADR-062): one stream ran longer, and a reader has to be
+        # able to tell that from a hash that changed mid-stream.
+        passed = False
+        detail = (f"the streams agree for "
+                  f"{min(len(old_hashes), len(new_hashes))} tick(s) and then "
+                  f"one build simply stops: old {len(old_hashes)}, new "
+                  f"{len(new_hashes)}")
     else:
         passed = False
         detail = (f"silent behavior change: divergence at tick {first_divergence} "
@@ -121,8 +134,21 @@ def desync_probe(
     server_hashes: list[str], client_hashes: list[str], *, hash_every_n_ticks: int
 ) -> ReplayVerdict:
     """A corrupted client must be detected within the declared window."""
-    first = next((i for i, (s, c) in enumerate(zip(server_hashes, client_hashes))
-                  if s != c), None)
+    # `strict=False` compares the common prefix, and the common prefix is not
+    # the whole question: a client that stopped early has desynced in the most
+    # complete way available, and this probe used to read that as "no
+    # divergence" — a silent pass on the exact failure it exists to catch
+    # (ADR-062, found by turning B905 on). The truncation is checked FIRST,
+    # because a short stream has no divergence to find.
+    if len(server_hashes) != len(client_hashes):
+        return ReplayVerdict(
+            check="desync_probe", passed=False,
+            detail=f"streams are different lengths — server {len(server_hashes)} "
+                   f"hash(es), client {len(client_hashes)}. A client that "
+                   f"stopped producing is desynced; declared window "
+                   f"{hash_every_n_ticks} ticks — file the incident (14.26)")
+    first = next((i for i, (s, c) in enumerate(
+        zip(server_hashes, client_hashes, strict=True)) if s != c), None)
     if first is None:
         return ReplayVerdict(check="desync_probe", passed=True, detail="no divergence")
     detected_within = hash_every_n_ticks

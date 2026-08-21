@@ -9,6 +9,7 @@ requested — and a human always merges it (ACE's reward-hacking lesson,
 
 from __future__ import annotations
 
+import logging
 import datetime
 import re
 from collections import Counter
@@ -19,6 +20,13 @@ from pydantic import BaseModel, Field
 
 from ai_venture_studio.providers import get_provider
 from ai_venture_studio.yamlx import extract_mapping
+
+#: Where a deliberate degradation says what it degraded. Every handler
+#: below that skips a row, a page, or a piece of bookkeeping logs here
+#: first: CLAUDE.md forbids swallowing an exception silently, and until
+#: ADR-062 nothing enforced it (`S110`/`S112` found 15). DEBUG, so it is
+#: silent unless asked for — `AVS_DEBUG=1` is the ask.
+_log = logging.getLogger(__name__)
 
 # KEPT across the rename (v0.54): this string matches the section header
 # already written into every existing workspace's CLAUDE.md. Changing it would
@@ -146,7 +154,8 @@ def propose(signals: Signals, *, provider: str, model: str) -> list[Proposal]:
     for item in data.get("proposals") or []:
         try:
             proposals.append(Proposal.model_validate(item))
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — a bad proposal is skipped
+            _log.debug("dropping an unparseable proposal: %s", exc)
             continue
     return proposals[:3]
 

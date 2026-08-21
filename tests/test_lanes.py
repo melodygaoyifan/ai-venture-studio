@@ -56,11 +56,11 @@ def test_perf_grammar_kills_vague_and_accepts_measured():
 
 
 def _telemetry(**overrides) -> PerfRunTelemetry:
-    base = dict(generator_cpu_max=0.5, dropped_iterations=0, blocked_spike=False,
-                entry_point="cdn", slo_entry_point="cdn", arrival_model="open",
-                ac_arrival_model="open", environment="staging",
-                environment_parity="prod_mirror", slot="perf_regression",
-                percentiles={"p50": 80, "p95": 220, "p99": 480})
+    base = {"generator_cpu_max": 0.5, "dropped_iterations": 0, "blocked_spike": False,
+                "entry_point": "cdn", "slo_entry_point": "cdn", "arrival_model": "open",
+                "ac_arrival_model": "open", "environment": "staging",
+                "environment_parity": "prod_mirror", "slot": "perf_regression",
+                "percentiles": {"p50": 80, "p95": 220, "p99": 480}}
     base.update(overrides)
     return PerfRunTelemetry(**base)
 

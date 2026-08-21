@@ -114,7 +114,8 @@ def check_substantiation(
                 )
             )
             continue
-        for n_draft, n_reg in zip(_numbers(sent), _numbers(hit.text)):
+        draft_numbers, register_numbers = _numbers(sent), _numbers(hit.text)
+        for n_draft, n_reg in zip(draft_numbers, register_numbers, strict=False):
             if abs(n_draft - n_reg) > tol * max(abs(n_reg), 1e-9):
                 findings.append(
                     SubstantiationFinding(
@@ -123,6 +124,24 @@ def check_substantiation(
                         message=f"draft says {n_draft:g}, register says {n_reg:g}",
                     )
                 )
+        # The numbers the register entry has no counterpart for. `zip` stops at
+        # the shorter sequence, so a draft claiming "40% faster across 12,000
+        # sessions" against a register line carrying one number had its second
+        # figure checked against nothing and passed — an unsubstantiated number
+        # leaving through the check built to catch unsubstantiated numbers
+        # (ADR-062, found by turning B905 on). Its own rule, because the fix is
+        # different: drift means correct the figure, this means substantiate it
+        # or cut it.
+        for extra in draft_numbers[len(register_numbers):]:
+            findings.append(
+                SubstantiationFinding(
+                    rule="unsubstantiated_number",
+                    sentence=sent,
+                    message=f"draft states {extra:g}, and the matched register "
+                            f"entry carries no figure to check it against — "
+                            f"substantiate it or delete it",
+                )
+            )
         if _SUPERLATIVE.search(sent) and hit.source_type != "primary_measured":
             findings.append(
                 SubstantiationFinding(

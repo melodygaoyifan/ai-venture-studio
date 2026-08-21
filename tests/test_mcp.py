@@ -27,6 +27,7 @@ from ai_venture_studio.tools.voter_tools import (
     ToolBox,
     ToolBudgetExceeded,
 )
+from ai_venture_studio.executables import resolve
 
 
 @pytest.fixture
@@ -327,10 +328,10 @@ def test_l1_maintenance_partition_reads_git_history(repo):
     import subprocess
     import sys as _sys
 
-    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run([resolve("git"), "init", "-q"], cwd=repo, check=True)
+    subprocess.run([resolve("git"), "add", "."], cwd=repo, check=True)
     subprocess.run(
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm",
+        [resolve("git"), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm",
          "billing: invoice_total over items"],
         cwd=repo, check=True,
     )

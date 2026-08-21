@@ -2,6 +2,13 @@
 
 Hermetic: every `gh`/`glab`/`git` invocation is intercepted; nothing here
 touches a network or requires either CLI installed.
+
+That last clause got harder in ADR-064. `forge._run` now resolves `argv[0]`
+through `PATH` BEFORE `subprocess.run` is reached, so intercepting
+`subprocess.run` no longer intercepts everything — on a machine without `glab`,
+these tests would take the "not installed" branch and never exercise dispatch
+at all. So `PATH` is faked too, and the assertions compare the tool's NAME
+rather than the absolute path a given machine happens to produce.
 """
 
 from __future__ import annotations
@@ -10,7 +17,25 @@ import inspect
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from ai_venture_studio import forge
+
+_FAKE_BIN = "/fake/bin"
+
+
+@pytest.fixture(autouse=True)
+def _every_cli_is_installed(monkeypatch):
+    """Hermeticity, restored: every CLI resolves, none of them exists."""
+    monkeypatch.setattr(
+        "ai_venture_studio.executables.shutil.which",
+        lambda name: f"{_FAKE_BIN}/{name}",
+    )
+
+
+def _cmd(argv: list[str]) -> list[str]:
+    """`argv` with the resolved absolute path reduced back to the tool name."""
+    return [argv[0].rsplit("/", 1)[-1], *argv[1:]]
 
 GH_PR = "https://github.com/acme/widgets/pull/42"
 GHE_PR = "https://github.acme-internal.com/platform/widgets/pull/7"
@@ -60,7 +85,7 @@ def test_post_comment_dispatches_to_glab_for_mr_urls(monkeypatch):
     monkeypatch.setattr(forge.subprocess, "run", rec)
     note = forge.post_comment(GL_SELF_MR, "review body")
     assert note is None
-    assert rec.calls[0][:4] == ["glab", "mr", "note", "26"]
+    assert _cmd(rec.calls[0])[:4] == ["glab", "mr", "note", "26"]
     assert "https://gitlab.acme-internal.com/data/subgroup/mapop" in rec.calls[0]
 
 
@@ -90,7 +115,8 @@ def test_merge_maps_methods_to_glab_flags(monkeypatch):
     rec = _Recorder()
     monkeypatch.setattr(forge.subprocess, "run", rec)
     forge.merge(GL_MR, method="squash")
-    assert rec.calls[-1][:3] == ["glab", "mr", "merge"] and "--squash" in rec.calls[-1]
+    assert _cmd(rec.calls[-1])[:3] == ["glab", "mr", "merge"]
+    assert "--squash" in rec.calls[-1]
     forge.merge(GL_MR, method="merge")
     assert "--squash" not in rec.calls[-1] and "--rebase" not in rec.calls[-1]
 
@@ -125,7 +151,7 @@ def test_create_issue_routes_by_origin_remote(monkeypatch, tmp_path):
     monkeypatch.setattr(forge.subprocess, "run", rec)
     url, note = forge.create_issue(str(tmp_path), "title", "body")
     assert note is None and url == issue_url
-    assert rec.calls[1][:3] == ["glab", "issue", "create"]
+    assert _cmd(rec.calls[1])[:3] == ["glab", "issue", "create"]
 
 
 def test_create_issue_reports_unrecognized_remote_instead_of_guessing(monkeypatch, tmp_path):
@@ -143,7 +169,7 @@ def test_create_change_request_uses_glab_mr_create(monkeypatch, tmp_path):
     monkeypatch.setattr(forge.subprocess, "run", rec)
     ok, output = forge.create_change_request(str(tmp_path), "fix/x", "t", "b")
     assert ok and output.endswith("/merge_requests/27")
-    assert rec.calls[1][:3] == ["glab", "mr", "create"]
+    assert _cmd(rec.calls[1])[:3] == ["glab", "mr", "create"]
     assert "--source-branch" in rec.calls[1] and "fix/x" in rec.calls[1]
 
 
@@ -154,9 +180,9 @@ def test_fetch_change_diff_dispatches_gh_vs_glab(monkeypatch):
     rec = _Recorder(results=[(0, "diff --git a b"), (0, "diff --git c d")])
     monkeypatch.setattr(forge.subprocess, "run", rec)
     forge.fetch_change_diff(GH_PR)
-    assert rec.calls[0][:3] == ["gh", "pr", "diff"]
+    assert _cmd(rec.calls[0])[:3] == ["gh", "pr", "diff"]
     forge.fetch_change_diff(GL_SELF_MR)
-    assert rec.calls[1][:3] == ["glab", "mr", "diff"]
+    assert _cmd(rec.calls[1])[:3] == ["glab", "mr", "diff"]
 
 
 # --- availability gating ------------------------------------------------------
@@ -169,3 +195,19 @@ def test_missing_cli_reports_itself_visibly(monkeypatch):
     monkeypatch.setattr(forge.subprocess, "run", _raise)
     note = forge.post_comment(GL_MR, "body")
     assert note is not None and "not installed" in note
+
+
+def test_a_cli_that_is_not_on_path_degrades_the_same_way(monkeypatch):
+    """ADR-064's compatibility hinge, at the call site that depends on it.
+
+    Absence used to surface as `FileNotFoundError` from `subprocess`; it now
+    surfaces as `ExecutableNotFound` from the resolver, one frame earlier.
+    `_run` catches the same exception either way, and the note it writes still
+    names the bare `glab` — not a path, which no operator could act on.
+    """
+    monkeypatch.setattr(
+        "ai_venture_studio.executables.shutil.which", lambda _: None
+    )
+    note = forge.post_comment(GL_MR, "body")
+    assert note is not None
+    assert "`glab` is not installed" in note

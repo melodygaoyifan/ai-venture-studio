@@ -183,7 +183,11 @@ def _route_literals(root: Path) -> list[str]:
             continue
         for match in re.finditer(r"[\"\']((?:/[A-Za-z0-9_<>{}.:-]+)+/?)[\"\']", src):
             lit = match.group(1)
-            if len(lit) <= 80 and not lit.startswith(("/tmp", "/usr", "/var", "/etc", "/Users", "/home")):
+            # These are prefixes to EXCLUDE from the harvested path literals,
+            # not a temp directory this code writes to (S108 reads any "/tmp"
+            # the same way).
+            if len(lit) <= 80 and not lit.startswith(
+                    ("/tmp", "/usr", "/var", "/etc", "/Users", "/home")):  # noqa: S108
                 hits.add(lit)
     return sorted(hits)[:40]
 

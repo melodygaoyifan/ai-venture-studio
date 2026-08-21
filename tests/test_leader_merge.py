@@ -3,19 +3,19 @@ from ai_venture_studio.state import Confidence, Severity, VoterFinding, VoterOut
 
 
 def _finding(voter, title, line, severity=Severity.CRITICAL, **overrides) -> VoterFinding:
-    base = dict(
-        voter=voter,
-        title=title,
-        severity=severity,
-        confidence=Confidence.CERTAIN,
-        file_path="app/orders.py",
-        line_start=line,
-        line_end=line,
-        evidence="db.execute(\"UPDATE orders SET status = 'cancelled'\")",
-        explanation="update misses WHERE clause",
-        verification="VERIFIED",
-        score=80,
-    )
+    base = {
+        "voter": voter,
+        "title": title,
+        "severity": severity,
+        "confidence": Confidence.CERTAIN,
+        "file_path": "app/orders.py",
+        "line_start": line,
+        "line_end": line,
+        "evidence": "db.execute(\"UPDATE orders SET status = 'cancelled'\")",
+        "explanation": "update misses WHERE clause",
+        "verification": "VERIFIED",
+        "score": 80,
+    }
     base.update(overrides)
     return VoterFinding(**base)
 

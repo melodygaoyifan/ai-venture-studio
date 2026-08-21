@@ -134,13 +134,12 @@ def idempotency_check(run_a: str | Path, run_b: str | Path) -> IdempotencyResult
     a, b = _tree_hashes(a_root), _tree_hashes(b_root)
     if not a and not b:
         raise ValueError("both runs produced no files — nothing was verified")
-    result = IdempotencyResult(
+    return IdempotencyResult(
         identical=a == b,
         only_in_first=sorted(set(a) - set(b)),
         only_in_second=sorted(set(b) - set(a)),
         content_diffs=sorted(k for k in set(a) & set(b) if a[k] != b[k]),
     )
-    return result
 
 
 # --- data contract ---------------------------------------------------------------

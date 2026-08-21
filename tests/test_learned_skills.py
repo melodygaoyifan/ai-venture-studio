@@ -10,6 +10,7 @@ from ai_venture_studio.maintenance.skills_registry import (
     maybe_draft_skill,
     record_incident,
 )
+from ai_venture_studio.executables import resolve
 
 INCIDENT = "Redis connection pool exhausted in checkout worker under load spike"
 
@@ -64,7 +65,7 @@ def test_recurrence_drafts_proposed_skill(tmp_path):
 def test_e2e_third_incident_drafts_and_approved_skill_applies(tmp_path):
     repo = tmp_path / "proj"
     repo.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run([resolve("git"), "init", "-q"], cwd=repo, check=True)
 
     for i in range(3):
         incident = Incident(

@@ -40,6 +40,7 @@ from ai_venture_studio.upstream.correction import (
     CorrectionRouteError,
     route_complaint,
 )
+from ai_venture_studio.executables import resolve
 
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None, reason="git not on PATH"
@@ -47,9 +48,9 @@ pytestmark = pytest.mark.skipif(
 
 
 def _commit(root, message):
-    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run([resolve("git"), "add", "-A"], cwd=root, check=True)
     subprocess.run(
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t",
+        [resolve("git"), "-c", "user.email=t@t", "-c", "user.name=t",
          "commit", "-qm", message],
         cwd=root, check=True, capture_output=True,
     )
@@ -74,7 +75,7 @@ def built(tmp_path):
         "test_skeletons": [],
     }), encoding="utf-8")
     if not (root / ".git").exists():
-        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run([resolve("git"), "init", "-q"], cwd=root, check=True)
     _commit(root, "feat(tasks): the first build")
     client = TestClient(
         create_studio_app(root, spawn=lambda r: 1, provider="mock"),
@@ -634,13 +635,13 @@ def test_a_rescue_branch_is_made_before_anything_is_reset(history):
     result = undo_to_before(root, "ap-checkpoint-002")
     assert result["status"] == "undone"
     branches = subprocess.run(
-        ["git", "branch", "--list", "rescue/*"], cwd=root,
+        [resolve("git"), "branch", "--list", "rescue/*"], cwd=root,
         capture_output=True, text=True, timeout=60,
     ).stdout
     assert "rescue/" in branches
     # …and the rescue branch still holds the work that was dropped.
     files = subprocess.run(
-        ["git", "show", "--name-only", "--format=", result["rescue_branch"]],
+        [resolve("git"), "show", "--name-only", "--format=", result["rescue_branch"]],
         cwd=root, capture_output=True, text=True, timeout=60,
     ).stdout
     assert "fix.txt" in files

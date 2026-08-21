@@ -1,6 +1,6 @@
 [project]
 name = "ai-venture-studio"
-version = "0.109.0"
+version = "0.110.0"
 description = "AI venture studio: a full-lifecycle multi-agent system that finds opportunities, writes PRDs, builds, launches, and measures — with typed claims and human gates"
 readme = "README.md"
 authors = [
@@ -78,11 +78,67 @@ dev = [
 target-version = "py312"
 extend-exclude = ["blocks", "edition_data", "profiles", "skills"]
 
+# ADR-062 widened this past `F`. The line held is the same one ADR-055 drew:
+# rules that describe code which cannot work, or which works differently from
+# how it reads. Not style. `I` (61), `Q` (37), `ISC` (29), `N` (27), `UP` (24),
+# `SIM` (23) are all deliberately OUT — adopting them reformats hundreds of
+# files in one commit and buries the class of finding this gate exists for.
+#
+# What was added, and why:
+#   B    bugbear — the reason for the widening. 13 `zip()`s with no `strict=`,
+#        a mutable default, and two closures capturing a loop variable. Two of
+#        the zips were live defects: `desync_probe` read a short client stream
+#        as "no divergence", and `check_substantiation` skipped every number
+#        past the register entry's last one.
+#   S    bandit. `S110`/`S112` are a CLAUDE.md rule with no enforcement until
+#        now — "never silently swallow exceptions; log the error or handle it
+#        explicitly" — and src had 15. `S607` is a second such rule ("absolute
+#        executable paths, never partial paths"); it was ignored-with-a-reason
+#        for one afternoon and then fixed at all 152 sites (ADR-064), which is
+#        the only ending an ignore-with-a-reason is supposed to have.
+#   BLE  blind `except Exception`. Zero findings only because every site
+#        already carries `# noqa: BLE001` with a written reason; selecting it
+#        makes the next one require a reason too, which is the whole value.
+#   W    pycodestyle warnings, for W605 (invalid escape sequence in a regex).
+#   A    builtin shadowing. PIE, RET, RSE, PTH, C4, LOG, G, TID: zero or one
+#        finding each, so they cost nothing to hold from here on.
 [tool.ruff.lint]
-select = ["F"]
+select = [
+    "F", "B", "S", "BLE", "W", "A", "PIE", "RET", "RSE", "PTH", "C4",
+    "LOG", "G", "TID",
+]
+
+ignore = [
+    # The rule this encodes — "list argv, never `shell=True`" — is a CLAUDE.md
+    # invariant that IS met: `S602`/`S604`/`S605` (the `shell=True` rules) are
+    # selected above and find nothing. `S603` fires on every correctly-written
+    # `subprocess.run([...])` in the repo and says only "check the input",
+    # which is the reviewer's job and not a fact a linter established.
+    "S603",
+    # Every hit is the NAME of an environment variable — `SENTRY_TOKEN_ENV =
+    # "AUTOPRODUCT_SENTRY_TOKEN"` — matched because the identifier contains
+    # "token". The repo's actual rule ("secrets stay in the environment") is
+    # what produces these constants, so the check fires hardest exactly where
+    # the code is right. A rule that fires on the correct pattern trains
+    # people to skim, and there is no variant of it that does not.
+    "S105", "S106",
+]
 
 [tool.ruff.lint.per-file-ignores]
 # A package __init__ exists to re-export; an unused import there is the job.
 # `lanes/__init__.py` computes `__all__` from `dir()`, which no linter can
 # follow, and the 47 names it lifts are the lanes' public surface.
 "__init__.py" = ["F401"]
+# `typer.Option(...)` in a parameter default is Typer's declared API, not the
+# shared-mutable-default bug B008 describes. Scoped to the CLI so the real
+# B008 shape is still caught everywhere else.
+"src/ai_venture_studio/cli.py" = ["B008"]
+# An assert IS the test. src/ is at zero and stays there — that is the
+# CLAUDE.md rule ("replace all runtime assert statements") under enforcement
+# for the first time, and it only means anything if tests are exempt.
+#
+# S104 (bind all interfaces) and S108 (`/tmp`) are here for the same reason
+# and no wider: a test that asserts on the string `0.0.0.0` or on a path a
+# founder might type is describing the input, not choosing it. Both are still
+# live in src/, where choosing it is what the code would be doing.
+"tests/**" = ["S101", "S104", "S108"]

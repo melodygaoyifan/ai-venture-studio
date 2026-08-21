@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import subprocess
 from dataclasses import dataclass, field
+from ai_venture_studio.executables import resolve
 
 _PR_URL = re.compile(r"^https://github\.com/([^/]+)/([^/]+)/pull/(\d+)")
 
@@ -133,7 +134,7 @@ def fetch_diff(target: str, repo_dir: str = ".") -> ParsedDiff:
         out = forge.fetch_change_diff(target)
     else:
         out = subprocess.run(
-            ["git", "diff", target],
+            [resolve("git"), "diff", target],
             capture_output=True,
             text=True,
             check=True,

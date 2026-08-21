@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 
 from ai_venture_studio.studio import create_studio_app
 from ai_venture_studio.upstream import init_workspace
+from ai_venture_studio.executables import resolve
 
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None, reason="git not on PATH"
@@ -40,7 +41,7 @@ def studio(tmp_path):
 
 
 def _dead_pid() -> int:
-    proc = subprocess.Popen(["true"])
+    proc = subprocess.Popen([resolve("true")])
     proc.wait()
     return proc.pid
 

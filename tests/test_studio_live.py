@@ -11,6 +11,7 @@ from pathlib import Path
 import yaml
 
 from ai_venture_studio.studio_i18n import STRINGS
+from ai_venture_studio.executables import resolve
 
 
 def _t(key):
@@ -24,12 +25,12 @@ def _workspace(tmp_path: Path) -> Path:
     (root / ".mas" / "project.yaml").write_text(
         yaml.safe_dump({"name": "ws", "profile": "web"})
     )
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run([resolve("git"), "init", "-q"], cwd=root, check=True)
     (root / "app").mkdir()
     (root / "app" / "main.py").write_text("print('boot')\n")
-    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run([resolve("git"), "add", "-A"], cwd=root, check=True)
     subprocess.run(
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
+        [resolve("git"), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
         cwd=root, check=True,
     )
     return root

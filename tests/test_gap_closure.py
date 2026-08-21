@@ -7,6 +7,7 @@ from ai_venture_studio.tools.integrity import assertion_delta
 from ai_venture_studio.upstream import init_workspace, run_spec_stage
 from ai_venture_studio.upstream.plan import Task, budget_check, lane_check
 from ai_venture_studio.upstream.spec import approve_scr, load_spec, raise_scr
+from ai_venture_studio.executables import resolve
 
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None, reason="git not on PATH"
@@ -143,7 +144,7 @@ def test_build_retries_after_refused_write(tmp_path):
     (root / "tests" / "test_prior.py").write_text("def test_p():\n    assert True\n")
     import subprocess
 
-    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run([resolve("git"), "add", "-A"], cwd=root, check=True)
     spec = run_spec_stage(root, "an item store API (task:f2)", provider="mock")
     approve_spec(root, spec.slug)
     # Force the spec's skeletons aside so LockBumper's files drive the gate.

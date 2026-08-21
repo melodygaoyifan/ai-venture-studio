@@ -16,6 +16,18 @@ eleven files below predate the field; all eleven are real runs against
 anthropic, which is why an absent `provider:` key is read as real rather than
 as unknown.
 
+**From v0.110.0 a run is bought by a change, not by a date (ADR-063).** This
+series measures the framework's capability, and it costs $67.88 and about five
+hours per reading; the daily scheduler used to fire it when the newest file
+here turned seven days old, whether or not anything had shipped in those seven
+days — run 19 was about to be bought exactly that way. A run is now due when
+the newest file's `avs_version` differs from the running build **and** a week
+has passed, or when 90 days have passed regardless of any of that. The second
+clause is not decoration: the provider changes underneath this system whether
+or not we release, and a criterion that only ever asks after our own edits is
+a criterion that can quietly stop asking. The scheduler now prints which of
+the two rules made the run due, beside the command that spends the money.
+
 | Run | Result file | Code | Build | Probes | Clean | Notes |
 |----|----|----|----|----|----|----|
 | 1 | result-2026-07-23-0507 (lost) | pre-fixes | — | — | — | numbers not preserved |

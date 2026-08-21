@@ -10,9 +10,9 @@ billing, and the button are theirs).
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
+from ai_venture_studio.executables import find
 from ai_venture_studio.upstream.workspace import load_project
 
 _DOCKERFILE = """FROM python:3.12-slim
@@ -48,22 +48,25 @@ def push_web(repo_dir: str | Path) -> dict:
     import subprocess
 
     root = Path(repo_dir).resolve()
-    if not shutil.which("railway"):
+    # The gate already looked `railway` up; from ADR-064 its answer is what
+    # runs, instead of being discarded so PATH can choose again three times.
+    railway = find("railway")
+    if not railway:
         return {"status": "unavailable",
                 "detail": "railway CLI not installed (npm i -g @railway/cli 或 brew install railway)"}
-    who = subprocess.run(["railway", "whoami"], capture_output=True, text=True, timeout=30)
+    who = subprocess.run([railway, "whoami"], capture_output=True, text=True, timeout=30)
     if who.returncode != 0:
         return {"status": "unavailable", "detail": "railway not logged in (run: railway login)"}
     _ship_web(root)  # ensure Dockerfile + guide exist
     if not (root / "railway.json").exists() and not (root / ".railway").exists():
         init = subprocess.run(
-            ["railway", "init", "--name", root.name],
+            [railway, "init", "--name", root.name],
             cwd=root, capture_output=True, text=True, timeout=120,
         )
         if init.returncode != 0:
             return {"status": "error", "detail": f"railway init failed: {(init.stderr or init.stdout)[:200]}"}
     up = subprocess.run(
-        ["railway", "up", "--detach"],
+        [railway, "up", "--detach"],
         cwd=root, capture_output=True, text=True, timeout=600,
     )
     if up.returncode != 0:
@@ -78,8 +81,8 @@ def _ship_web(root: Path) -> Path:
     if not (root / "requirements.txt").exists():
         (root / "requirements.txt").write_text("# stdlib-only by default\n", encoding="utf-8")
 
-    railway = shutil.which("railway") is not None
-    fly = shutil.which("flyctl") is not None
+    railway = find("railway") is not None
+    fly = find("flyctl") is not None
     one_command = (
         "```\nrailway init && railway up\n```\n（railway CLI 已安装，登录后运行即可）"
         if railway
@@ -112,7 +115,8 @@ def setup_miniprogram_tests(repo_dir: str | Path) -> dict:
     import subprocess
 
     root = Path(repo_dir).resolve()
-    if not shutil.which("npm"):
+    npm = find("npm")
+    if npm is None:
         return {"status": "unavailable", "detail": "npm not installed"}
     package = root / "package.json"
     data = json.loads(package.read_text(encoding="utf-8")) if package.exists() else {}
@@ -138,7 +142,7 @@ def setup_miniprogram_tests(repo_dir: str | Path) -> dict:
             encoding="utf-8",
         )
     install = subprocess.run(
-        ["npm", "install", "--no-audit", "--no-fund", "--loglevel=error"],
+        [npm, "install", "--no-audit", "--no-fund", "--loglevel=error"],
         cwd=root, capture_output=True, text=True, timeout=600,
     )
     if install.returncode != 0:

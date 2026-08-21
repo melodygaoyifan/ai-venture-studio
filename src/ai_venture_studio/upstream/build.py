@@ -11,6 +11,7 @@ Bounds: ≤12 files, ≤500 lines each, repo-relative paths only, never
 
 from __future__ import annotations
 
+import logging
 import re
 import subprocess
 import time
@@ -30,6 +31,14 @@ from ai_venture_studio.upstream import progress
 from ai_venture_studio.upstream.spec import Spec, load_spec
 from ai_venture_studio.upstream.workspace import load_project
 from ai_venture_studio.yamlx import extract_mapping
+from ai_venture_studio.executables import resolve
+
+#: Where a deliberate degradation says what it degraded. Every handler
+#: below that skips a row, a page, or a piece of bookkeeping logs here
+#: first: CLAUDE.md forbids swallowing an exception silently, and until
+#: ADR-062 nothing enforced it (`S110`/`S112` found 15). DEBUG, so it is
+#: silent unless asked for — `AVS_DEBUG=1` is the ask.
+_log = logging.getLogger(__name__)
 
 IMPLEMENTER_MARKER = "single-writer implementer in a greenfield product system"
 
@@ -543,7 +552,7 @@ def _reset_workspace(repo: Path, pre_existing: set[str]) -> None:
             except OSError:
                 pass
     subprocess.run(
-        ["git", "checkout", "--", "."], cwd=repo, capture_output=True, timeout=60
+        [resolve("git"), "checkout", "--", "."], cwd=repo, capture_output=True, timeout=60
     )
 
 
@@ -1426,9 +1435,9 @@ def _run_build_inner(
     # Inside the task's own commit, no later rollback can take it.
     if bookkeeping:
         finalize_build_bookkeeping(repo, slug, written)
-    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run([resolve("git"), "add", "-A"], cwd=repo, check=True)
     committed = subprocess.run(
-        ["git", "-c", "user.email=autoproduct@local", "-c", "user.name=autoproduct",
+        [resolve("git"), "-c", "user.email=autoproduct@local", "-c", "user.name=autoproduct",
          "commit", "-qm",
          f"feat({slug}): {spec.title}\n\nImplements spec {slug} (Gate U4 build "
          f"gate passed: {report.summary}). Review with: avs review HEAD~1"],
@@ -1440,7 +1449,7 @@ def _run_build_inner(
             files_written=written, detail=committed.stderr[:300],
         )
     sha = subprocess.run(
-        ["git", "rev-parse", "--short", "HEAD"], cwd=repo, capture_output=True, text=True
+        [resolve("git"), "rev-parse", "--short", "HEAD"], cwd=repo, capture_output=True, text=True
     ).stdout.strip()
 
     try:
@@ -1449,8 +1458,8 @@ def _run_build_inner(
         record_actual(
             repo, task_lane, task_estimate_hours or 1.0, time.monotonic() - started
         )
-    except Exception:  # noqa: BLE001 — bookkeeping never fails a build
-        pass
+    except Exception as exc:  # noqa: BLE001 — bookkeeping never fails a build
+        _log.debug("estimate-vs-actual not recorded for this task: %s", exc)
 
     from ai_venture_studio.tools.wireup import wireup_check
 

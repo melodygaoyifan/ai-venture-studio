@@ -34,11 +34,12 @@ import types
 import pytest
 
 from ai_venture_studio.upstream import autopilot
+from ai_venture_studio.executables import resolve
 
 
 def _git(root, *args):
     return subprocess.run(
-        ["git", *args], cwd=root, capture_output=True, text=True, timeout=60
+        [resolve("git"), *args], cwd=root, capture_output=True, text=True, timeout=60
     )
 
 

@@ -24,8 +24,8 @@ def _fixtures(n=8):
 
 
 def _budget(**over):
-    base = dict(targets=["product/prd-metrics"], budget_rollouts_weekly=3,
-                holdout_fixture_fraction=0.25)
+    base = {"targets": ["product/prd-metrics"], "budget_rollouts_weekly": 3,
+                "holdout_fixture_fraction": 0.25}
     base.update(over)
     return GepaBudget(**base)
 

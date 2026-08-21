@@ -11,11 +11,14 @@ from __future__ import annotations
 import json
 import os
 import platform
-import shutil
 import subprocess
+import urllib.parse
 import urllib.request
+from pathlib import Path
 
 from pydantic import BaseModel, Field
+
+from ai_venture_studio.executables import find
 
 from ai_venture_studio.lanes.perf import PERF_AC
 
@@ -68,7 +71,8 @@ export default function () {{ http.get('{url}'); }}
 
 
 def run_k6(criterion: str, *, url: str, timeout_s: int = 900) -> RunnerReport:
-    if shutil.which("k6") is None:
+    k6 = find("k6")
+    if k6 is None:
         return RunnerReport(
             runner="k6", status="skipped",
             detail="k6 binary not found — install k6 to execute; the script "
@@ -80,11 +84,11 @@ def run_k6(criterion: str, *, url: str, timeout_s: int = 900) -> RunnerReport:
         handle.write(k6_script_from_ac(criterion, url=url))
         script = handle.name
     result = subprocess.run(
-        ["k6", "run", "--summary-export", script + ".json", script],
+        [k6, "run", "--summary-export", script + ".json", script],
         capture_output=True, timeout=timeout_s, text=True)
     summary = {}
     try:
-        summary = json.loads(open(script + ".json").read())
+        summary = json.loads(Path(script + ".json").read_text(encoding="utf-8"))
     except OSError:
         pass
     return RunnerReport(
@@ -115,13 +119,18 @@ def apply_netem(profile: str, *, interface: str = "eth0") -> RunnerReport:
     if profile not in NETEM_PROFILES:
         return RunnerReport(runner="netem", status="error",
                             detail=f"unknown profile {profile!r}")
-    if platform.system() != "Linux" or shutil.which("tc") is None:
+    tc = find("tc")
+    if platform.system() != "Linux" or tc is None:
         return RunnerReport(
             runner="netem", status="skipped",
             detail="netem needs Linux tc — bot playtests under this profile "
                    "are skipped VISIBLY, never assumed to have run",
             data={"command": netem_command(profile, interface=interface)})
-    result = subprocess.run(netem_command(profile, interface=interface),
+    # `netem_command` stays pure and bare — it is the RECORD of what a Linux
+    # host would run, asserted as `["tc", ...]` and shown in skip reports.
+    # What actually reaches the kernel is the resolved binary (ADR-064).
+    argv = netem_command(profile, interface=interface)
+    result = subprocess.run([tc, *argv[1:]],
                             capture_output=True, text=True, timeout=30)
     return RunnerReport(runner="netem",
                         status="ok" if result.returncode == 0 else "error",
@@ -143,12 +152,25 @@ def registry_compat_check(
             detail="SCHEMA_REGISTRY_URL not set — the in-repo field-wise "
                    "compatibility check still gates; the registry adds the "
                    "authoritative second opinion when configured")
-    request = urllib.request.Request(
+    # `urlopen` honours whatever scheme it is handed, and `SCHEMA_REGISTRY_URL`
+    # is an environment variable — `file:///etc/passwd` there would be read and
+    # its bytes handed to `json.loads`, and the check would report on it. The
+    # variable is operator-set rather than attacker-set, so this is a guard and
+    # not an incident; it costs one comparison and it says no in words a
+    # misconfigured operator can act on (ADR-062, S310).
+    scheme = urllib.parse.urlparse(url).scheme.lower()
+    if scheme not in ("http", "https"):
+        return RunnerReport(
+            runner="schema_registry", status="error",
+            detail=f"SCHEMA_REGISTRY_URL must be http or https; got "
+                   f"{scheme or 'no scheme'!r}. A registry is a service over "
+                   f"the network, not a path on this disk.")
+    request = urllib.request.Request(  # noqa: S310 — scheme checked above
         f"{url.rstrip('/')}/compatibility/subjects/{subject}/versions/latest",
         data=json.dumps({"schema": schema_json}).encode(),
         headers={"Content-Type": "application/vnd.schemaregistry.v1+json"})
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
+        with urllib.request.urlopen(request, timeout=10) as response:  # noqa: S310
             body = json.loads(response.read())
     except OSError as exc:
         return RunnerReport(runner="schema_registry", status="error",

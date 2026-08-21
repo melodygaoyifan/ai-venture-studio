@@ -20,6 +20,7 @@ from typer.testing import CliRunner
 
 from ai_venture_studio.cli import app
 from ai_venture_studio.studio_i18n import STRINGS
+from ai_venture_studio.executables import resolve
 
 runner = CliRunner()
 
@@ -67,10 +68,10 @@ def _mapop_like_repo(tmp_path: Path) -> Path:
     )
     (root / ".gitlab-ci.yml").write_text("review:\n  script: [avs review --from-ci]\n")
     (root / "CLAUDE.md").write_text("# Pipeline constraints\n- operator-owned\n")
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run([resolve("git"), "init", "-q"], cwd=root, check=True)
+    subprocess.run([resolve("git"), "add", "-A"], cwd=root, check=True)
     subprocess.run(
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
+        [resolve("git"), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
         cwd=root, check=True,
     )
     return root

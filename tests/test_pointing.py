@@ -40,6 +40,7 @@ from ai_venture_studio.upstream.correction import (
     criterion_owners,
     route_complaint,
 )
+from ai_venture_studio.executables import resolve
 
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None, reason="git not on PATH"
@@ -71,10 +72,10 @@ def _workspace(tmp_path, lang="en"):
     _spec(root, "cart", "Shopping cart", [CART])
     _spec(root, "orders", "Orders", [ORDERS])
     if not (root / ".git").exists():
-        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+        subprocess.run([resolve("git"), "init", "-q"], cwd=root, check=True)
+    subprocess.run([resolve("git"), "add", "-A"], cwd=root, check=True)
     subprocess.run(
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "built"],
+        [resolve("git"), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "built"],
         cwd=root, check=True, capture_output=True,
     )
     client = TestClient(

@@ -380,7 +380,9 @@ def run_product_stage(
     det_findings: list[dict] = []
     feedback = ""
     revision = 0
-    for revision in range(MAX_REVISIONS + 1):
+    # `revision` is read after the loop as the revision count, which is
+    # why it is not `_revision`; B007 does not look past the loop body.
+    for revision in range(MAX_REVISIONS + 1):  # noqa: B007
         raw = provider_impl.complete(
             model=writer_model,
             system=spec.writer_system,

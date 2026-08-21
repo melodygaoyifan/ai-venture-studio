@@ -36,6 +36,7 @@ nothing in it refuses.
 
 from __future__ import annotations
 
+import logging
 import datetime as dt
 import json
 import pathlib
@@ -50,6 +51,13 @@ from ai_venture_studio.observability import (
     load_cost_model,
     month_spend,
 )
+
+#: Where a deliberate degradation says what it degraded. Every handler
+#: below that skips a row, a page, or a piece of bookkeeping logs here
+#: first: CLAUDE.md forbids swallowing an exception silently, and until
+#: ADR-062 nothing enforced it (`S110`/`S112` found 15). DEBUG, so it is
+#: silent unless asked for — `AVS_DEBUG=1` is the ask.
+_log = logging.getLogger(__name__)
 
 LEDGER_FILE = "spend.jsonl"
 
@@ -179,7 +187,9 @@ def read_entries(
             continue
         try:
             entry = SpendEntry(**json.loads(line))
-        except Exception:  # noqa: BLE001 — a bad row is skipped, not fatal
+        except Exception as exc:  # noqa: BLE001 — a bad row is skipped, not fatal
+            _log.debug("skipping an unreadable spend row — money in it is "
+                       "not counted: %s", exc)
             continue
         if month and not entry.at.startswith(month):
             continue

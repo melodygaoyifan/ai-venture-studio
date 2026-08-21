@@ -15,6 +15,7 @@ from ai_venture_studio.upstream.blocks import blocks_context, catalog_summary, m
 from ai_venture_studio.upstream.correction import run_correction
 from ai_venture_studio.upstream.telemetry import generate_digest, read_events
 from ai_venture_studio.upstream.walkthrough import built_criteria
+from ai_venture_studio.executables import resolve
 
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None, reason="git not on PATH"
@@ -78,15 +79,15 @@ def test_walkthrough_covers_every_built_criterion(tmp_path):
 
 def test_correction_fix_path_commits_repair(tmp_path):
     root = _built_workspace(tmp_path)
-    before = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root,
+    before = subprocess.run([resolve("git"), "rev-parse", "HEAD"], cwd=root,
                             capture_output=True, text=True).stdout
     result = run_correction(root, "按钮文字不对，应该是「参加接龙」", provider="mock")
     assert result.status == "fixed", result.detail
-    after = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root,
+    after = subprocess.run([resolve("git"), "rev-parse", "HEAD"], cwd=root,
                            capture_output=True, text=True).stdout
     assert before != after
     assert "corrected per founder" in subprocess.run(
-        ["git", "show", "HEAD"], cwd=root, capture_output=True, text=True
+        [resolve("git"), "show", "HEAD"], cwd=root, capture_output=True, text=True
     ).stdout
 
 
@@ -121,7 +122,7 @@ def test_telemetry_installed_and_digest_reconciles(tmp_path):
     assert (root / "telemetry.py").exists()  # installed post-build
     # A user's product records events…
     subprocess.run(
-        ["python3", "-c",
+        [resolve("python3"), "-c",
          "import telemetry; telemetry.track('order_created'); "
          "telemetry.track('order_created'); telemetry.track('groupbuy_created')"],
         cwd=root, check=True,
@@ -158,8 +159,8 @@ def test_undo_restores_previous_checkpoint(tmp_path):
     root = _built_workspace(tmp_path)  # checkpoint 001 tagged on completion
     marker = root / "extra.txt"
     marker.write_text("later change")
-    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
-    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+    subprocess.run([resolve("git"), "add", "-A"], cwd=root, check=True)
+    subprocess.run([resolve("git"), "-c", "user.email=t@t", "-c", "user.name=t",
                     "commit", "-qm", "later"], cwd=root, check=True)
     tag_checkpoint(root)  # checkpoint 002
     result = undo_last(root)

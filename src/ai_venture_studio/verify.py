@@ -8,10 +8,18 @@ originating voter (§08.1.5 channel table).
 
 from __future__ import annotations
 
+import logging
 from ai_venture_studio.harness.spec_validator import LoadedSkill, VoterSpec
 from ai_venture_studio.providers import ProviderError, get_provider
 from ai_venture_studio.state import VoterFinding
 from ai_venture_studio.yamlx import extract_mapping
+
+#: Where a deliberate degradation says what it degraded. Every handler
+#: below that skips a row, a page, or a piece of bookkeeping logs here
+#: first: CLAUDE.md forbids swallowing an exception silently, and until
+#: ADR-062 nothing enforced it (`S110`/`S112` found 15). DEBUG, so it is
+#: silent unless asked for — `AVS_DEBUG=1` is the ask.
+_log = logging.getLogger(__name__)
 
 VERIFIER_MARKER = "independent verification agent"
 
@@ -81,7 +89,8 @@ def verify_finding(
                 provider_name, model_name = fallback
                 continue
             break
-        except Exception:  # noqa: BLE001 — transient; retry
+        except Exception as exc:  # noqa: BLE001 — transient; retry
+            _log.debug("verifier attempt failed, retrying: %s", exc)
             continue
     # A verifier that cannot run must not silently bless the finding.
     return "NEEDS_RUNTIME"

@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 
 from pydantic import BaseModel
+from ai_venture_studio.executables import find
 
 MAIN_PACKAGE_BUDGET_BYTES = 2 * 1024 * 1024  # platform limit, verify-at-adoption
 _PRIVACY_APIS = ("getUserProfile", "getLocation", "chooseAddress",
@@ -165,7 +166,6 @@ def mp_runtime_check(
     """
     import json
     import pathlib
-    import shutil
     import subprocess
     import tempfile
 
@@ -179,7 +179,12 @@ def mp_runtime_check(
                    "desktop app and runs on macOS/Windows only — it can never "
                    "run in CI. The static loadability gate still applies.",
         )
-    if shutil.which("node") is None:
+    # The guard already looked `node` up and then threw the answer away,
+    # leaving PATH to choose again at the call below — the gap between "we
+    # checked node exists" and "we ran whatever node resolves to now"
+    # (ADR-064). Same lookup, and now its result is what gets run.
+    node = find("node")
+    if node is None:
         return MpRuntimeReport(
             status="skipped",
             detail="node is not on PATH; miniprogram-automator is a node package.",
@@ -212,7 +217,7 @@ def mp_runtime_check(
             driver = pathlib.Path(tmp) / "runtime-check.js"
             driver.write_text(_DRIVER_JS, encoding="utf-8")
             proc = subprocess.run(
-                ["node", str(driver)],
+                [node, str(driver)],
                 cwd=driver_dir,
                 capture_output=True,
                 text=True,

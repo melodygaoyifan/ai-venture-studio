@@ -6,6 +6,7 @@ import pytest
 
 from ai_venture_studio.maintenance.fixpr import generate_fix_pr
 from ai_venture_studio.maintenance.review import Incident, RootCauseResult
+from ai_venture_studio.executables import resolve
 
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None, reason="git not on PATH"
@@ -55,7 +56,7 @@ def test_fix_pr_creates_branch_with_passing_fix(tmp_path):
     assert attempt.branch == "avs/fix-inc9"
     assert attempt.files_changed == ["calc.py"]
     show = subprocess.run(
-        ["git", "show", f"{attempt.branch}:calc.py"],
+        [resolve("git"), "show", f"{attempt.branch}:calc.py"],
         cwd=repo, capture_output=True, text=True, check=True,
     )
     assert "return a + b" in show.stdout
@@ -65,7 +66,7 @@ def test_fix_pr_creates_branch_with_passing_fix(tmp_path):
     # (failed pre-fix) and ships on the branch.
     assert attempt.regression_test == "tests/test_regression_mock.py"
     shipped = subprocess.run(
-        ["git", "show", f"{attempt.branch}:tests/test_regression_mock.py"],
+        [resolve("git"), "show", f"{attempt.branch}:tests/test_regression_mock.py"],
         cwd=repo, capture_output=True, text=True, check=True,
     )
     assert "test_add_regression" in shipped.stdout
@@ -109,7 +110,7 @@ def test_regression_test_dropped_when_it_passes_prefix(tmp_path):
     assert attempt.regression_test is None
     assert "does not reproduce" in attempt.regression_note
     shipped = subprocess.run(
-        ["git", "show", f"{attempt.branch}:tests/test_regression_useless.py"],
+        [resolve("git"), "show", f"{attempt.branch}:tests/test_regression_useless.py"],
         cwd=repo, capture_output=True, text=True,
     )
     assert shipped.returncode != 0  # dropped test never committed
@@ -122,7 +123,7 @@ def test_fix_abandoned_when_tests_still_fail(tmp_path):
     attempt = generate_fix_pr(INCIDENT, ROOT_CAUSE, repo_dir=str(repo), provider="mock")
     assert attempt.status == "abstained"
     branches = subprocess.run(
-        ["git", "branch", "--list", "avs/*"],
+        [resolve("git"), "branch", "--list", "avs/*"],
         cwd=repo, capture_output=True, text=True,
     ).stdout
     assert branches.strip() == ""  # nothing pushed, nothing left behind

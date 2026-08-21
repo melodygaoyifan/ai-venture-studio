@@ -174,6 +174,11 @@ def build_alert(
     for loop in stale:
         state = "has never run" if loop.state == "never_run" else "is overdue"
         lines.append(f"**{loop.name}** {state}.")
+        # The bench costs $67.88 to answer this alert, and since ADR-063 it is
+        # not a timer that raises it. "bench is overdue" asks the reader to
+        # spend that on faith; the sentence beside it says what changed.
+        if getattr(loop, "due_because", ""):
+            lines.append(f"  {loop.due_because}")
         lines.append(f"  `{loop.command}`")
 
     for loop in vacuous:

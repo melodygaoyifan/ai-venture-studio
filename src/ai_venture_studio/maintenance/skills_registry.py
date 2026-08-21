@@ -14,6 +14,7 @@ without changing callers.
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 
@@ -23,6 +24,13 @@ from pydantic import BaseModel, Field
 from ai_venture_studio.maintenance.correlate import _tokens
 from ai_venture_studio.providers import get_provider
 from ai_venture_studio.yamlx import extract_mapping
+
+#: Where a deliberate degradation says what it degraded. Every handler
+#: below that skips a row, a page, or a piece of bookkeeping logs here
+#: first: CLAUDE.md forbids swallowing an exception silently, and until
+#: ADR-062 nothing enforced it (`S110`/`S112` found 15). DEBUG, so it is
+#: silent unless asked for — `AVS_DEBUG=1` is the ask.
+_log = logging.getLogger(__name__)
 
 MATCH_MIN_OVERLAP = 3
 RECURRENCE_THRESHOLD = 3
@@ -69,7 +77,8 @@ def load_registry(repo_dir: str | Path) -> list[LearnedSkill]:
             skills.append(
                 LearnedSkill(**meta, body=match.group(2).strip(), path=str(path))
             )
-        except Exception:  # noqa: BLE001 — a malformed skill never blocks triage
+        except Exception as exc:  # noqa: BLE001 — a malformed skill never blocks triage
+            _log.debug("skipping learned skill %s: %s", path, exc)
             continue
     return skills
 

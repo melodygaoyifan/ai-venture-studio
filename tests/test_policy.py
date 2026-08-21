@@ -11,6 +11,7 @@ from ai_venture_studio.maintenance.review import CONFIDENCE_MIN
 from ai_venture_studio.orchestrator.graph import MAX_REVIEWABLE_LINES
 from ai_venture_studio.policy import _BOUNDS, Policy, PolicyError, load_policy
 from ai_venture_studio.state import Confidence, Severity, VoterFinding
+from ai_venture_studio.executables import resolve
 
 
 def _write(tmp_path, block=None, extra=None):
@@ -136,11 +137,11 @@ def test_maintenance_confidence_floor_is_policy_configurable(tmp_path):
 
     repo = tmp_path / "repo"
     repo.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run([resolve("git"), "init", "-q"], cwd=repo, check=True)
     (repo / "billing.py").write_text("def invoice_total(items):\n    return sum(items)\n")
-    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run([resolve("git"), "add", "."], cwd=repo, check=True)
     subprocess.run(
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm",
+        [resolve("git"), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm",
          "billing: invoice_total over items"], cwd=repo, check=True,
     )
     _write(repo, {"rootcause_confidence_min": 90})

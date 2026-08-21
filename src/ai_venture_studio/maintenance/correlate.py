@@ -12,6 +12,7 @@ import subprocess
 from dataclasses import dataclass
 
 from ai_venture_studio.lexicon import content
+from ai_venture_studio.executables import resolve
 _STOPWORDS = {
     "error", "exception", "traceback", "failed", "failure", "none", "true",
     "false", "line", "file", "call", "recent", "most", "when", "after",
@@ -43,7 +44,7 @@ def _tokens(text: str) -> set[str]:
 def recent_commits(repo_dir: str, days: int = 7, limit: int = 30) -> list[dict]:
     proc = subprocess.run(
         [
-            "git", "log", f"--since={days} days ago", f"--max-count={limit}",
+            resolve("git"), "log", f"--since={days} days ago", f"--max-count={limit}",
             "--name-only", "--pretty=format:%h%x09%s",
         ],
         cwd=repo_dir, capture_output=True, text=True, timeout=30,

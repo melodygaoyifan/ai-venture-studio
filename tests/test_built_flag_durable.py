@@ -14,6 +14,7 @@ import shutil
 import subprocess
 
 import pytest
+from ai_venture_studio.executables import resolve
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git not on PATH")
 
@@ -26,7 +27,7 @@ def test_bookkeeping_is_inside_the_tasks_own_commit():
 
     src = inspect.getsource(build._run_build_inner)
     finalize = src.index("finalize_build_bookkeeping(repo, slug, written)")
-    staged = src.index('"git", "add", "-A"')
+    staged = src.index('resolve("git"), "add", "-A"')
     commit = src.index('f"feat({slug})')
     assert finalize < staged < commit, (
         "the built flag is written outside the commit again — a rollback "
@@ -36,7 +37,7 @@ def test_bookkeeping_is_inside_the_tasks_own_commit():
 
 def _git(root, *args):
     return subprocess.run(
-        ["git", *args], cwd=root, capture_output=True, text=True, timeout=60
+        [resolve("git"), *args], cwd=root, capture_output=True, text=True, timeout=60
     )
 
 

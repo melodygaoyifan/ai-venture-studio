@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Callable
 
 import yaml
+from ai_venture_studio.executables import resolve
 
 MODES = ("founder", "engineer", "enterprise")
 # solo maps to founder rather than sharing a name: the edition is a pipeline
@@ -396,7 +397,7 @@ def build_preflight(root: Path) -> list[dict]:
     # 2 · git identity — commits carry the team's name, not nothing.
     try:
         email = subprocess.run(
-            ["git", "config", "user.email"], cwd=root,
+            [resolve("git"), "config", "user.email"], cwd=root,
             capture_output=True, text=True, timeout=10,
         ).stdout.strip()
     except (OSError, subprocess.TimeoutExpired):

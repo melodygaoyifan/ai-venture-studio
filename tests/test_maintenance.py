@@ -3,18 +3,19 @@ from pathlib import Path
 
 from ai_venture_studio.maintenance import Incident, MaintenanceVerdict, run_maintenance
 from ai_venture_studio.maintenance.correlate import correlate
+from ai_venture_studio.executables import resolve
 
 
 def _repo_with_history(tmp_path: Path) -> Path:
     repo = tmp_path / "proj"
     repo.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run([resolve("git"), "init", "-q"], cwd=repo, check=True)
 
     def commit(name: str, content: str, message: str):
         (repo / name).write_text(content)
-        subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+        subprocess.run([resolve("git"), "add", "-A"], cwd=repo, check=True)
         subprocess.run(
-            ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", message],
+            [resolve("git"), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", message],
             cwd=repo, check=True,
         )
 
@@ -60,7 +61,7 @@ def test_maintenance_escalates_on_low_confidence(tmp_path):
     # Empty repo -> no suspects -> mock root-cause confidence 30 -> escalate.
     repo = tmp_path / "empty"
     repo.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run([resolve("git"), "init", "-q"], cwd=repo, check=True)
     incident = Incident(id="inc2", title="Mystery outage", body="everything is down")
     result = run_maintenance(incident, repo_dir=str(repo), provider="mock")
     assert result.verdict is MaintenanceVerdict.ESCALATE_INCIDENT_UNRESOLVED

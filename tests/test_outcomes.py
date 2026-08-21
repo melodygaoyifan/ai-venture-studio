@@ -42,6 +42,7 @@ from ai_venture_studio.upstream.correction import (
     run_correction,
     run_corrections,
 )
+from ai_venture_studio.executables import resolve
 
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None, reason="git not on PATH"
@@ -75,10 +76,10 @@ def _light(tmp_path, lang="en", *, specs=(("cart", "Shopping cart"),)):
             "test_skeletons": [],
         }), encoding="utf-8")
     if not (root / ".git").exists():
-        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+        subprocess.run([resolve("git"), "init", "-q"], cwd=root, check=True)
+    subprocess.run([resolve("git"), "add", "-A"], cwd=root, check=True)
     subprocess.run(
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "built"],
+        [resolve("git"), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "built"],
         cwd=root, check=True, capture_output=True,
     )
     client = TestClient(
@@ -323,13 +324,13 @@ def test_pressing_it_puts_the_product_back(repaired, monkeypatch):
         create_studio_app(root, spawn=lambda r: 1, provider="mock", lang="en"),
         raise_server_exceptions=False,
     )
-    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root,
+    head = subprocess.run([resolve("git"), "rev-parse", "HEAD"], cwd=root,
                           capture_output=True, text=True).stdout.strip()
 
     client.post("/undo/to", data={"tag": result.checkpoint},
                 follow_redirects=False)
 
-    now = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root,
+    now = subprocess.run([resolve("git"), "rev-parse", "HEAD"], cwd=root,
                          capture_output=True, text=True).stdout.strip()
     assert now != head
     assert checkpoints(root) == before  # the repair's tag went with it
@@ -341,7 +342,7 @@ def test_no_undo_is_offered_when_there_is_nothing_to_go_back_to(
     """The first checkpoint has no earlier one, and `undo_to_before` would
     refuse. A button that refuses when pressed is worse than no button."""
     client, root = _light(tmp_path)
-    subprocess.run(["git", "tag", "ap-checkpoint-001"], cwd=root, check=True)
+    subprocess.run([resolve("git"), "tag", "ap-checkpoint-001"], cwd=root, check=True)
 
     page = _result_page(client, monkeypatch, CorrectionResult(
         status="fixed", spec_slug="cart", reason="repaired", detail="d",

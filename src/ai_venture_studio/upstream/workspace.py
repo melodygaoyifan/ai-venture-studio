@@ -17,6 +17,7 @@ import yaml
 from pydantic import BaseModel
 
 from ai_venture_studio.paths import profiles_root
+from ai_venture_studio.executables import resolve
 
 _PROFILES_DIR = profiles_root()
 
@@ -113,10 +114,10 @@ def init_workspace(
     _scaffold_miniprogram(root, name, profile)
 
     if not (root / ".git").exists():
-        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-        subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+        subprocess.run([resolve("git"), "init", "-q"], cwd=root, check=True)
+        subprocess.run([resolve("git"), "add", "-A"], cwd=root, check=True)
         subprocess.run(
-            ["git", "-c", "user.email=autoproduct@local", "-c", "user.name=autoproduct",
+            [resolve("git"), "-c", "user.email=autoproduct@local", "-c", "user.name=autoproduct",
              "commit", "-qm", f"avs init: {name} ({profile} profile)"],
             cwd=root, check=True,
         )

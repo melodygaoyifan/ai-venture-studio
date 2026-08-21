@@ -49,6 +49,7 @@ from ai_venture_studio.mirror import YamlMirror
 from ai_venture_studio.orchestrator.checkpoint import build_saver, encryption_status
 from ai_venture_studio.state import Severity, VoterFinding, VoterOutput, VoterStatus
 from ai_venture_studio.voters import load_voters
+from ai_venture_studio.executables import resolve
 
 
 def resolve_branch(target: str, repo_dir: str) -> str:
@@ -60,7 +61,7 @@ def resolve_branch(target: str, repo_dir: str) -> str:
     if forge.is_change_request(target):
         return forge.head_branch(target) or ""
     proc = subprocess.run(  # noqa: S603 — fixed argv
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        [resolve("git"), "rev-parse", "--abbrev-ref", "HEAD"],
         cwd=repo_dir, capture_output=True, text=True, timeout=30,
     )
     branch = proc.stdout.strip() if proc.returncode == 0 else ""

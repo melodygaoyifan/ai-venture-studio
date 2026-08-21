@@ -22,6 +22,7 @@ from ai_venture_studio.providers import get_provider, last_response_truncated
 from ai_venture_studio.upstream.discover import load_brief
 from ai_venture_studio.upstream.workspace import load_project
 from ai_venture_studio.yamlx import extract_mapping
+from ai_venture_studio.executables import resolve
 
 PLANNER_MARKER = "task planner in a greenfield product system"
 
@@ -549,7 +550,9 @@ def run_planning(
     dag_issues: list[str] = []
     advisories: list[str] = []
     critics: list[dict] = []
-    for revision in range(MAX_REVISIONS + 1):
+    # `revision` is read after the loop as the revision count, which is
+    # why it is not `_revision`; B007 does not look past the loop body.
+    for revision in range(MAX_REVISIONS + 1):  # noqa: B007
         raw = provider_impl.complete(
             model=planner_model,
             system=planner_system(scope_tier),
@@ -819,7 +822,7 @@ def reconcile_built_flags(repo_dir: str | Path, *, apply: bool = False) -> dict:
     }
     already_flagged = built_task_ids(root)  # one definition of built, shared
     log = subprocess.run(
-        ["git", "log", "--pretty=%s"], cwd=root, capture_output=True,
+        [resolve("git"), "log", "--pretty=%s"], cwd=root, capture_output=True,
         text=True, timeout=60,
     ).stdout
 

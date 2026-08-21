@@ -46,8 +46,29 @@ import subprocess
 import sys
 
 from pydantic import BaseModel, Field
+from ai_venture_studio.executables import find, resolve
 
 WEEKLY = 7
+
+#: The bench is not on a timer any more (ADR-063). It measures the FRAMEWORK's
+#: capability, the framework changes when a release changes it, and a run costs
+#: $67.88 and five hours of API time — so a week passing is not, by itself,
+#: news. Two numbers replace the one:
+#:
+#:   - `BENCH_MIN_SPACING_DAYS`: the floor. Ten releases in a week do not buy
+#:     ten benchmark runs.
+#:   - `BENCH_DRIFT_BACKSTOP_DAYS`: the ceiling, and the reason this is a
+#:     change of cadence rather than a switch that can never fire. The provider
+#:     changes underneath us whether we ship or not, and a criterion that only
+#:     ever asks after OUR edits is blind to that. `LOOP_NAMES`' own comment
+#:     says the rule: a watchdog reporting "all clear" forever is the one thing
+#:     it must never do, and "the version has not changed" is exactly how a
+#:     watchdog gets there.
+#:
+#: Strictly cheaper than the old rule and never more expensive: every run this
+#: schedules, the age-only rule would also have scheduled.
+BENCH_MIN_SPACING_DAYS = WEEKLY
+BENCH_DRIFT_BACKSTOP_DAYS = 90
 
 #: Slack before "due" becomes "overdue". A weekly loop run every Monday is
 #: seven days old the next Monday — due, and entirely healthy. Only a loop
@@ -122,6 +143,13 @@ class LoopStatus(BaseModel):
     #: the artifact predates the distinction. Two opposite responses hid
     #: behind one "nothing to read" until this.
     empty_because: str = ""
+    #: WHY this loop is due, when the answer is not "a week went by". The
+    #: bench costs $67.88 a run and stopped being scheduled by age alone in
+    #: ADR-063; a reader looking at `DUE (9d)` would otherwise have no way to
+    #: tell whether the framework changed or whether the drift backstop simply
+    #: came round. Empty for loops that are still on a plain timer, and empty
+    #: for a loop that is not due — there is nothing to explain.
+    due_because: str = ""
     #: How long `run_due` waits for this loop before giving up. Per loop, not
     #: global: the bench runs for over an hour and everything else runs for
     #: minutes, and one shared ceiling has to be wrong for one of them.
@@ -171,7 +199,10 @@ class LoopStatus(BaseModel):
             if self.next_due:
                 inside += f", next {self.next_due}"
             return f"ok, empty ({inside})" if self.vacuous else f"ok ({inside})"
-        return f"{self.state.upper()} ({self.age_days}d)"
+        said = f"{self.state.upper()} ({self.age_days}d)"
+        # Beside the verdict, not in a second line somewhere: "DUE (9d)" reads
+        # as a timer, and since ADR-063 the bench's timer is not what fired.
+        return f"{said} — {self.due_because}" if self.due_because else said
 
 
 class CadenceReport(BaseModel):
@@ -405,14 +436,90 @@ def _bench_status(
     last, evidence = _latest_dated_file(
         repo_dir / BENCH_RESULTS, "result-*.yaml", skip=skip
     )
-    state, age = _classify(last, today, WEEKLY)
+    cadence, because = _bench_cadence(evidence if last else "")
+    state, age = _classify(last, today, cadence)
     return LoopStatus(
-        name="bench", last_run=last.isoformat() if last else "",
+        name="bench", cadence_days=cadence,
+        last_run=last.isoformat() if last else "",
         age_days=age, state=state, evidence=evidence,
         command=f"avs product-bench --cases-dir {BENCH_CASES}",
         produced=_bench_rates(evidence) if last else "",
+        # Only when it is actually due. A reason attached to an `ok` row is a
+        # sentence explaining something that is not happening.
+        due_because=because if state in {"due", "overdue"} else "",
         timeout_s=BENCH_TIMEOUT_S,
     )
+
+
+def _bench_cadence(evidence: str) -> tuple[int, str]:
+    """How long the bench may go between runs, and what makes it due.
+
+    The old rule was a week on the clock. But this series measures the
+    FRAMEWORK, the framework only moves when a release moves it, and a run
+    costs $67.88 and about five hours of API time. Seven days passing with no
+    release in them buys a second reading of a thing that did not change —
+    and it was about to buy one: run 19 was scheduled to fire on age alone.
+
+    So the reading's own `avs_version` becomes the trigger, with a floor and a
+    ceiling around it:
+
+      - changed build, and at least `BENCH_MIN_SPACING_DAYS` since the last
+        run → due. The floor is there because ten releases in a week are not
+        ten benchmark runs' worth of news.
+      - unchanged build → `BENCH_DRIFT_BACKSTOP_DAYS`. NOT "never". The model
+        underneath this system changes whether or not we ship, and a criterion
+        that only ever asks after our own edits cannot see that. A check that
+        can never fire is the one failure this module names in its own
+        `LOOP_NAMES` comment, and "the version has not changed" is precisely
+        how a watchdog talks itself into it.
+
+    A result file with no `avs_version` (runs before 15) counts as CHANGED —
+    an unknown build is not evidence of the same build, and the direction to
+    fail in is the one that runs the measurement rather than the one that
+    skips it forever.
+
+    Strictly cheaper than the old rule and never more expensive: every run
+    this schedules, a 7-day timer would also have scheduled.
+    """
+    from ai_venture_studio import __version__
+
+    measured_on = _bench_measured_on(evidence)
+    if not measured_on:
+        return BENCH_MIN_SPACING_DAYS, (
+            f"the last reading does not record which build produced it, so it "
+            f"cannot be shown to still describe v{__version__}"
+        )
+    if measured_on != __version__:
+        return BENCH_MIN_SPACING_DAYS, (
+            f"the framework changed since the last reading — measured on "
+            f"v{measured_on}, running v{__version__}"
+        )
+    return BENCH_DRIFT_BACKSTOP_DAYS, (
+        f"no release since the last reading (still v{measured_on}); this is "
+        f"the {BENCH_DRIFT_BACKSTOP_DAYS}-day backstop for provider drift, "
+        f"which moves without us"
+    )
+
+
+def _bench_measured_on(path: str) -> str:
+    """The `avs_version` a result file recorded, or "" if it recorded none.
+
+    Read from the file rather than inferred from its date: a result restored,
+    copied, or re-dated still knows which build produced its numbers, and the
+    date does not.
+    """
+    if not path:
+        return ""
+    import yaml
+
+    try:
+        data = yaml.safe_load(pathlib.Path(path).read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    version = data.get("avs_version")
+    return version.strip() if isinstance(version, str) else ""
 
 
 def result_concerns(repo_dir: str | pathlib.Path) -> list[tuple[str, str]]:
@@ -457,14 +564,27 @@ def _bench_rates(path: str) -> str:
     # A rate over no cases is null, not zero (ADR-053). Saying nothing is
     # the right report for a run with an empty build axis — "build 0%,
     # probes 0%" would be this module deciding something it did not measure.
-    if data.get("build_rate") is None or data.get("probe_pass_rate") is None:
+    #
+    # A NULL PROBE RATE IS NOT THAT. Since ADR-061 a run where every case
+    # failed to build writes `probe_pass_rate: null`, because there was no
+    # product to probe — and requiring both numbers here would blank the
+    # scheduler line for the single worst run the series can produce. Same
+    # trap `bench_criterion` walked into and out of in the same ADR; caught
+    # here by going looking for it rather than by hitting it (ADR-063).
+    if data.get("build_rate") is None:
         return ""
     try:
         build = float(data["build_rate"])
-        probes = float(data["probe_pass_rate"])
     except (KeyError, TypeError, ValueError):
         return ""
-    read = f"build {build:.0%}, probes {probes:.0%}"
+    read = f"build {build:.0%}"
+    if data.get("probe_pass_rate") is None:
+        read += ", probes not measured (nothing built to probe)"
+    else:
+        try:
+            read += f", probes {float(data['probe_pass_rate']):.0%}"
+        except (TypeError, ValueError):
+            return ""
     # A rate averaged over 3 of 4 cases is a different reading from one
     # averaged over 4, and the percentages alone cannot say which it is.
     rates = data.get("rates") if isinstance(data.get("rates"), dict) else {}
@@ -890,14 +1010,22 @@ def install_agent(
     }
     if not load:
         return result
+    # `command` above stays a bare `launchctl …` — it is TEXT, printed for a
+    # human to copy when `--no-load` leaves the arming to them, and an
+    # absolute path in a line someone reads is noise. What goes to the kernel
+    # is resolved (ADR-064). The resolution happens here rather than beside
+    # `command` for the same reason: this branch is macOS by construction,
+    # and `command` is built on Linux too, where the test suite reads it.
+    launchctl = resolve("launchctl")
     # A previous copy must be removed first or bootstrap refuses; a failure
     # here is not an error, since nothing was loaded to remove.
     subprocess.run(  # noqa: S603 — argv list, never a shell
-        ["launchctl", "bootout", f"gui/{_uid()}/{name}"],
+        [launchctl, "bootout", f"gui/{_uid()}/{name}"],
         capture_output=True, text=True, timeout=30, check=False,
     )
     completed = subprocess.run(  # noqa: S603 — argv list, never a shell
-        command, capture_output=True, text=True, timeout=30, check=False,
+        [launchctl, *command[1:]], capture_output=True, text=True,
+        timeout=30, check=False,
     )
     result["loaded"] = completed.returncode == 0
     if completed.returncode != 0:
@@ -1055,10 +1183,16 @@ def uninstall_agent(
     """Remove the LaunchAgent. Absent is success — uninstall is idempotent."""
     name = _label(label)
     path = plist_path or agent_plist_path(name)
-    subprocess.run(  # noqa: S603 — argv list, never a shell
-        ["launchctl", "bootout", f"gui/{_uid()}/{name}"],
-        capture_output=True, text=True, timeout=30, check=False,
-    )
+    # No launchd, nothing loaded, nothing to unload — which is the documented
+    # contract of this function ("absent is success"), now extended one step
+    # to the host that has no `launchctl` at all. Before ADR-064 this raised
+    # `FileNotFoundError` off the bare name on any non-macOS host.
+    launchctl = find("launchctl")
+    if launchctl:
+        subprocess.run(  # noqa: S603 — argv list, never a shell
+            [launchctl, "bootout", f"gui/{_uid()}/{name}"],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
     existed = path.exists()
     if existed:
         path.unlink()

@@ -28,6 +28,7 @@ gate no bot replaces.
 
 from __future__ import annotations
 
+import logging
 import collections
 import json
 import pathlib
@@ -37,6 +38,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pydantic import BaseModel, Field
 
 from ai_venture_studio.lanes.realtime import NETWORK_PROFILES
+
+#: Where a deliberate degradation says what it degraded. Every handler
+#: below that skips a row, a page, or a piece of bookkeeping logs here
+#: first: CLAUDE.md forbids swallowing an exception silently, and until
+#: ADR-062 nothing enforced it (`S110`/`S112` found 15). DEBUG, so it is
+#: silent unless asked for — `AVS_DEBUG=1` is the ask.
+_log = logging.getLogger(__name__)
 
 # A run of identical (state_hash, pos) ticks this long is a softlock: the
 # simulation is advancing time without advancing anything else.
@@ -97,7 +105,9 @@ def parse_session(stream: str) -> list[SessionEvent]:
         if isinstance(payload, dict):
             try:
                 events.append(SessionEvent.model_validate(payload))
-            except Exception:  # noqa: BLE001 — a bad event is not a bad session
+            except Exception as exc:  # noqa: BLE001 — a bad event is not a bad session
+                _log.debug("dropping a session event that will not "
+                           "validate: %s", exc)
                 continue
     return events
 

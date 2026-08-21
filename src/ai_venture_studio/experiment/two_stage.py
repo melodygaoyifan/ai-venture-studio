@@ -80,7 +80,10 @@ def screen_stage1(
     results = benjamini_hochberg(p_values, q=q)
     survivors = [
         v.arm
-        for v, r in zip(variants, results)
+        # strict: BH returns one result per p-value, in input order, and
+        # there is one p-value per variant. Truncating here drops an arm
+        # out of a significance test without saying so.
+        for v, r in zip(variants, results, strict=True)
         if r.significant and v.rate > control.rate
     ]
     return sorted(survivors, key=lambda arm: -next(v.rate for v in variants if v.arm == arm))

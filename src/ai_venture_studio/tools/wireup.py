@@ -69,7 +69,10 @@ def _normalize(path: str) -> tuple:
 def _matches(call: tuple, route: tuple) -> bool:
     if len(call) != len(route):
         return False
-    return all(r == "*" or c == "*" or c == r for c, r in zip(call, route))
+    # strict: the length guard is the line above; `strict=True` keeps the
+    # two from drifting apart if that guard is ever edited.
+    return all(r == "*" or c == "*" or c == r
+               for c, r in zip(call, route, strict=True))
 
 
 def _iter_files(root: Path, suffixes: tuple):

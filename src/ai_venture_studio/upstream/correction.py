@@ -27,6 +27,7 @@ from ai_venture_studio.upstream.spec import (
     write_pending_amendment,
 )
 from ai_venture_studio.yamlx import extract_mapping
+from ai_venture_studio.executables import resolve
 
 CORRECTION_MARKER = "correction router for a founder's plain-language complaint"
 
@@ -609,9 +610,9 @@ def run_correction(
         written = sorted(set(written) | set(batch))
         report = combine_reports(_pytest_in_subprocess(root), run_js_tests(root))
         if report.status not in ("failed", "error"):
-            subprocess.run(["git", "add", "-A"], cwd=root, capture_output=True, timeout=60)
+            subprocess.run([resolve("git"), "add", "-A"], cwd=root, capture_output=True, timeout=60)
             committed = subprocess.run(
-                ["git", "-c", "user.email=autoproduct@local", "-c", "user.name=autoproduct",
+                [resolve("git"), "-c", "user.email=autoproduct@local", "-c", "user.name=autoproduct",
                  "commit", "-qm", f"fix({slug}): founder correction — {complaint[:60]}"],
                 cwd=root, capture_output=True, text=True,
             )
@@ -620,7 +621,7 @@ def run_correction(
                     status="error", spec_slug=slug, kind=kind,
                     reason="no_change", detail="no effective change produced",
                 )
-            sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=root,
+            sha = subprocess.run([resolve("git"), "rev-parse", "--short", "HEAD"], cwd=root,
                                  capture_output=True, timeout=60, text=True).stdout.strip()
             # A repair is a change to the founder's product, so it gets the
             # same checkpoint every other change gets. It did not, and the
@@ -637,8 +638,8 @@ def run_correction(
                 detail=f"repaired in {iteration} attempt(s); files: {', '.join(written)}",
             )
         feedback = report.detail or report.summary
-    subprocess.run(["git", "checkout", "--", "."], cwd=root, capture_output=True, timeout=60)
-    subprocess.run(["git", "clean", "-fdq", "--exclude=.mas", "--exclude=data"],
+    subprocess.run([resolve("git"), "checkout", "--", "."], cwd=root, capture_output=True, timeout=60)
+    subprocess.run([resolve("git"), "clean", "-fdq", "--exclude=.mas", "--exclude=data"],
                    cwd=root, capture_output=True, timeout=60)
     return CorrectionResult(
         status="error", spec_slug=slug, kind=kind, reason="tests_failed",

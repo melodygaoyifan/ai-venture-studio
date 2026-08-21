@@ -114,9 +114,36 @@ def test_both_workflows_run_the_gate():
 def test_the_gate_is_scoped_to_rules_about_code_that_cannot_work():
     """Scope is load-bearing. Selecting style rules here would bury F821 in
     hundreds of formatting findings, and a gate people learn to scroll past
-    is not a gate. If a later change widens `select`, this is the test that
-    asks whether the widening was deliberate."""
+    is not a gate.
+
+    This test used to read `select == ["F"]`, and said of itself: "if a later
+    change widens `select`, this is the test that asks whether the widening
+    was deliberate." ADR-062 widened it and answers here. The answer is yes,
+    and the scope rule survives intact — every family added is about code
+    that misbehaves (`B`, `S`, `BLE`, `RET`, `PIE`, `A`, `LOG`, `G`, `PTH`,
+    `C4`, `RSE`, `TID`), the widening found three live defects on its first
+    run, and it left the codebase at zero findings rather than at a backlog
+    people scroll past.
+
+    What this now pins is the boundary, not the number: the cosmetic families
+    stay out. `E`/`W` line-length and whitespace, `D` docstring formatting,
+    `Q` quote style and `ANN` annotations are the ones that would bury F821,
+    and they are the reason the original narrowness was right.
+    """
     import tomllib
 
     cfg = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
-    assert cfg["tool"]["ruff"]["lint"]["select"] == ["F"]
+    select = cfg["tool"]["ruff"]["lint"]["select"]
+    assert "F" in select, "the family the gate was built for"
+    for cosmetic in ("E", "D", "Q", "ANN", "COM", "EM", "FBT", "ERA"):
+        assert cosmetic not in select, (
+            f"{cosmetic} is about how code is written, not whether it works. "
+            f"Selecting it buries F821 in findings nobody reads, which is the "
+            f"failure ADR-055 drew this boundary to avoid."
+        )
+    # `W` is in, and it is the exception that has to be argued rather than
+    # assumed: the selected `W` rules here are trailing-whitespace and
+    # invalid-escape-sequence, and the second is a real defect (`"\d"` is a
+    # deprecation today and a different string tomorrow). It stays because it
+    # is currently at zero, not because whitespace matters.
+    assert "W605" not in cfg["tool"]["ruff"]["lint"].get("ignore", [])

@@ -4,17 +4,17 @@ from ai_venture_studio.verify import verify_finding
 
 
 def _finding(**overrides) -> VoterFinding:
-    base = dict(
-        voter="correctness",
-        title="Swallowed exception",
-        severity=Severity.HIGH,
-        confidence=Confidence.LIKELY,
-        file_path="app/orders.py",
-        line_start=5,
-        line_end=5,
-        evidence="except Exception: pass",
-        explanation="hides failures",
-    )
+    base = {
+        "voter": "correctness",
+        "title": "Swallowed exception",
+        "severity": Severity.HIGH,
+        "confidence": Confidence.LIKELY,
+        "file_path": "app/orders.py",
+        "line_start": 5,
+        "line_end": 5,
+        "evidence": "except Exception: pass",
+        "explanation": "hides failures",
+    }
     base.update(overrides)
     return VoterFinding(**base)
 

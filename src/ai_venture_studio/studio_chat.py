@@ -22,11 +22,19 @@ Three properties it deliberately keeps:
 
 from __future__ import annotations
 
+import logging
 import datetime as dt
 import json
 from pathlib import Path
 
 from pydantic import BaseModel, Field
+
+#: Where a deliberate degradation says what it degraded. Every handler
+#: below that skips a row, a page, or a piece of bookkeeping logs here
+#: first: CLAUDE.md forbids swallowing an exception silently, and until
+#: ADR-062 nothing enforced it (`S110`/`S112` found 15). DEBUG, so it is
+#: silent unless asked for — `AVS_DEBUG=1` is the ask.
+_log = logging.getLogger(__name__)
 
 #: The six FDR questions, in order. Slot names are stable identifiers — the
 #: prose lives in studio_i18n under `chat_q_<slot>`.
@@ -122,7 +130,8 @@ def load_thread(root: str | Path) -> list[Turn]:
             continue
         try:
             turns.append(Turn(**json.loads(line)))
-        except Exception:  # noqa: BLE001 — a bad row is not a conversation
+        except Exception as exc:  # noqa: BLE001 — a bad row is not a conversation
+            _log.debug("skipping an unreadable turn in the thread: %s", exc)
             continue
     return turns
 

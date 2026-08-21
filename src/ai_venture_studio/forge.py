@@ -18,6 +18,8 @@ import json
 import re
 import subprocess
 
+from ai_venture_studio.executables import resolve
+
 # github.com and GitHub Enterprise Server share the /pull/<n> shape;
 # GitLab (SaaS and self-managed) is unambiguous via /-/merge_requests/<n>.
 GITHUB_PR_URL = re.compile(r"^https://[^/\s]+/[^/\s]+/[^/\s]+/pull/(\d+)$")
@@ -62,9 +64,15 @@ def is_change_request(target: str) -> bool:
 
 
 def _run(argv: list[str], cwd: str | None = None) -> tuple[bool, str]:
+    # Resolved HERE rather than at the six call sites, so `argv[0]` stays the
+    # bare name the message below prints — "`gh` is not installed" is what an
+    # operator can act on, and "`/opt/homebrew/bin/gh` is not installed" is
+    # nonsense. `ExecutableNotFound` is a `FileNotFoundError` precisely so
+    # this handler, written years before it, keeps catching it (ADR-064).
     try:
         proc = subprocess.run(
-            argv, capture_output=True, text=True, timeout=60, cwd=cwd
+            [resolve(argv[0]), *argv[1:]],
+            capture_output=True, text=True, timeout=60, cwd=cwd,
         )
     except FileNotFoundError:
         return False, (
@@ -233,10 +241,11 @@ def fetch_change_diff(target: str) -> str:
     if forge == "gitlab":
         repo_url, iid = _gitlab_parts(target)
         return subprocess.run(
-            ["glab", "mr", "diff", iid, "--repo", repo_url, "--color", "never"],
+            [resolve("glab"), "mr", "diff", iid, "--repo", repo_url,
+             "--color", "never"],
             capture_output=True, text=True, check=True, timeout=120,
         ).stdout
     return subprocess.run(
-        ["gh", "pr", "diff", target],
+        [resolve("gh"), "pr", "diff", target],
         capture_output=True, text=True, check=True, timeout=120,
     ).stdout

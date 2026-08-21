@@ -353,7 +353,10 @@ class MockProvider(Provider):
         paragraph = (match.group(1) if match else user).strip()
         spans = [s.strip() for s in re.split(r"[.。\n]", paragraph) if s.strip()]
         said = {}
-        for slot, span in zip(("who", "actions", "must"), spans):
+        # Deliberately the shorter of the two: a mock reply with fewer than
+        # three spans fills the slots it can and leaves the rest absent,
+        # which is the shape a real underspecified answer has.
+        for slot, span in zip(("who", "actions", "must"), spans, strict=False):
             said[slot] = span
         return yaml.safe_dump(
             {

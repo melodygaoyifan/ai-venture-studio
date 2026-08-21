@@ -63,7 +63,12 @@ def symbol_refs(repo_dir: str | Path, symbol: str, max_results: int = 60) -> str
         rel = path.relative_to(root)
         source_lines = source.splitlines()  # once per file (PR #15 review)
 
-        def _line(node) -> str:
+        # `source_lines` and `rel` are bound as defaults rather than closed
+        # over: this helper is redefined every iteration and only called
+        # within it, so the late binding is harmless TODAY and would stop
+        # being harmless the moment anyone deferred a call — which is the
+        # kind of edit nobody makes on purpose (ADR-062).
+        def _line(node, *, source_lines=source_lines, rel=rel) -> str:
             row = node.start_point[0]
             text = source_lines[row].decode("utf-8", "replace").strip()
             return f"{rel}:{row + 1}: {text[:160]}"

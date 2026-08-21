@@ -27,6 +27,7 @@ from ai_venture_studio.orchestrator.checkpoint import (
     encryption_status,
 )
 from ai_venture_studio.secrets import SecretError
+from ai_venture_studio.executables import resolve
 
 SKILLS = str(Path(__file__).parent.parent / "skills" / "deploy")
 
@@ -42,11 +43,11 @@ def _diff(path: str, *added: str) -> str:
 def _repo_with_history(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run([resolve("git"), "init", "-q"], cwd=repo, check=True)
     (repo / "billing.py").write_text("def invoice_total(items):\n    return sum(items)\n")
-    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run([resolve("git"), "add", "."], cwd=repo, check=True)
     subprocess.run(
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm",
+        [resolve("git"), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm",
          "billing: invoice_total over items"],
         cwd=repo, check=True,
     )

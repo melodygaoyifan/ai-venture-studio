@@ -80,7 +80,7 @@ def load_reference_prices(path: str | pathlib.Path | None = None) -> ReferencePr
         stale_after_days=int(raw.get("stale_after_days", 90)),
         sources=dict(raw.get("sources") or {}),
         entries=[
-            PriceEntry(model=name, **{k: v for k, v in (body or {}).items()})
+            PriceEntry(model=name, **(body or {}))
             for name, body in sorted((raw.get("prices") or {}).items())
         ],
     )

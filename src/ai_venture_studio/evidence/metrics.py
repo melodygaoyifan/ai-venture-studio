@@ -60,7 +60,7 @@ def load_metric_vocabulary(
         spec = raw.get("metric")
         if not isinstance(spec, dict) or not spec.get("id"):
             raise MetricVocabularyError(f"{path.name}: front-matter lacks metric.id")
-        definition = MetricDefinition(**{k: v for k, v in spec.items()})
+        definition = MetricDefinition(**spec)
         vocabulary[definition.id] = definition
     return vocabulary
 

@@ -129,10 +129,12 @@ class ApiSurfaceIssue(BaseModel):
 
 
 def api_surface_check(
-    declared: list[str], current: list[str], *, deprecated: dict[str, str] = {}
+    declared: list[str], current: list[str], *,
+    deprecated: dict[str, str] | None = None,
 ) -> list[ApiSurfaceIssue]:
     """§81.3 — the built product's API gets the §74.2 treatment: removing a
     declared surface without a deprecation window is a contract break."""
+    deprecated = deprecated or {}
     issues = []
     for route in declared:
         if route not in current and route not in deprecated:

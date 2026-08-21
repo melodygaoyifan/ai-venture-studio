@@ -12,6 +12,7 @@ from ai_venture_studio.upstream.build import (
     _preserve_failed_attempt,
     _reset_workspace,
 )
+from ai_venture_studio.executables import resolve
 
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None, reason="git not on PATH"
@@ -135,7 +136,7 @@ def test_boot_gate_leaves_no_worker_serving_behind_it(tmp_path):
     assert _boot_gate(tmp_path) is None  # the parent did listen
 
     survivors = subprocess.run(
-        ["pgrep", "-f", "pretend-worker"], capture_output=True, text=True
+        [resolve("pgrep"), "-f", "pretend-worker"], capture_output=True, text=True
     )
     assert "pretend-worker" not in survivors.stdout, (
         "a forked worker outlived the boot gate and is still holding its port"
@@ -144,7 +145,7 @@ def test_boot_gate_leaves_no_worker_serving_behind_it(tmp_path):
 
 def _git(repo, *args):
     subprocess.run(
-        ["git", "-c", "user.email=t@local", "-c", "user.name=t", *args],
+        [resolve("git"), "-c", "user.email=t@local", "-c", "user.name=t", *args],
         cwd=repo, check=True, capture_output=True,
     )
 
@@ -172,7 +173,7 @@ def test_preserve_and_reset_after_failed_in_place_build(tmp_path):
     assert (tmp_path / "a.py").read_text() == "original\n"
     assert not (tmp_path / "new_module").exists()
     status = subprocess.run(
-        ["git", "status", "--porcelain"], cwd=tmp_path,
+        [resolve("git"), "status", "--porcelain"], cwd=tmp_path,
         capture_output=True, text=True,
     ).stdout
     assert status.strip() == ""

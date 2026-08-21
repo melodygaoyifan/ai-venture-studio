@@ -13,6 +13,7 @@ from ai_venture_studio.upstream import init_workspace
 from ai_venture_studio.upstream.autopilot import run_autopilot
 from ai_venture_studio.upstream.correction import run_correction
 from ai_venture_studio.upstream.walkthrough import generate_walkthrough
+from ai_venture_studio.executables import resolve
 
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None, reason="git not on PATH"
@@ -84,7 +85,7 @@ def test_correction_repair_iterates_to_success(tmp_path):
     result = run_correction(root, "按钮文字不对", provider="two_attempt_repairer")
     assert result.status == "fixed", result.detail
     assert "2 attempt(s)" in result.detail
-    show = subprocess.run(["git", "show", "HEAD"], cwd=root,
+    show = subprocess.run([resolve("git"), "show", "HEAD"], cwd=root,
                           capture_output=True, text=True).stdout
     assert "repaired on attempt 2" in show
 

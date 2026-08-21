@@ -7,6 +7,7 @@ import yaml
 
 from ai_venture_studio.orchestrator import run_review
 from ai_venture_studio.testing import run_test_gate
+from ai_venture_studio.executables import resolve
 
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None, reason="git not on PATH"
@@ -210,7 +211,7 @@ def test_a_killed_suite_does_not_leave_a_server_running(tmp_path, monkeypatch):
     # grandchild had survived, _run's second communicate() would have blocked
     # here instead of returning.
     survivors = subprocess.run(
-        ["pgrep", "-g", "0", "-f", "time.sleep(300)"], capture_output=True, text=True
+        [resolve("pgrep"), "-g", "0", "-f", "time.sleep(300)"], capture_output=True, text=True
     )
     assert "time.sleep(300)" not in survivors.stdout
 

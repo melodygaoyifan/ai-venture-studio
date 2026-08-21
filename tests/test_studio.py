@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from ai_venture_studio.studio import create_studio_app
 from ai_venture_studio.upstream import init_workspace
+from ai_venture_studio.executables import resolve
 
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None, reason="git not on PATH"
@@ -273,9 +274,9 @@ def test_every_page_the_studio_can_render_is_english_only(tmp_path):
         "slug": "tasks", "title": "Task list", "built": True,
         "criteria": ["The system shall list items."],
     }), encoding="utf-8")
-    sp.run(["git", "init", "-q"], cwd=root, check=True)
-    sp.run(["git", "add", "-A"], cwd=root, check=True)
-    sp.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+    sp.run([resolve("git"), "init", "-q"], cwd=root, check=True)
+    sp.run([resolve("git"), "add", "-A"], cwd=root, check=True)
+    sp.run([resolve("git"), "-c", "user.email=t@t", "-c", "user.name=t",
             "commit", "-qm", "feat(tasks): one"], cwd=root, check=True)
     from ai_venture_studio.upstream.autopilot import tag_checkpoint
 

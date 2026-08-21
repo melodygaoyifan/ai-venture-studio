@@ -30,11 +30,19 @@ narrate itself without this module knowing what a terminal is.
 
 from __future__ import annotations
 
+import logging
 import datetime as dt
 import json
 import pathlib
 import threading
 from collections.abc import Callable
+
+#: Where a deliberate degradation says what it degraded. Every handler
+#: below that skips a row, a page, or a piece of bookkeeping logs here
+#: first: CLAUDE.md forbids swallowing an exception silently, and until
+#: ADR-062 nothing enforced it (`S110`/`S112` found 15). DEBUG, so it is
+#: silent unless asked for — `AVS_DEBUG=1` is the ask.
+_log = logging.getLogger(__name__)
 
 JOURNAL_FILE = "progress.jsonl"
 
@@ -86,8 +94,9 @@ def step(
     if _sink is not None:
         try:
             _sink(f"  {task_id} · {stage}: {detail}")
-        except Exception:  # noqa: BLE001 — a broken console never fails a build
-            pass
+        except Exception as exc:  # noqa: BLE001 — a broken console never fails a build
+            _log.debug("progress sink refused a line; the journal below "
+                       "still gets it: %s", exc)
     try:
         path = _journal(repo_dir)
         path.parent.mkdir(parents=True, exist_ok=True)

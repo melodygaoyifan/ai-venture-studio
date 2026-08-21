@@ -25,6 +25,7 @@ from ai_venture_studio.automation import (
     read_log,
     record,
 )
+from ai_venture_studio.executables import resolve
 
 FUTURE = (datetime.date.today() + datetime.timedelta(days=90)).isoformat()
 PAST = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
@@ -324,14 +325,14 @@ def test_deploy_review_records_the_branch_it_covers(tmp_path, monkeypatch):
 
     repo = tmp_path / "repo"
     repo.mkdir()
-    subprocess.run(["git", "init", "-q", "-b", "release-42"], cwd=repo, check=True)
+    subprocess.run([resolve("git"), "init", "-q", "-b", "release-42"], cwd=repo, check=True)
     (repo / "helm").mkdir()
     # A branch only exists once something is committed on it: before that,
     # `rev-parse --abbrev-ref HEAD` fails and resolve_branch returns "".
     (repo / "README").write_text("x")
-    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run([resolve("git"), "add", "."], cwd=repo, check=True)
     subprocess.run(
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
+        [resolve("git"), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
         cwd=repo, check=True,
     )
     result = run_deploy_review(

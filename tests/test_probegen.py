@@ -10,6 +10,7 @@ import pytest
 
 from ai_venture_studio.upstream import init_workspace
 from ai_venture_studio.upstream.probegen import generate_probes, verify_product
+from ai_venture_studio.executables import resolve
 
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None, reason="git not on PATH"
@@ -53,7 +54,7 @@ def _workspace_with_product(tmp_path):
         "test_skeletons: []\nbuilt: true\n"
     )
     (root / "routes.py").write_text('@app.get("/")\ndef home(): ...\n')
-    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run([resolve("git"), "add", "-A"], cwd=root, check=True)
     return root
 
 
@@ -111,7 +112,7 @@ def test_a_finished_probe_leaves_no_worker_holding_the_port(tmp_path):
     assert done.returncode == 0, done.stderr
 
     survivors = subprocess.run(
-        ["pgrep", "-f", "forked-worker"], capture_output=True, text=True
+        [resolve("pgrep"), "-f", "forked-worker"], capture_output=True, text=True
     )
     assert "forked-worker" not in survivors.stdout, (
         "a worker outlived the probe and is still holding the product's port"

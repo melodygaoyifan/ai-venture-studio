@@ -22,6 +22,8 @@ from pathlib import Path
 
 import yaml
 
+from ai_venture_studio.executables import find
+
 CLOUD_CATALOG = {
     "web": {
         "name": "Supabase / Postgres",
@@ -140,26 +142,29 @@ def auto_provision_cloud(repo_dir: str | Path, profile: str) -> dict:
     degrades to the guided SERVICES.md path, visibly. 微信云开发 has no
     public provisioning CLI: guided-only by platform constraint."""
     import json
-    import shutil
     import subprocess
 
     root = Path(repo_dir).resolve()
     if profile != "web":
         return {"status": "guided_only",
                 "detail": "此平台没有公开的自动开通接口，请按 SERVICES.md 手动开通"}
-    if not shutil.which("supabase"):
+    # One lookup, and its answer is what gets run (ADR-064) — the guard used
+    # to resolve `supabase` and then throw the path away, leaving PATH to
+    # choose again, twice, on the calls below.
+    supabase = find("supabase")
+    if not supabase:
         return {"status": "unavailable",
                 "detail": "supabase CLI not installed (brew install supabase/tap/supabase) "
                 "— guided path in SERVICES.md still works"}
     projects = subprocess.run(
-        ["supabase", "projects", "list", "--output", "json"],
+        [supabase, "projects", "list", "--output", "json"],
         capture_output=True, text=True, timeout=60,
     )
     if projects.returncode != 0:
         return {"status": "unavailable",
                 "detail": "supabase CLI not logged in (supabase login)"}
     created = subprocess.run(
-        ["supabase", "projects", "create", root.name, "--output", "json"],
+        [supabase, "projects", "create", root.name, "--output", "json"],
         capture_output=True, text=True, timeout=300,
     )
     if created.returncode != 0:

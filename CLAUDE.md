@@ -56,5 +56,5 @@ learned section below.
 ## Learned constraints (autoproduct)
 
 - Replace all runtime assert statements with explicit conditional checks that raise appropriate exceptions. <!-- 2026-07-22: B101 assert_used appeared 13 times, the most frequent recurring finding. -->
-- Invoke subprocesses with absolute executable paths and explicit argument lists, never with partial paths or shell=True. <!-- 2026-07-22: B603 (8) and B607 (7) subprocess findings recur across reviews and drove the security escalations. -->
+- Invoke subprocesses with absolute executable paths and explicit argument lists, never with partial paths or shell=True. Resolve the executable through `ai_venture_studio.executables` — `resolve(name)` when the run cannot proceed without it, `find(name)` when absence is an expected answer and the caller reports `skipped`. Never a bare name in argv[0]; ruff `S607` enforces it. A command *displayed* for a human to copy is text and stays bare (ADR-064). <!-- 2026-07-22: B603 (8) and B607 (7) subprocess findings recur across reviews and drove the security escalations. 2026-08-21: enforced at all 152 sites, ADR-064. -->
 - Never silently swallow exceptions with try/except/continue; log the error or handle it explicitly. <!-- 2026-07-22: B112 try_except_continue recurred 2 times, hiding failures. -->

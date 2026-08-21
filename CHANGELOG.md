@@ -4,6 +4,152 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.110.0 — the gate that stopped asking, the timer that kept buying
+
+The other two answers to the same question v0.109.0 opened. That release swept
+the source and mined the result files; this one turns to the two **controls**
+themselves — the linter that had been asking one question for 54 releases, and
+the scheduler that was about to spend $67.88 because a week had gone by. The
+widened linter then produced a third change of its own (ADR-064): the one rule
+it was not ready to enforce, enforced.
+
+### ADR-062 — an ignore is a decision
+
+ADR-055 added the first linter and drew it narrow on purpose, with a test that
+said of itself: *"if a later change widens `select`, this is the test that asks
+whether the widening was deliberate."* It was never revisited. Meanwhile
+CLAUDE.md carried three invariants stated in prose with no mechanism behind
+them at all — no runtime asserts, no silently swallowed exceptions, absolute
+executable paths.
+
+`select` is now the fourteen families about code that **misbehaves**
+(`F B S BLE W A PIE RET RSE PTH C4 LOG G TID`). The cosmetic ones stay out, and
+the scope test pins that boundary rather than a count. It landed at **zero
+findings**, not a backlog: a gate that arrives with a list to work through
+later is the gate ADR-055 refused.
+
+Three defects, each confirmed live against the **installed** v0.109.0 before a
+fix was written:
+
+- **A desync probe that passed a client which had stopped producing.**
+  `desync_probe` zipped the two hash streams and read the common prefix — and a
+  stream that stops has no divergence in that prefix. Four server hashes
+  against two client hashes returned `passed=True, detail='no divergence'`. The
+  most complete desync available, green, from the probe built to catch it.
+- **An unsubstantiated number leaving through the substantiation check.**
+  `zip(draft_numbers, register_numbers)` stopped at the shorter side, so
+  `"Teams ship 40% faster across 12000 sessions."` against a register entry
+  carrying one figure returned `[]`. The 12000 was checked against nothing.
+  Now its own `unsubstantiated_number` rule — drift means correct the figure,
+  this means substantiate it or cut it.
+- **`silent behavior change: divergence at tick None`** — `cross_build_replay`
+  on two streams that agree and then one stops. It now says which build stopped
+  and after how many ticks.
+
+`S110`/`S112` found **fifteen** silently swallowed exceptions, the CLAUDE.md
+rule that had never had an enforcer. Twelve modules gained a logger and each
+handler now names what it lost (`skipping an unreadable spend row — money in it
+is not counted: …`), and **`AVS_DEBUG=1`** gives them a reader: fifteen
+handlers logging into a logger with no handler would have been ADR-060's own
+defect wearing a different hat. Off by default and it stays off — these go to
+stderr and the CLI's real output is Rich on stdout.
+
+`S310` found `urlopen` taking `SCHEMA_REGISTRY_URL` at its word, scheme
+included; `file:///etc/passwd` there would have been read and handed to
+`json.loads`. Operator-set rather than attacker-set, so a guard rather than an
+incident, and it now refuses in words an operator can act on.
+
+`S607` was the one deferral, and it did not survive the week — see ADR-064
+below. It was ignored **with the deferral written down**, naming the real fix
+in the file where the ignore lived; the founder read it there and said fix all.
+That is the sequence this ADR argues for, working once: an ignore-with-a-reason
+is a decision someone can overrule, and a bare `"S607",` would still be sitting
+in the file.
+
+### ADR-063 — the bench is not on a timer
+
+The product-bench costs $67.88 and about five hours of API time, and it was
+scheduled exactly like the two loops that cost nothing: seven days since the
+last dated result. Run 19 was about to be bought on that basis, over a
+framework that had not necessarily changed. Days are a proxy for what this
+series actually measures, and the proxy breaks in both directions — it buys
+runs over an unchanged system, and it reads `ok, 4d` while the numbers came
+from nine releases ago.
+
+Due is now: the reading's own `avs_version` differs from the running build
+**and** at least 7 days have passed, **or** 90 days have passed regardless.
+The second clause is the load-bearing one. "Run it when the version changes" is
+one sentence away from a watchdog that reports all clear forever — the exact
+failure `cadence.py` names in its own source — so a test asserts the backstop
+is a number and not infinity, because the way it becomes "never" is not a code
+change but someone setting it to 3650 "for now". A result with no
+`avs_version` counts as **changed**; an unknown build is not evidence of the
+same build.
+
+Strictly cheaper and never more expensive: every date the new rule fires, the
+old timer would have fired too — walked over 120 days of fixture rather than
+asserted in prose. `LoopStatus.due_because` carries the reason into the table,
+into `run_due`, and into the alert beside the command, because `DUE (9d)` reads
+as a timer and a timer is no longer what raises it.
+
+Found in the same module on the way, by looking rather than by hitting it: an
+ADR-061 aftershock where `_bench_rates` required both rates and so would have
+blanked the scheduler line entirely for a run with a null probe rate — the
+single worst reading the series can produce.
+
+### ADR-064 — one lookup with a name on it
+
+ADR-062's deferral, taken up in the same release. **152 subprocess invocations
+handed the kernel a bare name and let `PATH` decide** — 60 in `src/`, 92 in
+`tests/`, 44 of them `git`, the rest `gh`, `glab`, `npm`, `node`, `railway`,
+`supabase`, `k6`, `uv`, `launchctl`, `tc`, `pgrep`. CLAUDE.md has said
+"absolute executable paths, never partial paths" since the first commit, and
+half the rule was true everywhere: `shell=True` appears nowhere, every call
+passes a list. The other half was true nowhere.
+
+It is not pedantry in this codebase. The system runs `git` inside a workspace
+it has just generated from model output, and runs `npm install` in that same
+workspace. The list-argv rule stops an *argument* becoming a command; nothing
+stopped a *command* becoming a different command.
+
+One module, `ai_venture_studio.executables`, and two functions — because
+absence means two different things. `git` missing is a broken environment and
+`resolve` raises; `k6` missing is an ordinary Tuesday and `find` returns `None`
+so the lane reports `skipped` with the script it would have run in the record.
+
+The load-bearing decision is that **`ExecutableNotFound` subclasses
+`FileNotFoundError`** — exactly what `subprocess` raised before this module
+existed. `forge._run`, `github._gh` and several lanes were written years
+earlier and catch it to degrade to a note; a resolver that turned a handled
+degradation into an unhandled crash would have been a worse bug than the one it
+fixed. It is deliberately uncached, and honest about its limit: `shutil.which`
+still searches `PATH`, so the claim is *one lookup with a name on it*, not
+*no `PATH`*.
+
+Three distinctions the conversion had to make. A command **displayed** for a
+human stays bare — `avs cadence` prints a `launchctl bootstrap …` line to copy,
+and `netem_command()` records the exact `tc` invocation a Linux host would run
+— while a command **executed** is resolved. Where a `shutil.which` guard
+already existed, its answer is now what runs, instead of being discarded so
+`PATH` could choose again three lines later and three more times. And `_run`
+resolves `argv[0]` itself, so the "`gh` is not installed" message it prints
+does not turn into a machine-specific path.
+
+`S607` is deleted from `ignore` rather than grandfathered, and a test walks
+`src/` with `ast` and fails on any bare-name argv head — the rule is held by
+the shape of the code, not only by the config.
+
+One consequence worth naming, because the suite caught it and a reviewer would
+not have: resolving before `subprocess.run` **moves the test seam**.
+`test_forge.py` declares itself hermetic — "nothing here touches a network or
+requires either CLI installed" — and it intercepted `subprocess.run`, which is
+now one frame too late. `glab` is not installed on the development machine, so
+six of its tests silently stopped exercising dispatch and took the "not
+installed" branch instead. CI would have gone green: GitHub's runners ship `gh`
+but not `glab`, so the GitHub half would have kept passing and the GitLab half
+would have been quietly untested. The file now fakes `PATH` too and asserts on
+the tool's name rather than a machine-specific path.
+
 ## v0.109.0 — finding the issues that are already here
 
 Asked why the system needs endless batch running when the existing issues

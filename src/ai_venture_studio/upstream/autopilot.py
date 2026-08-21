@@ -14,6 +14,7 @@ Output: product/BUILD-REPORT.md in the FDR's language.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import yaml
@@ -85,6 +86,13 @@ from ai_venture_studio.upstream.spec import (
 )
 from ai_venture_studio.upstream.build import run_build
 from ai_venture_studio.yamlx import extract_mapping
+
+#: Where a deliberate degradation says what it degraded. Every handler
+#: below that skips a row, a page, or a piece of bookkeeping logs here
+#: first: CLAUDE.md forbids swallowing an exception silently, and until
+#: ADR-062 nothing enforced it (`S110`/`S112` found 15). DEBUG, so it is
+#: silent unless asked for — `AVS_DEBUG=1` is the ask.
+_log = logging.getLogger(__name__)
 
 REPORTER_MARKER = "plain-language reporter for non-technical founders"
 
@@ -961,7 +969,9 @@ def _resume_outcomes(root: Path) -> list[TaskOutcome]:
     for row in rows if isinstance(rows, list) else []:
         try:
             outcome = TaskOutcome.model_validate(row)
-        except Exception:  # noqa: BLE001 — a bad row is not a built task
+        except Exception as exc:  # noqa: BLE001 — a bad row is not a built task
+            _log.debug("resume: dropping an outcome row that will not "
+                       "validate, so its task is redone: %s", exc)
             continue
         if outcome.status == "built" and outcome.task_id not in on_disk:
             continue  # claimed built, is not: redo it
@@ -1020,8 +1030,9 @@ def refresh_evidence(
                 yaml.safe_dump(shots.model_dump(), sort_keys=False, allow_unicode=True),
                 encoding="utf-8",
             )
-    except Exception:  # noqa: BLE001 — artifacts never fail the build
-        pass
+    except Exception as exc:  # noqa: BLE001 — artifacts never fail the build
+        _log.debug("verification/screenshot artifacts skipped for this "
+                   "build: %s", exc)
 
 
 def _post_build_artifacts(
@@ -1039,8 +1050,9 @@ def _post_build_artifacts(
         from ai_venture_studio.upstream.workspace import load_project
 
         install_telemetry(root, load_project(root).profile)
-    except Exception:  # noqa: BLE001 — artifacts never fail the build
-        pass
+    except Exception as exc:  # noqa: BLE001 — artifacts never fail the build
+        _log.debug("telemetry was not installed into the product — its "
+                   "success metrics will have no events to read: %s", exc)
     refresh_evidence(root, provider=provider, model=model, fdr_text=fdr_text)
     if status == "completed":
         tag_checkpoint(root)
@@ -1059,11 +1071,11 @@ def tag_checkpoint(root: Path) -> str:
     import subprocess
 
     existing = subprocess.run(
-        ["git", "tag", "--list", "ap-checkpoint-*"], cwd=root,
+        [resolve("git"), "tag", "--list", "ap-checkpoint-*"], cwd=root,
         capture_output=True, timeout=60, text=True,
     ).stdout.split()
     name = f"ap-checkpoint-{len(existing) + 1:03d}"
-    subprocess.run(["git", "tag", name], cwd=root, capture_output=True, timeout=60)
+    subprocess.run([resolve("git"), "tag", name], cwd=root, capture_output=True, timeout=60)
     try:
         from ai_venture_studio.upstream.requirements import write_baseline
 
@@ -1078,7 +1090,7 @@ def checkpoints(root: Path) -> list[str]:
     import subprocess
 
     return subprocess.run(
-        ["git", "tag", "--list", "ap-checkpoint-*", "--sort=version:refname"],
+        [resolve("git"), "tag", "--list", "ap-checkpoint-*", "--sort=version:refname"],
         cwd=root, capture_output=True, timeout=60, text=True,
     ).stdout.split()
 
@@ -1100,18 +1112,18 @@ def checkpoint_log(root: Path) -> list[dict]:
     entries: list[dict] = []
     for index, tag in enumerate(tags):
         subject = subprocess.run(
-            ["git", "log", "-1", "--format=%s", tag],
+            [resolve("git"), "log", "-1", "--format=%s", tag],
             cwd=root, capture_output=True, timeout=60, text=True,
         ).stdout.strip()
         when = subprocess.run(
-            ["git", "log", "-1", "--format=%ci", tag],
+            [resolve("git"), "log", "-1", "--format=%ci", tag],
             cwd=root, capture_output=True, timeout=60, text=True,
         ).stdout.strip()[:16]
         previous = tags[index - 1] if index else ""
         commits = 0
         if previous:
             counted = subprocess.run(
-                ["git", "rev-list", "--count", f"{previous}..HEAD"],
+                [resolve("git"), "rev-list", "--count", f"{previous}..HEAD"],
                 cwd=root, capture_output=True, timeout=60, text=True,
             ).stdout.strip()
             commits = int(counted) if counted.isdigit() else 0
@@ -1147,16 +1159,16 @@ def undo_to_before(root: Path, tag: str) -> dict:
                 "detail": "只有一个版本，暂时没有可回退的更早版本。"
                           " / no earlier version to return to."}
     rescue = f"rescue/{int(_time.time())}"
-    subprocess.run(["git", "branch", rescue], cwd=root, capture_output=True, timeout=60)
+    subprocess.run([resolve("git"), "branch", rescue], cwd=root, capture_output=True, timeout=60)
     target = tags[index - 1]
     reset = subprocess.run(
-        ["git", "reset", "--hard", target], cwd=root, capture_output=True, timeout=60, text=True
+        [resolve("git"), "reset", "--hard", target], cwd=root, capture_output=True, timeout=60, text=True
     )
     if reset.returncode != 0:
         return {"status": "error", "detail": reset.stderr[:200]}
     dropped = tags[index:]
     for stale in dropped:
-        subprocess.run(["git", "tag", "-d", stale], cwd=root, capture_output=True, timeout=60)
+        subprocess.run([resolve("git"), "tag", "-d", stale], cwd=root, capture_output=True, timeout=60)
     return {"status": "undone", "restored_to": target, "rescue_branch": rescue,
             "dropped": dropped}
 
@@ -1521,9 +1533,9 @@ def _fix_iteration(root: Path, provider: str, model: str, findings):
         # repair pass had just created. Undo it and say which files were
         # refused, so the next reviewer sees the original code and the row
         # names the wall instead of blaming the product.
-        subprocess.run(["git", "checkout", "--", "."], cwd=root,
+        subprocess.run([resolve("git"), "checkout", "--", "."], cwd=root,
                        capture_output=True, timeout=60)
-        subprocess.run(["git", "clean", "-qfd", "--", *written],
+        subprocess.run([resolve("git"), "clean", "-qfd", "--", *written],
                        cwd=root, capture_output=True, timeout=60)
         return False, None, (
             f"{len(kept)} file(s) of the repair were refused by the "
@@ -1541,23 +1553,23 @@ def _fix_iteration(root: Path, provider: str, model: str, findings):
 
     verdict = combine_reports(_pytest_in_subprocess(root), run_js_tests(root))
     if verdict.status not in ("passed", "no_tests", "skipped"):
-        subprocess.run(["git", "checkout", "--", "."], cwd=root, capture_output=True, timeout=60)
+        subprocess.run([resolve("git"), "checkout", "--", "."], cwd=root, capture_output=True, timeout=60)
         # checkout restores tracked files only — NEW files the fix wrote
         # would stay as untracked residue (run-4 workspace contamination).
         subprocess.run(
-            ["git", "clean", "-qfd", "--", *written],
+            [resolve("git"), "clean", "-qfd", "--", *written],
             cwd=root, capture_output=True, timeout=60,
         )
         return False, None, (
             f"the repair broke the suite ({verdict.status}) and was discarded"
         )
     before = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True,
+        [resolve("git"), "rev-parse", "HEAD"], cwd=root, capture_output=True,
         timeout=60, text=True,
     ).stdout.strip()
-    subprocess.run(["git", "add", "-A"], cwd=root, capture_output=True, timeout=60)
+    subprocess.run([resolve("git"), "add", "-A"], cwd=root, capture_output=True, timeout=60)
     committed = subprocess.run(
-        ["git", "-c", "user.email=autoproduct@local", "-c", "user.name=autoproduct",
+        [resolve("git"), "-c", "user.email=autoproduct@local", "-c", "user.name=autoproduct",
          "commit", "-qm", "fix: address serious review findings"],
         cwd=root, capture_output=True, timeout=60, text=True,
     )
@@ -1581,7 +1593,7 @@ def _fix_iteration(root: Path, provider: str, model: str, findings):
     after = _review_head(root, provider)
     if _should_roll_back(after):
         subprocess.run(
-            ["git", "reset", "--hard", before or "HEAD~1"],
+            [resolve("git"), "reset", "--hard", before or "HEAD~1"],
             cwd=root, capture_output=True, timeout=60,
         )
         worse = ", ".join(sorted({
@@ -1608,6 +1620,7 @@ def _should_roll_back(after) -> bool:
 
 
 from ai_venture_studio.upstream.plan import PLANNER_MARKER as _PLANNER_MARKER
+from ai_venture_studio.executables import resolve
 
 _FEATURE_PLANNER_SYSTEM = f"""You are the {_PLANNER_MARKER},
 planning ONE FEATURE CHANGE against an existing product.
@@ -2076,9 +2089,9 @@ def _build_wave_parallel(
         auto_approvals.append(f"Gate U3 ({spec.slug}): auto — ears_lint + coverage passed")
         # Commit the spec in main BEFORE branching: lane worktrees see it in
         # HEAD, and the merge back can't collide with untracked spec files.
-        subprocess.run(["git", "add", f"specs/{spec.slug}"], cwd=root, capture_output=True, timeout=60)
+        subprocess.run([resolve("git"), "add", f"specs/{spec.slug}"], cwd=root, capture_output=True, timeout=60)
         subprocess.run(
-            ["git", "-c", "user.email=autoproduct@local", "-c", "user.name=autoproduct",
+            [resolve("git"), "-c", "user.email=autoproduct@local", "-c", "user.name=autoproduct",
              "commit", "-qm", f"spec({spec.slug}): approved"],
             cwd=root, capture_output=True,
         )
@@ -2103,13 +2116,13 @@ def _build_wave_parallel(
         # to be deleted — and the cost is a resumed run re-paying for modules
         # it already built.
         merged = subprocess.run(
-            ["git", "-c", "user.email=autoproduct@local", "-c", "user.name=autoproduct",
+            [resolve("git"), "-c", "user.email=autoproduct@local", "-c", "user.name=autoproduct",
              "merge", "--no-ff", "--no-commit", f"build/{result.slug}"],
             cwd=root, capture_output=True, timeout=60, text=True,
         )
         if merged.returncode != 0:
-            subprocess.run(["git", "merge", "--abort"], cwd=root, capture_output=True, timeout=60)
-            subprocess.run(["git", "branch", "-D", f"build/{result.slug}"],
+            subprocess.run([resolve("git"), "merge", "--abort"], cwd=root, capture_output=True, timeout=60)
+            subprocess.run([resolve("git"), "branch", "-D", f"build/{result.slug}"],
                            cwd=root, capture_output=True, timeout=60)
             outcomes.append(
                 TaskOutcome(task_id=task.id, title=task.title, status="merge_conflict",
@@ -2117,16 +2130,16 @@ def _build_wave_parallel(
             )
             continue
         finalize_build_bookkeeping(root, result.slug, result.files_written)
-        subprocess.run(["git", "add", "-A"], cwd=root, capture_output=True, timeout=60)
+        subprocess.run([resolve("git"), "add", "-A"], cwd=root, capture_output=True, timeout=60)
         committed = subprocess.run(
-            ["git", "-c", "user.email=autoproduct@local", "-c", "user.name=autoproduct",
+            [resolve("git"), "-c", "user.email=autoproduct@local", "-c", "user.name=autoproduct",
              "commit", "-qm", f"merge build/{result.slug}"],
             cwd=root, capture_output=True, timeout=60, text=True,
         )
-        subprocess.run(["git", "branch", "-D", f"build/{result.slug}"],
+        subprocess.run([resolve("git"), "branch", "-D", f"build/{result.slug}"],
                        cwd=root, capture_output=True, timeout=60)
         if committed.returncode != 0:
-            subprocess.run(["git", "merge", "--abort"], cwd=root, capture_output=True, timeout=60)
+            subprocess.run([resolve("git"), "merge", "--abort"], cwd=root, capture_output=True, timeout=60)
             outcomes.append(
                 TaskOutcome(
                     task_id=task.id, title=task.title, status="error",

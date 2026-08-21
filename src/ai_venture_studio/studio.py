@@ -45,6 +45,7 @@ from ai_venture_studio.studio_modes import (
     resolve_mode,
     review_timeline_body,
 )
+from ai_venture_studio.executables import resolve
 
 # Design tokens: warm paper ground with a 4px dot grid, content on a white
 # card; ink #191813, hairlines #eae4d8; green #07c160 for accents and
@@ -701,7 +702,7 @@ def _progress(root: Path) -> dict:
         plan = yaml.safe_load(plan_path.read_text(encoding="utf-8")) or {}
         total = len(plan.get("tasks", []))
     log = subprocess.run(
-        ["git", "log", "--oneline"], cwd=root, capture_output=True, timeout=60, text=True
+        [resolve("git"), "log", "--oneline"], cwd=root, capture_output=True, timeout=60, text=True
     ).stdout
     built = log.count("feat(")
     from ai_venture_studio.upstream import progress as _progress_journal
@@ -1141,7 +1142,9 @@ def create_studio_app(
             return ""
         records = spend.priced(entries, load_cost_model(root / ".mas"))
         by_model: dict[str, tuple[int, int, float, int]] = {}
-        for entry, record in zip(entries, records):
+        # strict: one priced record per entry — see the same pairing in
+        # `cli.py`'s spend command.
+        for entry, record in zip(entries, records, strict=True):
             calls, tokens, usd, unpriced = by_model.get(entry.model, (0, 0, 0.0, 0))
             by_model[entry.model] = (
                 calls + 1,
@@ -3009,12 +3012,18 @@ def create_studio_app(
                     criterion=criterion, routes=routes,
                 )
             )
+            # Inside the try on purpose. `run_corrections` promises "one
+            # result per issue, in the founder's order"; `strict=True` holds
+            # it to that, and a break in it belongs on the failure page rather
+            # than silently logging some of the founder's complaints and not
+            # the others (ADR-062). The handler's rule — a page, never a 500 —
+            # is why this sits under the same `except` and not after it.
+            for route, result in zip(routes, results, strict=True):
+                _log_correction(route.words(complaint), result)
         except Exception as exc:  # noqa: BLE001 — a page, never a 500
             return _failure_page(request, exc)
         finally:
             _end_thinking("correct")
-        for route, result in zip(routes, results):
-            _log_correction(route.words(complaint), result)
         return _correction_result_page(request, results)
 
     @app.post("/correct/change")

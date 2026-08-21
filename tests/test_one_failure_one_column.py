@@ -124,7 +124,11 @@ def test_a_harness_fault_is_still_recorded_in_the_row():
 
 def test_an_older_probe_row_still_loads():
     """Every result file on disk was written before this field existed."""
-    assert ProbeResult(**{"name": "p", "passed": True}).harness_fault is False
+    # `model_validate` on a plain dict, not kwargs: the point is that this
+    # is the shape a row comes off disk in, missing the new field.
+    assert ProbeResult.model_validate(
+        {"name": "p", "passed": True}
+    ).harness_fault is False
 
 
 def test_a_working_probe_is_not_flagged_as_ours(tmp_path):

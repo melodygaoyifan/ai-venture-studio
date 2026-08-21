@@ -14,6 +14,7 @@ import yaml
 
 from ai_venture_studio.upstream import init_workspace
 from ai_venture_studio.upstream.plan import built_task_ids, reconcile_built_flags
+from ai_venture_studio.executables import resolve
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git not on PATH")
 
@@ -29,9 +30,9 @@ def _spec(root, slug, task_id, title, *, built):
 
 
 def _commit(root, subject):
-    subprocess.run(["git", "add", "-A"], cwd=root, check=True, capture_output=True)
+    subprocess.run([resolve("git"), "add", "-A"], cwd=root, check=True, capture_output=True)
     subprocess.run(
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", subject],
+        [resolve("git"), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", subject],
         cwd=root, check=True, capture_output=True,
     )
 

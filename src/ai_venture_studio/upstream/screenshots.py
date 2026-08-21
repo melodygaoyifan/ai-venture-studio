@@ -8,6 +8,7 @@ surfaced by the Studio and the build report.
 
 from __future__ import annotations
 
+import logging
 import re
 import subprocess
 import sys
@@ -15,6 +16,13 @@ import time
 from pathlib import Path
 
 from pydantic import BaseModel
+
+#: Where a deliberate degradation says what it degraded. Every handler
+#: below that skips a row, a page, or a piece of bookkeeping logs here
+#: first: CLAUDE.md forbids swallowing an exception silently, and until
+#: ADR-062 nothing enforced it (`S110`/`S112` found 15). DEBUG, so it is
+#: silent unless asked for — `AVS_DEBUG=1` is the ask.
+_log = logging.getLogger(__name__)
 
 
 class ShotResult(BaseModel):
@@ -140,7 +148,8 @@ def capture_web(workspace: str | Path, paths: list[str] | None = None, port: int
                 try:
                     page.goto(f"http://127.0.0.1:{port}{url_path}", timeout=15000)
                     page.screenshot(path=str(target), full_page=True)
-                except Exception:  # noqa: BLE001 — one bad page, not a lost set
+                except Exception as exc:  # noqa: BLE001 — one bad page, not a lost set
+                    _log.debug("no screenshot for %s: %s", url_path, exc)
                     continue
                 fresh.add(target)
                 captured.append(str(target.relative_to(root)))

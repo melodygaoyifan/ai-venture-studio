@@ -120,13 +120,16 @@ class AnalyticsStore:
             n = len(bucket["units"])
             if n < self._floor:
                 raise CohortTooSmallError(
-                    f"cohort {dict(zip(group_by, key))} has n={n}, below the "
+                    f"cohort {dict(zip(group_by, key, strict=True))} has n={n}, below the "
                     f"k-anonymity floor {self._floor} — refused, not rounded"
                 )
             hits = len(bucket["hits"])
             results.append(
                 CohortAggregate(
-                    group=dict(zip(group_by, key)),
+                    # strict: `key` is built column-by-column from
+                    # `group_by`. A mismatch would mislabel a cohort, which
+                    # is worse than raising in an aggregation nobody reads.
+                    group=dict(zip(group_by, key, strict=True)),
                     n=n,
                     numerator=hits,
                     value=hits / n,

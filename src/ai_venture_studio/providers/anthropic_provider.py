@@ -137,7 +137,9 @@ def _backoff_seconds(attempt: int, exc: Exception | None = None) -> float:
                 return min(after, _BACKOFF_CAP_S)
         except (TypeError, ValueError):
             pass
-    return min(2.0 ** (attempt + 1), _BACKOFF_CAP_S) + random.random()
+    # noqa S311: retry jitter, not a secret. Predictable jitter costs a
+    # thundering herd on a 529, which is the only thing it is for.
+    return min(2.0 ** (attempt + 1), _BACKOFF_CAP_S) + random.random()  # noqa: S311
 
 
 @register
