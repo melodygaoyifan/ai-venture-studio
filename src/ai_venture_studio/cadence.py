@@ -430,9 +430,17 @@ def _bench_status(
     # series — a watchdog that counted one would report "ran today, all clear"
     # about a run that read nothing, which is the failure this module's own
     # `LOOP_NAMES` comment says a watchdog must never commit (ADR-056).
-    from ai_venture_studio.bench_criterion import simulated_runs
+    # A run `--limit` stopped short of the suite is excluded here for the
+    # identical reason and by the identical route — asked of the criterion,
+    # never re-derived. It is the more likely of the two to reach this
+    # directory, because a slice is a REAL run against the real provider that
+    # someone had every reason to keep (ADR-066).
+    from ai_venture_studio.bench_criterion import simulated_runs, truncated_runs
 
-    skip = {pathlib.Path(p).name for p in simulated_runs(repo_dir)}
+    skip = {
+        pathlib.Path(p).name
+        for p in (*simulated_runs(repo_dir), *truncated_runs(repo_dir))
+    }
     last, evidence = _latest_dated_file(
         repo_dir / BENCH_RESULTS, "result-*.yaml", skip=skip
     )

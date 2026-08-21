@@ -129,6 +129,15 @@ _ENVIRONMENT_STATUSES = (401, 402, 403)
 #: and the same message is not a property of either case.
 _REPEAT_ABORT_THRESHOLD = 2
 
+#: The `autopilot_status` a case gets when `--limit` stopped the run before
+#: reaching it. Written in ONE place and matched in ONE place, because the
+#: prefix is load-bearing twice over: `CaseResult.measured` reads the leading
+#: `error` to keep the case out of every rate, and `BenchSummary.truncated`
+#: reads the rest to tell "nobody paid for this case" apart from "this case
+#: crashed". Two readers of a string literal spelled out at both ends is how
+#: a rule rots (ADR-038).
+_LIMIT_SKIP = "error: not run: --limit"
+
 
 def _error_signature(exc: BaseException) -> str:
     """What makes two failures 'the same failure'.
@@ -557,6 +566,16 @@ class BenchSummary(BaseModel):
     #: construction rather than by the clock happening not to tick between
     #: the first case and the save (ADR-058).
     run_stamp: str = ""
+    #: Set when `--limit` stopped this run short of the suite. The rates
+    #: below are honest about their own scope — `unmeasured` names every
+    #: case that was never asked — but a truncated run is not a reading OF
+    #: THE SUITE, and the ledger the kill criterion reads is a series of
+    #: readings of the suite. Same distinction as `aborted`, one step
+    #: earlier: that field says the environment stopped the run, this one
+    #: says the operator did, on purpose, and neither is a verdict on the
+    #: system. A slice is a purchase; the reading is the run that spends
+    #: it (ADR-066).
+    limited_to: int | None = None
 
     def _axis(self, axis: str) -> list[CaseResult]:
         return [c for c in self.cases if c.axis == axis]
@@ -569,6 +588,19 @@ class BenchSummary(BaseModel):
     @property
     def cases_measured(self) -> int:
         return self.cases_total - len(self.unmeasured)
+
+    @property
+    def truncated(self) -> bool:
+        """Did `--limit` leave a case unasked?
+
+        Read off the ROWS, not off `limited_to`, and not off a comparison of
+        two counts. `--limit 5` over a five-case suite asked everything and
+        is a complete reading; `--limit 5` over a suite that grew to six is
+        not, and neither the flag's value nor any arithmetic on the build
+        axis alone can tell those apart. The row that says it was never run
+        can.
+        """
+        return any(c.autopilot_status.startswith(_LIMIT_SKIP) for c in self.cases)
 
     @property
     def gate_cases_total(self) -> int:
@@ -1295,7 +1327,14 @@ def _run_product_bench(
 ) -> BenchSummary:
     import time
 
-    cases = load_cases(cases_dir)[: limit or None]
+    # THE WHOLE SUITE, ALWAYS. `--limit` used to slice this list, and slicing
+    # it is what made a truncated run indistinguishable from a complete one:
+    # `cases_total` counts the cases it was HANDED, so `--limit 2` wrote a
+    # scoreboard reading "2 of 2" — not partial, not aborted, not simulated —
+    # straight into the tracked ledger the kill criterion reads. The cases
+    # beyond the limit are recorded below as rows nobody asked, which is what
+    # they are, so the denominator travels with the rates (ADR-035/066).
+    cases = load_cases(cases_dir)
     # Loaded ONCE, here, and handed down: prices belong to the operator's repo,
     # never to the throwaway workspace each case builds in (see
     # `bench_cost_model`). Reading it per case would also let a price table
@@ -1314,7 +1353,23 @@ def _run_product_bench(
     results = []
     aborted = ""
     recent: list[str] = []
-    for case in cases:
+    for index, case in enumerate(cases):
+        if limit is not None and index >= limit:
+            # Deliberately the same shape as the abort rows below: an
+            # `error:` status keeps the case out of every rate (ADR-035) and
+            # into `unmeasured`, so the file says "1 of 5" and names the four
+            # it never asked. The status says WHY it was not asked, which is
+            # the one thing `unmeasured` alone cannot distinguish — a case
+            # that crashed and a case nobody paid for read identically in a
+            # bare list of names (ADR-058).
+            results.append(
+                CaseResult(
+                    name=case.name,
+                    autopilot_status=f"{_LIMIT_SKIP} {limit}",
+                    axis=case.axis,
+                )
+            )
+            continue
         if aborted:
             # THE REST OF THE RUN IS NOT FIVE SEPARATE FAILURES. Once the
             # account is gone, every remaining case fails for one reason, and
@@ -1398,11 +1453,14 @@ def _run_product_bench(
             # re-run, which is the cost of the world before this existed.
             pass
 
-    return summarise(results, aborted=aborted, run_stamp=run_stamp)
+    return summarise(
+        results, aborted=aborted, run_stamp=run_stamp, limited_to=limit,
+    )
 
 
 def summarise(
     results: list[CaseResult], *, aborted: str = "", run_stamp: str = "",
+    limited_to: int | None = None,
 ) -> BenchSummary:
     """Turn finished case rows into the run's scoreboard.
 
@@ -1484,6 +1542,7 @@ def summarise(
         aborted=aborted,
         spend=run_spend,
         run_stamp=run_stamp,
+        limited_to=limited_to,
     )
 
 
@@ -1570,6 +1629,21 @@ def save_summary(
         # "four cases failed" and "this run never got to ask them" are
         # different findings and the percentages look the same.
         payload["aborted"] = summary.aborted
+    # POPPED FIRST, unconditionally. `model_dump` already put `limited_to` in
+    # the payload — it is a field — so a complete `--limit 6` run over six
+    # cases would have written `limited_to: 6` and been refused by
+    # `bench_criterion` as truncated, which is the defect this change is
+    # about, inverted and aimed at good runs. The key below is placed by this
+    # function or not at all, the same way `cost` is.
+    payload.pop("limited_to", None)
+    if summary.truncated:
+        # Same placement and the same reason as `aborted` above, and written
+        # under the same rule: only when it actually happened. Keyed on
+        # `truncated` rather than on "was `--limit` passed", because
+        # `--limit 6` over six cases asked every one of them and is a
+        # complete reading — the fact that matters is whether a case went
+        # unasked, not whether a flag went by.
+        payload["limited_to"] = summary.limited_to
     if summary.gate_cases_total:
         payload["rates"]["increment"] = {
             "gate_rate": (
@@ -1593,10 +1667,23 @@ def save_summary(
     # tracked directory, and `bench_criterion._scan` refuses to count one that
     # gets there anyway (copied by hand, written by an older build, resumed
     # from a checkpoint). Either alone would be silent about the other's case.
+    # Or a truncated one, for the same reason one step over: the tracked
+    # directory is a series of readings OF THE SUITE, and a run that never
+    # asked four of the five cases has not read the suite. It stays in
+    # `.mas/` above, where it belongs — a slice is a real purchase, its
+    # scoreboard is how the operator checks what they bought, and its
+    # checkpoints are what the closing run spends. `bench_criterion._scan`
+    # refuses one that reaches the tracked directory anyway (hand-copied,
+    # or written by a build older than this rule): two layers, because
+    # either alone is silent about the other's case (ADR-056/066).
     from ai_venture_studio.providers.base import is_simulated
 
     tracked = Path(repo_dir) / "benchmarks" / "results"
-    if (Path(repo_dir) / "benchmarks").is_dir() and not is_simulated(provider):
+    if (
+        (Path(repo_dir) / "benchmarks").is_dir()
+        and not is_simulated(provider)
+        and not summary.truncated
+    ):
         tracked.mkdir(exist_ok=True)
         (tracked / path.name).write_text(rendered, encoding="utf-8")
     return path

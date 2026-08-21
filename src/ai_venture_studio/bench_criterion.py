@@ -113,6 +113,13 @@ class BenchCriterionState(BaseModel):
     #: and unexplained. A simulated run is not resumable and not finishable —
     #: it is not a reading at all, and re-running it will not make it one.
     simulated_skipped: list[str] = Field(default_factory=list)
+    #: Runs `--limit` stopped short of the suite. Named for the same reason
+    #: as the two lists above, and the reason differs from both in the way
+    #: the reader needs: an abort is worth going back to finish, a simulated
+    #: run is worth nothing, and a slice is worth exactly what it measured —
+    #: its checkpoints are banked, and the run that closes the suite will
+    #: reuse them instead of re-paying (ADR-052/066).
+    truncated_skipped: list[str] = Field(default_factory=list)
 
 
 class BenchCriterionError(RuntimeError):
@@ -125,7 +132,7 @@ def _as_int(value: object) -> int | None:
 
 def _scan(
     repo_dir: str | pathlib.Path,
-) -> tuple[list[BenchRun], list[str], list[str]]:
+) -> tuple[list[BenchRun], list[str], list[str], list[str]]:
     """The series and what it excludes, read in one pass so they cannot disagree.
 
     One scan with one filter rather than two functions that each glob: two
@@ -145,8 +152,9 @@ def _scan(
     runs: list[BenchRun] = []
     aborted: list[str] = []
     simulated: list[str] = []
+    truncated: list[str] = []
     if not root.is_dir():
-        return runs, aborted, simulated
+        return runs, aborted, simulated, truncated
     # Both names, because the two guards catch different mistakes and each
     # would be silent about the other's. The glob keeps `aborted-*.yaml` out
     # of the SERIES (and fixes its ordering); walking those files anyway is
@@ -196,6 +204,23 @@ def _scan(
         if is_simulated(data.get("provider")):
             simulated.append(rel)
             continue
+        # A run stopped short of the suite by `--limit`. Not an abort — the
+        # environment was fine and nothing is owed — and not simulated: the
+        # cases it DID measure were measured for real, at full price, against
+        # the real provider. It is simply not a reading of the suite, and this
+        # ledger is a series of readings of the suite.
+        #
+        # This is the reachable half of the same shape ADR-056 closed. Buying
+        # run 19 a case at a time is the obvious way to run a five-hour bench
+        # on an account that cannot afford five hours at once, and before
+        # ADR-066 each slice wrote a file claiming to be complete over a
+        # truncated denominator. A slice that happened to contain the case
+        # that builds nothing reads as build 0% over 1 of 1 — below floor,
+        # not partial, not excluded — and two of those fire a criterion whose
+        # only remedy is a human deciding whether to kill the project.
+        if data.get("limited_to") is not None:
+            truncated.append(rel)
+            continue
         # Absent OR null. A run whose build axis was empty writes the keys
         # with `null` (a rate over no cases is not a rate), and such a run
         # must not reach `below_floor` — it made no claim about build
@@ -230,7 +255,7 @@ def _scan(
             ))
         except (TypeError, ValueError):
             continue
-    return runs, aborted, simulated
+    return runs, aborted, simulated, truncated
 
 
 def load_runs(repo_dir: str | pathlib.Path) -> list[BenchRun]:
@@ -265,9 +290,22 @@ def simulated_runs(repo_dir: str | pathlib.Path) -> list[str]:
     return _scan(repo_dir)[2]
 
 
+def truncated_runs(repo_dir: str | pathlib.Path) -> list[str]:
+    """Result files `--limit` stopped short of the suite — never in the series.
+
+    Reported, like the two above, and for the third distinct reason: this one
+    IS resumable, cheaply, and the resume is the point. Its measured cases are
+    banked as checkpoints, so the run that finally covers the suite pays only
+    for what is left (ADR-052). A slice is how an expensive bench gets bought
+    on an account that cannot afford it in one sitting; it is not how the
+    bench gets read.
+    """
+    return _scan(repo_dir)[3]
+
+
 def evaluate(repo_dir: str | pathlib.Path) -> BenchCriterionState:
     """Has the capability criterion fired? Mechanically, from the ledger."""
-    runs, aborted, simulated = _scan(repo_dir)
+    runs, aborted, simulated, truncated = _scan(repo_dir)
     # Build the state FIRST and read the floors back off it, rather than
     # interpolating the module constants into a message about a state that
     # separately carries its own copy. The two agreed only by coincidence:
@@ -275,7 +313,11 @@ def evaluate(repo_dir: str | pathlib.Path) -> BenchCriterionState:
     # change to either field would have left every sentence below still
     # printing the old number, and the ledger's own record of the bar it
     # judged against would have been the half nobody saw.
-    state = BenchCriterionState(aborted_skipped=aborted, simulated_skipped=simulated)
+    state = BenchCriterionState(
+        aborted_skipped=aborted,
+        simulated_skipped=simulated,
+        truncated_skipped=truncated,
+    )
     bars = f"build {state.build_floor:.0%} / probes {state.probe_floor:.0%}"
     if not runs:
         state.detail = (

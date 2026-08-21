@@ -3525,6 +3525,15 @@ def bench_criterion_cmd(
             f"provider, not a capability reading — it exercised the harness, "
             f"not the system[/dim]"
         )
+    # The third reason, and the only one of the three that names a next step
+    # the reader would actually take: the slice's cases are banked, so the run
+    # that closes the suite is cheaper than this file makes it look.
+    for skipped in state.truncated_skipped:
+        console.print(
+            f"  [dim]{Path(skipped).name}: stopped short of the suite by "
+            f"--limit, not a reading of it — close it with `avs product-bench "
+            f"--resume` and the cases it did measure are not re-paid[/dim]"
+        )
     color = "red" if state.fires else "green"
     console.print(f"[{color}]{state.detail}[/{color}]")
     if state.fires:

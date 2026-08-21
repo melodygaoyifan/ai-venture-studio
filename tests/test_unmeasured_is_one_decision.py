@@ -39,6 +39,20 @@ pytestmark = pytest.mark.skipif(
 CASES = Path(__file__).parent.parent / "benchmarks" / "products"
 
 
+def _suite_of(tmp_path, n):
+    """A real cases directory holding exactly `n` cases.
+
+    `--limit n` used to serve this purpose; since ADR-066 it bounds what a run
+    pays for and no longer touches the denominator, so a test about
+    denominators has to shrink the suite itself.
+    """
+    directory = tmp_path / f"cases-{n}"
+    directory.mkdir(exist_ok=True)
+    for source in sorted(CASES.glob("*.yaml"))[:n]:
+        shutil.copy(source, directory / source.name)
+    return directory
+
+
 def _bench(monkeypatch, results):
     import ai_venture_studio.product_bench as pb
 
@@ -77,7 +91,7 @@ def test_a_case_that_ran_and_produced_no_tasks_is_measured(monkeypatch, tmp_path
         _case("planned-nothing", status="failed",
               total=0, built=0, clean=0, passed=0, probes=2),
     ])
-    summary = pb.run_product_bench(CASES, limit=2, repo_dir=tmp_path)
+    summary = pb.run_product_bench(_suite_of(tmp_path, 2), repo_dir=tmp_path)
 
     assert summary.unmeasured == [], (
         "a case that ran and produced nothing is a build failure, not an "
@@ -106,7 +120,7 @@ def test_the_build_rate_does_not_round_up_by_forgetting_a_case(
         _case("c", total=5, built=5, clean=0, passed=5, probes=5),
         _case("d", total=7, built=7, clean=3, passed=3, probes=3),
     ])
-    summary = pb.run_product_bench(CASES, limit=4, repo_dir=tmp_path)
+    summary = pb.run_product_bench(_suite_of(tmp_path, 4), repo_dir=tmp_path)
     assert summary.build_rate == 0.75
     assert summary.cases_measured == 4
 
@@ -119,7 +133,7 @@ def test_a_crashed_case_is_still_dropped_from_every_rate(monkeypatch, tmp_path):
         _case("ok", total=2, built=2, clean=2, passed=2, probes=2),
         RuntimeError("OverloadedError: 529"),
     ])
-    summary = pb.run_product_bench(CASES, limit=2, repo_dir=tmp_path)
+    summary = pb.run_product_bench(_suite_of(tmp_path, 2), repo_dir=tmp_path)
     assert summary.unmeasured == ["02-shortener-api"] or len(summary.unmeasured) == 1
     assert summary.build_rate == 1.0
     assert summary.cases_measured == 1
@@ -166,7 +180,7 @@ def test_the_named_exclusions_are_exactly_the_unmeasured_cases(
               passed=0, probes=1),
         RuntimeError("boom"),
     ])
-    summary = pb.run_product_bench(CASES, limit=3, repo_dir=tmp_path)
+    summary = pb.run_product_bench(_suite_of(tmp_path, 3), repo_dir=tmp_path)
     named = set(summary.unmeasured)
     for case in summary.cases:
         assert (case.name in named) is (not case.measured), case.name
@@ -239,7 +253,7 @@ def test_the_saved_file_carries_the_reason_a_case_produced_nothing(
     pb = _bench(monkeypatch, [
         _case("ok", total=2, built=2, clean=2, passed=2, probes=2),
     ])
-    summary = pb.run_product_bench(CASES, limit=1, repo_dir=tmp_path)
+    summary = pb.run_product_bench(_suite_of(tmp_path, 1), repo_dir=tmp_path)
     summary.cases[0].failure_reason = "planning blocked: dag_check said so"
     path = pb.save_summary(summary, tmp_path)
     saved = yaml.safe_load(path.read_text(encoding="utf-8"))

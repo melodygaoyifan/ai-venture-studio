@@ -359,11 +359,26 @@ def bench_alert(
             "harness, not the system. Not a capability reading, and not in "
             "the series `avs bench-criterion` evaluates."
         )
+    # The same argument one flag over. A slice posts real percentages measured
+    # against the real provider, so nothing in the numbers marks it — and the
+    # reader waiting on the weekly capability reading is exactly the reader who
+    # would take it for one. It is said in the heading for the same reason
+    # `SIMULATED` is: the heading is what a phone shows (ADR-066).
+    sliced = " SLICE —" if getattr(summary, "truncated", False) else ""
+    if sliced:
+        lines.append(
+            f"  Stopped short of the suite by `--limit "
+            f"{getattr(summary, 'limited_to', '?')}`: the cases above were "
+            "measured for real, and the ones it never asked are listed as "
+            "unmeasured. Not a reading of the suite, and not in the series "
+            "`avs bench-criterion` evaluates — its checkpoints are banked, so "
+            "`--resume` closes it without re-paying."
+        )
     flag = "⚠ " if (unmeasured or concern) else ""
     return Alert(
         heading=(
-            f"**{workspace or 'workspace'}** —{simulated} {flag}product bench: "
-            f"{rates}{scope}"
+            f"**{workspace or 'workspace'}** —{simulated}{sliced} {flag}"
+            f"product bench: {rates}{scope}"
         ),
         lines=lines,
     )

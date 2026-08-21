@@ -16,6 +16,22 @@ pytestmark = pytest.mark.skipif(
 CASES = Path(__file__).parent.parent / "benchmarks" / "products"
 
 
+def _suite_of(tmp_path, n):
+    """A real cases directory holding exactly `n` cases.
+
+    These tests need a small *denominator*, and until ADR-066 they got one by
+    passing `--limit n` — which trimmed the case list before it was counted.
+    The limit now bounds only what a run pays for, so it can no longer stand
+    in for "the suite is small": a two-case denominator needs a two-case suite.
+    The files are the real ones, because `load_cases` still has to parse them.
+    """
+    directory = tmp_path / f"cases-{n}"
+    directory.mkdir(exist_ok=True)
+    for source in sorted(CASES.glob("*.yaml"))[:n]:
+        shutil.copy(source, directory / source.name)
+    return directory
+
+
 @pytest.fixture(autouse=True)
 def _no_docker(monkeypatch):
     monkeypatch.setattr(testing_mod, "docker_available", lambda: False)
@@ -83,7 +99,7 @@ def test_crashed_case_still_records_duration(monkeypatch, tmp_path):
     monkeypatch.setattr(pb, "run_case", _boom)
     # repo_dir=tmp_path: the lock must not touch the real repo's pidfile —
     # a live bench in this checkout would otherwise fail a hermetic test.
-    summary = pb.run_product_bench(CASES, limit=1, repo_dir=tmp_path)
+    summary = pb.run_product_bench(_suite_of(tmp_path, 1), repo_dir=tmp_path)
     (case,) = summary.cases
     assert case.autopilot_status.startswith("error: KeyError")
     # A crashed case spent real wall-clock; 0.0 would read as "died instantly".
@@ -142,7 +158,7 @@ def test_a_case_that_never_ran_is_dropped_from_the_rates_not_scored_zero(
             RuntimeError("pytest timed out"),
         ],
     )
-    summary = pb.run_product_bench(CASES, limit=2, repo_dir=tmp_path)
+    summary = pb.run_product_bench(_suite_of(tmp_path, 2), repo_dir=tmp_path)
     # Averaged over the one case that produced data, not over two.
     assert summary.build_rate == 1.0
     assert summary.probe_pass_rate == 1.0
@@ -161,7 +177,7 @@ def test_the_unmeasured_case_is_named_so_the_scope_is_not_invisible(
             RuntimeError("boom"),
         ],
     )
-    summary = pb.run_product_bench(CASES, limit=2, repo_dir=tmp_path)
+    summary = pb.run_product_bench(_suite_of(tmp_path, 2), repo_dir=tmp_path)
     # Two 100% readings, one over two cases and one over one, are different
     # measurements; the percentages alone cannot tell them apart.
     assert len(summary.unmeasured) == 1
@@ -179,7 +195,7 @@ def test_a_real_zero_is_still_a_zero(monkeypatch, tmp_path):
             _case("bad", total=4, built=0, clean=0, probes_passed=0, probes_total=2),
         ],
     )
-    summary = pb.run_product_bench(CASES, limit=2, repo_dir=tmp_path)
+    summary = pb.run_product_bench(_suite_of(tmp_path, 2), repo_dir=tmp_path)
     assert summary.build_rate == 0.5          # (1.0 + 0.0) / 2
     # AMENDED BY ADR-061. `bad` asked for four tasks and built none, so its
     # build 0.0 is real and stays. It had no product for its two probes to
@@ -203,7 +219,7 @@ def test_the_saved_series_carries_its_own_denominator(monkeypatch, tmp_path):
             RuntimeError("boom"),
         ],
     )
-    summary = pb.run_product_bench(CASES, limit=2, repo_dir=tmp_path)
+    summary = pb.run_product_bench(_suite_of(tmp_path, 2), repo_dir=tmp_path)
     path = pb.save_summary(summary, tmp_path)
     import yaml as _yaml
 
@@ -238,7 +254,7 @@ def test_the_saved_series_names_the_build_that_produced_it(monkeypatch, tmp_path
         monkeypatch, tmp_path,
         [_case("ok", total=1, built=1, clean=1, probes_passed=1, probes_total=1)],
     )
-    summary = pb.run_product_bench(CASES, limit=1, repo_dir=tmp_path)
+    summary = pb.run_product_bench(_suite_of(tmp_path, 1), repo_dir=tmp_path)
     path = pb.save_summary(summary, tmp_path)
     import yaml as _yaml
 
@@ -272,7 +288,7 @@ def test_a_bench_that_could_not_measure_a_case_exits_nonzero(monkeypatch, tmp_pa
 
     monkeypatch.setattr(pb, "run_case", _next)
     result = CliRunner().invoke(
-        app, ["product-bench", "--cases-dir", CASES, "--limit", "2",
+        app, ["product-bench", "--cases-dir", str(_suite_of(tmp_path, 2)),
               "--repo-dir", str(tmp_path)]
     )
     # Non-zero is what carries it to Discord: since v0.81.0 any non-zero
@@ -298,7 +314,7 @@ def test_a_bench_that_measured_everything_stays_quiet(monkeypatch, tmp_path):
         ),
     )
     result = CliRunner().invoke(
-        app, ["product-bench", "--cases-dir", CASES, "--limit", "1",
+        app, ["product-bench", "--cases-dir", str(_suite_of(tmp_path, 1)),
               "--repo-dir", str(tmp_path)]
     )
     # A BAD result is not a broken run. Poor rates are the measurement
@@ -345,7 +361,9 @@ def test_the_crash_row_points_at_the_preserved_workspace(monkeypatch, tmp_path):
     pb = _case_that_crashes(monkeypatch, RuntimeError("pytest timed out"))
     monkeypatch.chdir(tmp_path)
 
-    summary = pb.run_product_bench(CASES, provider="mock", limit=1, repo_dir=tmp_path)
+    summary = pb.run_product_bench(
+        _suite_of(tmp_path, 1), provider="mock", repo_dir=tmp_path
+    )
 
     (row,) = summary.cases
     assert row.autopilot_status.startswith("error: RuntimeError")
@@ -465,7 +483,7 @@ def test_an_increment_case_stays_out_of_the_three_headline_rates(
             ),
         ],
     )
-    summary = pb.run_product_bench(CASES, limit=2, repo_dir=tmp_path)
+    summary = pb.run_product_bench(_suite_of(tmp_path, 2), repo_dir=tmp_path)
     assert summary.build_rate == 1.0
     assert summary.probe_pass_rate == 1.0
     # ...and the denominator the reader sees is the build series' own, so
@@ -492,7 +510,7 @@ def test_the_gate_rate_is_scored_over_the_expectations_the_case_declared(
             ),
         ],
     )
-    summary = pb.run_product_bench(CASES, limit=1, repo_dir=tmp_path)
+    summary = pb.run_product_bench(_suite_of(tmp_path, 1), repo_dir=tmp_path)
     assert summary.gate_rate == pytest.approx(2 / 3)
     assert summary.gate_cases_measured == 1 and summary.gate_cases_total == 1
     # The headline three have no build-axis case to average, and must not
@@ -509,7 +527,7 @@ def test_a_run_that_never_asked_the_gate_reports_no_gate_rate(
         tmp_path,
         [_case("ok", total=1, built=1, clean=1, probes_passed=1, probes_total=1)],
     )
-    summary = pb.run_product_bench(CASES, limit=1, repo_dir=tmp_path)
+    summary = pb.run_product_bench(_suite_of(tmp_path, 1), repo_dir=tmp_path)
     assert summary.gate_rate is None
     assert summary.gate_cases_total == 0
 
@@ -533,7 +551,7 @@ def test_the_saved_series_carries_the_gate_rate_and_its_own_denominator(
             ),
         ],
     )
-    summary = pb.run_product_bench(CASES, limit=2, repo_dir=tmp_path)
+    summary = pb.run_product_bench(_suite_of(tmp_path, 2), repo_dir=tmp_path)
     rates = _yaml.safe_load(pb.save_summary(summary, tmp_path).read_text())["rates"]
     assert rates["cases_total"] == 1, "the headline denominator counted an increment case"
     assert rates["increment"]["gate_rate"] == 1.0

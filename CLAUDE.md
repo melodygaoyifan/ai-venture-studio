@@ -43,6 +43,11 @@ learned section below.
   (2026-07-26) and runs 1–8's originals were lost. Scoreboard yamls are
   dual-written to the tracked `benchmarks/results/`, but preserved
   workspaces and failed-build snapshots exist nowhere else.
+- `benchmarks/results/` is a series of readings **of the whole suite**, and
+  it is what the capability kill criterion reads. A run measured against a
+  simulated provider (ADR-056) or stopped short by `--limit` (ADR-066) stays
+  in `.mas/` and never lands there — it is a real artifact, just not a
+  reading. Anything that writes to that directory owes the same check.
 - Subprocess calls: list argv (no `shell=True`), explicit `timeout`,
   `capture_output=True`.
 

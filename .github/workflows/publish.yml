@@ -35,6 +35,17 @@ on:
   push:
     tags: ["v*"]
 
+# KEYED ON THE TAG, never on the workflow. A re-pushed tag is the only case
+# where two runs are racing to upload the same filenames, and cancelling the
+# older one is the whole remedy — the alternative is both runs alive, one of
+# them uploading a build the tag no longer points at, and PyPI keeping
+# whichever won. A constant group here would be actively harmful: v0.110.0 and
+# v0.111.0 pushed a minute apart are two legitimate releases, and the second
+# must not cancel the first mid-upload (ADR-065).
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -86,4 +97,20 @@ jobs:
         # --check-url makes this idempotent: files already on PyPI are skipped
         # rather than failing the run, so re-tagging or a manual publish
         # followed by a tag push does not produce a red release.
+        #
+        # Which is also how it hides the one case that matters. "Already on
+        # PyPI" is decided by FILENAME, and a re-tagged commit builds a
+        # different wheel under the same name — so the run that was supposed
+        # to correct the release skips its own upload and reports success.
+        # The step below is what makes that loud (ADR-065).
         run: uv publish --check-url https://pypi.org/simple/
+      - name: PyPI must serve what this run built
+        # Green is not the same as published, for the same reason published is
+        # not the same as deployed. This asks the index for the sha256 of every
+        # file it is serving under this version and compares it to the files on
+        # this runner — so a skipped upload, a half-finished upload from a
+        # cancelled race, and a correct release are three distinguishable
+        # outcomes instead of one green check.
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          python3 scripts/verify-published.py ai-venture-studio "$version" dist

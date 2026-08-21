@@ -4,6 +4,100 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.111.0 — two ways to be green and wrong
+
+Both changes here start from an operational question and end at a ledger that
+would have recorded something untrue: *"how do we move a tag safely?"* and
+*"is there another way to afford bench run 19?"* In each case the honest
+answer required fixing the thing that would have quietly accepted a wrong one.
+
+### ADR-065 — a green run that published nothing
+
+The tag push **is** the publish here (Trusted Publishing over OIDC), so
+force-moving a tag starts a second `publish` run while the first is still
+uploading. That hazard was known and written down as advice — *cancel the
+in-flight run for the old ref first* — which is a thing to remember at the end
+of a release, by someone who has just found a defect in what they were about
+to ship.
+
+Worse, the symptom that would reveal a lost race had already been removed.
+`uv publish --check-url` was added so re-tagging would not produce a red
+release, and **re-tagging is exactly the case where red was correct**: "already
+on PyPI" is decided by *filename*, and a re-tagged commit builds a different
+wheel under the same filename. So the run correcting a release skips its own
+upload and reports success — PyPI serving the pre-fix build, the tag pointing
+at the fix, the release green. A version can only be yanked, never replaced,
+so no later run repairs it.
+
+The publish job now asks the **index** what it is serving and compares the
+sha256 of every file against the ones this run built. A skipped upload, a
+half-finished upload from a cancelled race, and a correct release become three
+distinguishable outcomes, and the failure names the only remedy that exists
+(bump the version) rather than the one people reach for (re-run). It does not
+depend on how `uv publish` behaves when hashes differ: the guarantee wanted is
+a property of the index, not of the uploader.
+
+Two supporting pieces. A `concurrency` group keyed on `github.ref` — the key
+is the whole correctness argument, since a constant group would cancel an
+unrelated release mid-upload. And `scripts/retag.sh`, which mostly **refuses**:
+once PyPI serves the version, moving the tag cannot change what anyone installs
+and only makes the tag a lie. It refuses before it cancels, and cancels — with
+a wait, because `gh run cancel` returns before the upload stops — before it
+pushes.
+
+### ADR-066 — a slice is not the suite
+
+Bench run 19 is owed, and the account cannot afford five hours in one sitting.
+The supported way to buy it in pieces already existed (`--limit` + ADR-052
+checkpoints + `--resume`), and each piece was corrupting the ledger on its way
+past.
+
+`load_cases(cases_dir)[: limit or None]` meant `cases_total` counted the cases
+the run was *handed*, not the cases the suite *has*. `--limit 1` wrote a
+scoreboard reading **`1 of 1`** into the tracked `benchmarks/results/`. It is
+not partial (`cases_measured == cases_total`), not aborted (the environment was
+fine), and not simulated (the cases it ran were measured for real, at full
+price, against the real provider) — so every guard on that ledger passed it
+through as a complete reading of the suite.
+
+The suite contains a case that has built nothing in two consecutive runs. A
+slice landing on it reads `build 0% over 1 of 1` — below floor — and
+`CONSECUTIVE_RUNS_TO_FIRE = 2`. Two purchases of a bench nobody could afford to
+run would have fired a criterion whose only remedy is a human deciding whether
+to kill the project.
+
+Third instance of one shape, after ADR-053 and ADR-056: *the cheap substitute
+for an expensive measurement can corrupt the ledger the measurement lives in.*
+
+Now the denominator travels. `--limit` bounds what a run **pays for**, never
+what the scoreboard **counts**; each unreached case gets an
+`error: not run: --limit N` row, which keeps it out of every rate (ADR-035,
+never a 0.0 for a case nobody asked) while recording *why* it is unmeasured —
+the one thing a list of names cannot carry. A truncated run stays in `.mas/`,
+where its scoreboard and checkpoints are useful, and out of the tracked
+directory; `bench_criterion._scan` refuses one that arrives anyway and names it
+with the next step attached. Every reader closed in one change (ADR-051): the
+criterion, the cadence watchdog — which would otherwise report "ran recently,
+all clear" about a suite nobody read — and the alert, whose heading now says
+`SLICE` for the same reason it says `SIMULATED`.
+
+`truncated` is read off the rows rather than the flag, so `--limit 6` over six
+cases is still a complete reading. Refusing it was a live bug in this change's
+own first draft — `limited_to` is a model field and `model_dump` put it in the
+payload unasked — caught by running the code against the deployed build rather
+than reading the diff.
+
+Twelve tests broke on the semantic change, and none of them were in a file this
+change touched: `--limit N` had become the standard shorthand for "the suite is
+N cases", and tests that need a small denominator now build a small suite. The
+targeted runs were green; only the full suite found them.
+
+**Buying run 19 in slices is now the recommended way** to run an expensive
+bench on a constrained account: slice as far as credit allows, then close with
+one un-limited `--resume` run, which is the reading. All pieces must share a
+build and land inside the 14-day checkpoint window, so `src/` must not change
+mid-purchase.
+
 ## v0.110.0 — the gate that stopped asking, the timer that kept buying
 
 The other two answers to the same question v0.109.0 opened. That release swept

@@ -23,6 +23,10 @@ import pytest
 import ai_venture_studio.product_bench as pb
 
 CASES = "benchmarks/products"
+#: How many cases the suite has. Read off disk, not written down: since
+#: ADR-066 `--limit` bounds what the run PAYS FOR and no longer bounds what
+#: the scoreboard counts, so every case in the directory gets a row.
+_SUITE = len(list(__import__("pathlib").Path(CASES).glob("*.yaml")))
 
 
 def _case(name, *, total=2, built=2, clean=1, status="completed"):
@@ -292,9 +296,13 @@ def test_a_dead_account_stops_the_run_at_the_first_case(monkeypatch, tmp_path):
     _bench(monkeypatch, [_Status400(CREDIT)])
     summary = pb.run_product_bench(CASES, limit=4, repo_dir=tmp_path)
     assert summary.aborted
-    # Case 1 crashed; 2-4 were never asked and say so in one voice.
-    assert len(summary.cases) == 4
+    # Case 1 crashed; 2-4 were never asked and say so in one voice. Cases 5-6
+    # were outside the limit and say something different — since ADR-066 the
+    # limit no longer shrinks the suite, so every case in the directory gets a
+    # row and the row says which of the two reasons applies to it.
+    assert len(summary.cases) == _SUITE
     assert sum(1 for c in summary.cases if "environment" in c.autopilot_status) == 3
+    assert sum(1 for c in summary.cases if "--limit" in c.autopilot_status) == _SUITE - 4
 
 
 def test_the_cases_that_were_never_asked_are_unmeasured_not_failures(
@@ -306,7 +314,15 @@ def test_the_cases_that_were_never_asked_are_unmeasured_not_failures(
     summary = pb.run_product_bench(CASES, limit=4, repo_dir=tmp_path)
     assert summary.build_rate == 1.0
     assert summary.cases_measured == 1
-    assert len(summary.unmeasured) == 3
+    # Three within the limit: the case that hit the dead account, and the two
+    # after it that were never asked. Counted by REASON rather than by the
+    # length of `unmeasured`, which now also holds the cases the `--limit`
+    # never reached — both kinds are unmeasured, and this test is about the
+    # kind the abort produced (ADR-066).
+    assert sum(
+        1 for c in summary.cases
+        if not c.measured and "--limit" not in c.autopilot_status
+    ) == 3
 
 
 def test_an_abort_does_not_run_the_remaining_cases(monkeypatch, tmp_path):

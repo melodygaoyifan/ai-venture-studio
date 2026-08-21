@@ -233,6 +233,6 @@ def test_the_run_17_abort_is_excluded_by_content_alone(tmp_path):
     (results / "result-2026-08-17-1412.yaml").write_text(
         src.read_text(encoding="utf-8"), encoding="utf-8"
     )
-    runs, aborted, _simulated = _scan(tmp_path)
+    runs, aborted, _simulated, _truncated = _scan(tmp_path)
     assert runs == []
     assert aborted == ["benchmarks/results/result-2026-08-17-1412.yaml"]
