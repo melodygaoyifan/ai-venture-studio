@@ -140,6 +140,40 @@ and writes it into the tracked ledger. That control also caught the
 `model_dump` bug above, which is the ADR-054 lesson holding: running the thing
 beats reading it.
 
+### The control that should have run before this shipped
+
+Twelve tests broke on the semantic change and every one of them broke *loudly*.
+The dangerous version of the same shift is the one that stays green — a test
+whose subject moved out from under it, which is ADR-064's moved-test-seam
+finding one release earlier. A passing suite cannot report that, by
+construction, so it was checked directly: **restore the one line this ADR
+changed, run the suite, and read the list of tests that DID NOT fail.**
+
+    cases = load_cases(cases_dir)[: limit or None]   # the pre-ADR-066 line
+    uv run pytest -q -p no:randomly                  # 7 failed, 2425 passed
+
+Of the sixteen tests in this file, six failed — so nine of the twenty-six tests
+that hand `limit=` to `run_product_bench` were not pinning the change at all.
+Most of that is correct: `test_bench_resume.py` is about checkpoints and
+aborts, and passes the limit only to bound the work. Two are correct *by
+design* — `test_a_limit_covering_the_suite_is_not_truncated` and
+`test_a_limit_that_covered_the_suite_is_still_a_reading` guard the inverted
+defect, where the old and new builds agree and a different mutation is the one
+that must make them fail (replacing the row scan with `self.limited_to is not
+None`; confirmed, both fail).
+
+One was a real hole. `test_a_skipped_case_is_not_scored_as_a_zero` asserted
+`build_rate == 1.0` for `--limit 1` — **which passes on a build that has no
+skipped rows to mis-score.** It was named for the new row type and was green in
+its absence. It now asserts that the five rows exist *and* that the rate
+declined to count them; neither half stands alone, and it fails against the
+pre-fix build.
+
+The technique generalises past this ADR, and is cheaper than it looks: a test
+that does not fail when you take the fix away is not evidence about the fix.
+Green is evidence about the code you ran, never about the claim in the test's
+name.
+
 ## References
 
 - ADR-052 — checkpoints and `--resume`; what makes slicing possible at all

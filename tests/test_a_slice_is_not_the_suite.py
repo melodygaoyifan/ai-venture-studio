@@ -93,8 +93,18 @@ def test_a_skipped_case_says_why_it_was_skipped(bench, tmp_path):
 def test_a_skipped_case_is_not_scored_as_a_zero(bench, tmp_path):
     """ADR-035's rule, on the new row type: a case that was never asked is
     dropped from the rate, never entered as a failure. A slice that scored
-    100% on what it ran must not read as 20%."""
+    100% on what it ran must not read as 17%.
+
+    The two assertions are one claim and neither half stands alone. `build_rate
+    == 1.0` on its own passed against the PRE-ADR-066 build, where the five
+    skipped rows did not exist to be mis-scored — a test named for the new row
+    type, green in its absence. What makes the rate meaningful is that the rows
+    are there and the rate declined to count them.
+    """
     summary = pb.run_product_bench(CASES, limit=1, repo_dir=tmp_path)
+    skipped = [c for c in summary.cases
+               if c.autopilot_status.startswith(pb._LIMIT_SKIP)]
+    assert len(skipped) == SUITE - 1, "there was nothing here to mis-score"
     assert summary.build_rate == 1.0
 
 
