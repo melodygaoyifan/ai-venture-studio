@@ -915,7 +915,7 @@ def run_build(
 
         worktree = Path(tempfile.mkdtemp(prefix=f"autoproduct-lane-{slug[:16]}-"))
         added = _run(
-            ["git", "worktree", "add", "-B", f"build/{slug}", str(worktree), "HEAD"], repo
+            [resolve("git"), "worktree", "add", "-B", f"build/{slug}", str(worktree), "HEAD"], repo
         )
         if added.returncode != 0:
             return BuildResult(slug=slug, status="error", detail=added.stderr[:300])
@@ -947,7 +947,7 @@ def run_build(
                     (result.detail + " " if result.detail else "")
                     + f"(failed attempt preserved at {preserved})"
                 )
-            _run(["git", "worktree", "remove", "--force", str(worktree)], repo)
+            _run([resolve("git"), "worktree", "remove", "--force", str(worktree)], repo)
             _shutil.rmtree(worktree, ignore_errors=True)
     return _run_build_inner(
         repo, slug, provider=provider, model=model, started=started,

@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
 from ai_venture_studio.diff import ParsedDiff
+from ai_venture_studio.executables import find
 from ai_venture_studio.tools.base import ToolReport, tool_finding
 
 _SEVERITY_MAP = {
@@ -53,7 +53,8 @@ def _run_json(cmd: list[str], cwd: str, timeout: int = 300) -> tuple[str, str]:
 
 
 def semgrep(diff: ParsedDiff, repo_dir: str) -> ToolReport:
-    if not shutil.which("semgrep"):
+    binary = find("semgrep")
+    if not binary:
         return _skipped("semgrep", "pip install semgrep")
     py_files = [p for p in diff.changed_files if Path(repo_dir, p).exists()]
     if not py_files:
@@ -64,7 +65,7 @@ def semgrep(diff: ParsedDiff, repo_dir: str) -> ToolReport:
     # way — a review tool has no business phoning home.
     config = os.environ.get("AVS_SEMGREP_CONFIG") or "auto"
     stdout, stderr = _run_json(
-        ["semgrep", "--config", config, "--metrics=off", "--json", "--quiet",
+        [binary, "--config", config, "--metrics=off", "--json", "--quiet",
          *py_files],
         repo_dir,
     )
@@ -93,7 +94,8 @@ def semgrep(diff: ParsedDiff, repo_dir: str) -> ToolReport:
 
 
 def bandit(diff: ParsedDiff, repo_dir: str) -> ToolReport:
-    if not shutil.which("bandit"):
+    binary = find("bandit")
+    if not binary:
         return _skipped("bandit", "pip install bandit")
     py_files = [
         p for p in diff.changed_files
@@ -101,7 +103,7 @@ def bandit(diff: ParsedDiff, repo_dir: str) -> ToolReport:
     ]
     if not py_files:
         return ToolReport(tool="bandit", status="ok", detail="no existing changed .py files")
-    stdout, stderr = _run_json(["bandit", "-f", "json", "-q", *py_files], repo_dir)
+    stdout, stderr = _run_json([binary, "-f", "json", "-q", *py_files], repo_dir)
     if not stdout:
         return ToolReport(tool="bandit", status="error", detail=stderr[:300])
     added = _added_lines(diff)
@@ -152,13 +154,14 @@ def bandit(diff: ParsedDiff, repo_dir: str) -> ToolReport:
 
 
 def pip_audit(diff: ParsedDiff, repo_dir: str) -> ToolReport:
-    if not shutil.which("pip-audit"):
+    binary = find("pip-audit")
+    if not binary:
         return _skipped("pip_audit", "pip install pip-audit")
     req = Path(repo_dir) / "requirements.txt"
     if not any(f.path.endswith("requirements.txt") for f in diff.files) or not req.exists():
         return ToolReport(tool="pip_audit", status="ok", detail="no requirements.txt change")
     stdout, stderr = _run_json(
-        ["pip-audit", "-r", str(req), "-f", "json", "--no-deps"], repo_dir, timeout=600
+        [binary, "-r", str(req), "-f", "json", "--no-deps"], repo_dir, timeout=600
     )
     if not stdout:
         return ToolReport(tool="pip_audit", status="error", detail=stderr[:300])
@@ -181,10 +184,11 @@ def pip_audit(diff: ParsedDiff, repo_dir: str) -> ToolReport:
 
 
 def trufflehog(diff: ParsedDiff, repo_dir: str) -> ToolReport:
-    if not shutil.which("trufflehog"):
+    binary = find("trufflehog")
+    if not binary:
         return _skipped("trufflehog", "brew install trufflehog")
     stdout, _ = _run_json(
-        ["trufflehog", "filesystem", repo_dir, "--json", "--no-update"], repo_dir
+        [binary, "filesystem", repo_dir, "--json", "--no-update"], repo_dir
     )
     added = _added_lines(diff)
     findings = []

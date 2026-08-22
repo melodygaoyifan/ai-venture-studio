@@ -4,10 +4,11 @@ size-limit — availability-gated; absent binaries skip visibly."""
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 
 from pydantic import BaseModel, Field
+
+from ai_venture_studio.executables import find
 
 
 class WebToolReport(BaseModel):
@@ -18,11 +19,17 @@ class WebToolReport(BaseModel):
 
 
 def _gated(tool: str, binary: str, argv: list[str], parse) -> WebToolReport:
-    if shutil.which(binary) is None:
+    # The gate's answer IS the executable (ADR-069). This used to ask
+    # `shutil.which(binary)`, throw the absolute path away, and exec `argv`
+    # with its bare head — two independent PATH lookups, so the binary that
+    # was checked and the binary that runs need not be the same one.
+    found = find(binary)
+    if found is None:
         return WebToolReport(tool=tool, status="skipped",
                              detail=f"{binary} not installed — a11y/perf budget "
                                     "unverified VISIBLY, never assumed clean")
-    result = subprocess.run(argv, capture_output=True, text=True, timeout=600)
+    result = subprocess.run([found, *argv[1:]], capture_output=True, text=True,
+                            timeout=600)
     try:
         findings = parse(result.stdout)
     except (ValueError, json.JSONDecodeError) as exc:

@@ -16,6 +16,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from ai_venture_studio import forge
+from ai_venture_studio.executables import resolve
 from ai_venture_studio.maintenance.review import Incident, RootCauseResult
 from ai_venture_studio.providers import get_provider
 from ai_venture_studio.testing import (
@@ -131,7 +132,7 @@ def generate_fix_pr(
     worktree = Path(tempfile.mkdtemp(prefix="autoproduct-fixpr-"))
     try:
         added = _run(
-            ["git", "worktree", "add", "-B", branch, str(worktree), "HEAD"], repo
+            [resolve("git"), "worktree", "add", "-B", branch, str(worktree), "HEAD"], repo
         )
         if added.returncode != 0:
             return FixAttempt(status="error", detail=added.stderr[:300])
@@ -178,9 +179,9 @@ def generate_fix_pr(
             )
 
         message = str(data.get("commit_message") or f"fix: {incident.title[:60]}")
-        _run(["git", "add", "-A"], worktree)
+        _run([resolve("git"), "add", "-A"], worktree)
         committed = _run(
-            ["git", "commit", "-m",
+            [resolve("git"), "commit", "-m",
              f"{message}\n\nProposed by avs maintenance for incident "
              f"{incident.id}; re-enters code review like any PR."],
             worktree,
@@ -188,7 +189,7 @@ def generate_fix_pr(
         if committed.returncode != 0:
             return FixAttempt(status="error", detail=committed.stderr[:300])
 
-        pushed = _run(["git", "push", "-u", "origin", branch, "--force-with-lease"], worktree)
+        pushed = _run([resolve("git"), "push", "-u", "origin", branch, "--force-with-lease"], worktree)
         if pushed.returncode != 0:
             return FixAttempt(
                 status="branch_only",
@@ -222,5 +223,5 @@ def generate_fix_pr(
             regression_note=regression_note,
         )
     finally:
-        _run(["git", "worktree", "remove", "--force", str(worktree)], repo)
+        _run([resolve("git"), "worktree", "remove", "--force", str(worktree)], repo)
         shutil.rmtree(worktree, ignore_errors=True)

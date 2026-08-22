@@ -4,6 +4,55 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.112.0 — the wrapper the ratchet could not see
+
+### ADR-069 — a helper is not an escape hatch
+
+ADR-064 closed CLAUDE.md's oldest half-kept rule — never a bare name in
+`argv[0]` — at 152 sites, and left two guards behind: ruff's `S607`, and a
+static ratchet over `src/`. Both inspect a literal argv at a *direct*
+`subprocess.*` call. Neither follows a helper, and inside a helper the argv
+head is a parameter, which no linter can trace back to the literal at the call
+site. They were blind in the same place, which is why they agreed.
+
+Asking the question they meant to ask found **35 call sites across 6 files and
+19 executables** still handing the kernel a bare name. The population was 187,
+not 152.
+
+The site that says the most is `testing.py`'s `npm test`. `executables.py`
+opens by naming that exact call as the reason the module exists — *"it runs
+`npm install` in that same workspace"* — and it reaches `subprocess` through
+two helpers, so it was invisible to both instruments written to catch it. To
+be exact about the exposure: the risk is **`PATH` order, not `cwd`** (POSIX
+`execvp` does not search `.`), the same exposure as the 152 already converted.
+
+Twelve of the 35 had already computed the answer. Every availability gate ran
+`shutil.which(X)` to satisfy the visible-`skipped` rule, discarded the
+absolute path it found, and let `PATH` decide again at exec — so the binary
+that was checked and the binary that ran were never guaranteed to be the same
+one. The fix is smaller than the finding: the gate's answer becomes the
+executable.
+
+`tests/test_a_wrapper_is_not_an_escape_hatch.py` is the ratchet, with no
+ledger and no allowlist because the count is now zero. It refuses to report
+from a moved or empty tree, runs the wrapper pass to a fixed point (the
+single-pass draft said 32 and missed the `npm` call), and asserts that it
+still recognises its own wrappers — zero wrappers found means zero offenders
+reported, which is byte-identical to a clean tree.
+
+Five tests move their `shutil.which` stub from the module under test to
+`ai_venture_studio.executables`, which is the seam the resolver argued for all
+along. Nothing is reversed: this widens ADR-064's rule to the shape ADR-064
+could not see.
+
+**ADR-068 is corrected in place.** Its "what stays out" asserted that the
+2,315 unexecuted statements are "mostly error branches nobody has arranged to
+hit" — a claim about a denominator, in the record that condemns exactly that
+move. Measured: error-ish is 30.5%, not most; the largest bucket is dead
+functions (32.4%) and the second is ordinary lines on never-taken paths
+(26.8%), which is ADR-054's shape. The conclusion survives; the sentence that
+reached it did not.
+
 ## v0.111.0 — two ways to be green and wrong
 
 Both changes here start from an operational question and end at a ledger that

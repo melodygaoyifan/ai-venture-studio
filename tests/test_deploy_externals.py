@@ -35,7 +35,12 @@ def cli(monkeypatch):
     calls: list[list[str]] = []
     results: list[subprocess.CompletedProcess] = []
 
-    monkeypatch.setattr(externals.shutil, "which", lambda name: f"/usr/bin/{name}")
+    # Patched at the resolver (ADR-069): the module asks
+    # `executables.find` once and runs the absolute path it gets back, so
+    # the recorded argv now carries that path — which is the whole point,
+    # and these assertions say so.
+    monkeypatch.setattr("ai_venture_studio.executables.shutil.which",
+                        lambda name: f"/usr/bin/{name}")
 
     def _fake(cmd, cwd):
         calls.append(cmd)
@@ -51,7 +56,8 @@ def cli(monkeypatch):
 
 @pytest.fixture
 def no_binaries(monkeypatch):
-    monkeypatch.setattr(externals.shutil, "which", lambda name: None)
+    monkeypatch.setattr("ai_venture_studio.executables.shutil.which",
+                        lambda name: None)
 
 
 # --- gating -------------------------------------------------------------------
@@ -108,7 +114,7 @@ def test_terraform_validate_clean(cli, tmp_path):
     cli.returns(stdout=json.dumps({"valid": True, "diagnostics": []}))
     report = terraform_validate("infra", repo_dir=str(tmp_path))
     assert report.status == "ok" and report.data["valid"] is True
-    assert cli.calls[0] == ["terraform", "validate", "-json"]
+    assert cli.calls[0] == ["/usr/bin/terraform", "validate", "-json"]
 
 
 def test_terraform_validate_reports_diagnostics(cli, tmp_path):
@@ -200,7 +206,7 @@ def test_argocd_no_diff_is_ok(cli, tmp_path):
     cli.returns(stdout="")
     report = argocd_app_diff("checkout", repo_dir=str(tmp_path))
     assert report.status == "ok" and "matches desired" in report.detail
-    assert cli.calls[0] == ["argocd", "app", "diff", "checkout"]
+    assert cli.calls[0] == ["/usr/bin/argocd", "app", "diff", "checkout"]
 
 
 def test_argocd_diff_exit_one_is_data_not_failure(cli, tmp_path):
@@ -236,7 +242,7 @@ def test_flagger_reads_canaries_and_flags_unhealthy(cli, tmp_path):
     assert report.status == "findings"
     assert "web: phase=Progressing, failed_checks=3" in report.findings
     assert len(report.data["canaries"]) == 2
-    assert cli.calls[0][:3] == ["kubectl", "get", "canaries"]
+    assert cli.calls[0][:3] == ["/usr/bin/kubectl", "get", "canaries"]
     assert "prod" in cli.calls[0]
 
 
@@ -269,7 +275,7 @@ def test_railway_status_summarizes(cli, tmp_path):
     assert report.status == "ok"
     assert report.data == {"project": "groupbuy", "environment": "production",
                            "service_count": 2}
-    assert cli.calls[0] == ["railway", "status", "--json"]
+    assert cli.calls[0] == ["/usr/bin/railway", "status", "--json"]
 
 
 def test_railway_unlinked_project_is_an_error(cli, tmp_path):

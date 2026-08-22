@@ -21,7 +21,11 @@ TODAY = dt.date(2026, 7, 26)
 
 
 def test_web_tools_skip_visibly(monkeypatch):
-    monkeypatch.setattr("ai_venture_studio.lanes.web_tools.shutil.which", lambda _: None)
+    # Patched at the resolver, not at the lane: since ADR-069 the lane asks
+    # `executables.find` once and runs what it gets back, so this is the only
+    # PATH lookup left to stub — the same seam test_lane_runners and
+    # test_forge already use.
+    monkeypatch.setattr("ai_venture_studio.executables.shutil.which", lambda _: None)
     for report in (axe_scan("http://x/"), lighthouse_budget("http://x/", "b.json"),
                    size_limit_check()):
         assert report.status == "skipped" and "VISIBLY" in report.detail

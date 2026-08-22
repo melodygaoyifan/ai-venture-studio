@@ -32,6 +32,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from ai_venture_studio.executables import find, resolve
+
 _TEST_TIMEOUT_S = 300
 # Dump the hung test's traceback well before the suite is killed, so the
 # report says WHICH test hung instead of only that something did.
@@ -138,10 +140,11 @@ def _has_tests(root: Path) -> bool:
 
 
 def docker_available() -> bool:
-    if not shutil.which("docker"):
+    docker = find("docker")
+    if not docker:
         return False
     try:
-        return _run(["docker", "info", "--format", "ok"], ".", timeout=10).returncode == 0
+        return _run([docker, "info", "--format", "ok"], ".", timeout=10).returncode == 0
     except subprocess.TimeoutExpired:
         return False
 
@@ -164,14 +167,15 @@ def run_test_gate(
     except subprocess.TimeoutExpired as exc:
         return TestReport(status="error", summary=f"timed out: {str(exc)[:200]}")
     finally:
-        _run(["git", "worktree", "remove", "--force", str(worktree)], repo)
+        _run([resolve("git"), "worktree", "remove", "--force", str(worktree)], repo)
         shutil.rmtree(worktree, ignore_errors=True)
 
 
 def _run_gate_in_worktree(
     repo: Path, worktree: Path, diff_raw: str, *, mode: str, changed_files: list[str]
 ) -> TestReport:
-    added = _run(["git", "worktree", "add", "--detach", str(worktree), "HEAD"], repo)
+    git = resolve("git")
+    added = _run([git, "worktree", "add", "--detach", str(worktree), "HEAD"], repo)
     if added.returncode != 0:
         return TestReport(
             status="error",
@@ -181,7 +185,7 @@ def _run_gate_in_worktree(
     if diff_raw.strip():
         patch = worktree / ".ai_venture_studio.patch"
         patch.write_text(diff_raw, encoding="utf-8")
-        applied = _run(["git", "apply", "--3way", patch.name], worktree)
+        applied = _run([git, "apply", "--3way", patch.name], worktree)
         patch.unlink(missing_ok=True)
         if applied.returncode != 0:
             return TestReport(
@@ -322,19 +326,26 @@ def run_js_tests(worktree: Path) -> TestReport | None:
     node runtime is a VISIBLE skip, never a silent pass."""
     if not _has_js_tests(worktree) and not (worktree / "package.json").exists():
         return None
-    if not shutil.which("node"):
+    # Resolved, not merely checked (ADR-069). `executables.py` names this exact
+    # call as the reason it exists — "it runs `npm install` in that same
+    # workspace" — and it was the one the conversion missed, because it reaches
+    # subprocess through two helpers and neither `S607` nor ADR-064's ratchet
+    # follows a helper.
+    node = find("node")
+    if not node:
         return TestReport(
             status="skipped",
             summary="JS tests present but node is not installed — install "
             "Node.js to gate them (they currently pass on review alone)",
         )
     package = worktree / "package.json"
-    if package.exists() and shutil.which("npm"):
+    npm = find("npm")
+    if package.exists() and npm:
         import json
 
         scripts = (json.loads(package.read_text(encoding="utf-8")) or {}).get("scripts", {})
         if "test" in scripts:
-            return _run_and_classify(["npm", "test", "--silent"], worktree)
+            return _run_and_classify([npm, "test", "--silent"], worktree)
     # NEVER inside .mas: it holds preserved copies of FAILED attempts
     # (.mas/failed-builds/), and pathlib's ** walks hidden directories. Once
     # one task failed, every later task's gate was running that task's broken
@@ -348,7 +359,7 @@ def run_js_tests(worktree: Path) -> TestReport | None:
     )
     if not test_files:
         return None
-    return _run_and_classify(["node", "--test", *test_files], worktree)
+    return _run_and_classify([node, "--test", *test_files], worktree)
 
 
 def combine_reports(python_report: TestReport, js_report: TestReport | None) -> TestReport:
@@ -375,10 +386,14 @@ def _pytest_in_docker(worktree: Path) -> TestReport:
     """T3: sync dependencies with the network up, disconnect the container
     from every network, then run the suite — test code gets no network."""
     name = f"autoproduct-t3-{uuid.uuid4().hex[:8]}"
+    # Only reached behind `docker_available()`, so this cannot be None in
+    # practice; `resolve` says so rather than letting PATH answer again at
+    # each of the seven invocations below (ADR-069).
+    docker = resolve("docker")
     try:
         created = _run(
             [
-                "docker", "run", "-d", "--name", name,
+                docker, "run", "-d", "--name", name,
                 "-v", f"{worktree}:/work", "-w", "/work",
                 "--memory", "2g", "--pids-limit", "512",
                 _DOCKER_IMAGE, "sleep", "3600",
@@ -397,7 +412,7 @@ def _pytest_in_docker(worktree: Path) -> TestReport:
         else:
             sync_cmd = f"{base_sync} && pip install -q pytest"
             test_cmd = ["python", "-m", "pytest", *pytest_flags()]
-        sync_cmd_argv = ["docker", "exec", name, "sh", "-c", sync_cmd]
+        sync_cmd_argv = [docker, "exec", name, "sh", "-c", sync_cmd]
         try:
             sync = _run(sync_cmd_argv, worktree, timeout=_TEST_TIMEOUT_S)
         except subprocess.TimeoutExpired as exc:
@@ -420,12 +435,12 @@ def _pytest_in_docker(worktree: Path) -> TestReport:
         # "no-network" label a false guarantee (self-review of PR #8).
         inspect_fmt = "{{range $k, $_ := .NetworkSettings.Networks}}{{$k}} {{end}}"
         nets = _run(
-            ["docker", "inspect", "-f", inspect_fmt, name], worktree, timeout=30
+            [docker, "inspect", "-f", inspect_fmt, name], worktree, timeout=30
         ).stdout.split()
         for net in nets:
-            _run(["docker", "network", "disconnect", net, name], worktree, timeout=30)
+            _run([docker, "network", "disconnect", net, name], worktree, timeout=30)
         remaining = _run(
-            ["docker", "inspect", "-f", inspect_fmt, name], worktree, timeout=30
+            [docker, "inspect", "-f", inspect_fmt, name], worktree, timeout=30
         ).stdout.split()
         if remaining:
             return TestReport(
@@ -438,10 +453,10 @@ def _pytest_in_docker(worktree: Path) -> TestReport:
         # would raise straight through every caller — the failure shape that
         # took bench run 12's case down with it.
         return _run_and_classify(
-            ["docker", "exec", name, *test_cmd], worktree, sandbox="docker:no-network"
+            [docker, "exec", name, *test_cmd], worktree, sandbox="docker:no-network"
         )
     finally:
-        _run(["docker", "rm", "-f", name], worktree, timeout=30)
+        _run([docker, "rm", "-f", name], worktree, timeout=30)
 
 
 _KILLED = re.compile(r"🎉 (\d+)")

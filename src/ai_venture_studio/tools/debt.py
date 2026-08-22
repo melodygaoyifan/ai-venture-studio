@@ -6,10 +6,11 @@ debt trend (F-28.1)."""
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 
 from pydantic import BaseModel, Field
+
+from ai_venture_studio.executables import find
 
 
 class DebtReport(BaseModel):
@@ -20,11 +21,15 @@ class DebtReport(BaseModel):
 
 
 def _run(tool: str, argv: list[str], parse) -> DebtReport:
-    if shutil.which(argv[0]) is None:
+    # One lookup, and it is the one that runs (ADR-069) — `shutil.which`
+    # here answered the question and then let PATH answer it again at exec.
+    found = find(argv[0])
+    if found is None:
         return DebtReport(tool=tool, status="skipped",
                           detail=f"{argv[0]} not installed — debt metric "
                                  "absent VISIBLY, never assumed clean")
-    result = subprocess.run(argv, capture_output=True, text=True, timeout=300)
+    result = subprocess.run([found, *argv[1:]], capture_output=True, text=True,
+                            timeout=300)
     try:
         return DebtReport(tool=tool, status="ok", items=parse(result.stdout))
     except (ValueError, json.JSONDecodeError) as exc:

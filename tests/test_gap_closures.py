@@ -79,7 +79,8 @@ def test_gepa_budget_schema(tmp_path):
 
 
 def test_debt_tools_skip_visibly_when_absent(monkeypatch):
-    monkeypatch.setattr("ai_venture_studio.tools.debt.shutil.which", lambda _: None)
+    # See test_phase_a_gaps: one PATH lookup, at the resolver (ADR-069).
+    monkeypatch.setattr("ai_venture_studio.executables.shutil.which", lambda _: None)
     for report in (radon_complexity(), jscpd_clones(), vulture_dead_code()):
         assert report.status == "skipped"
         assert "VISIBLY" in report.detail

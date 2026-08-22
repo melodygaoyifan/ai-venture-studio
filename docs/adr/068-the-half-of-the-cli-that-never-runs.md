@@ -199,10 +199,40 @@ the test pass or fail on terminal width. PC-1 2437 → **2451**.
 
 ## What stays out
 
-**A coverage percentage gate.** ADR-055 declined one and the measurement makes
-its case stronger, not weaker: 2,315 unexecuted statements is not a queue of
-defects, it is mostly error branches nobody has arranged to hit. A number that
-must not fall is a number people raise by testing what is easy.
+**A coverage percentage gate.** ADR-055 declined one and this measurement
+makes its case stronger, not weaker: a number that must not fall is a number
+people raise by testing what is easy.
+
+> **Corrected the same day.** The sentence that stood here was *"2,315
+> unexecuted statements is not a queue of defects, it is mostly error branches
+> nobody has arranged to hit."* That is an assertion about a denominator,
+> written by someone who had counted the denominator and not looked inside it
+> — in the record that condemns exactly that move. So it was measured. Every
+> unexecuted statement, bucketed most-specific-first:
+>
+> | bucket | n | share |
+> |---|---|---|
+> | DEAD-FUNCTION (in a function with zero executed statements) | 749 | 32.4% |
+> | **ORDINARY** (a live function, on a path never taken) | **621** | **26.8%** |
+> | GUARD-RETURN | 322 | 13.9% |
+> | EXCEPT-BODY | 269 | 11.6% |
+> | UNATTRIBUTED (continuation lines, decorators) | 221 | 9.5% |
+> | RAISE | 115 | 5.0% |
+> | IMPORT | 18 | 0.8% |
+>
+> Error-ish — except bodies, raises, guard returns — is **706, or 30.5%**.
+> "Mostly" was wrong. The largest bucket is dead functions, and the second is
+> ORDINARY, which is ADR-054's shape precisely: ordinary lines in a command
+> the suite does enter, below a branch it never takes. 221 of those are in
+> `cli.py`.
+>
+> It softens on inspection without disappearing. ORDINARY's single most
+> common leading token is `console.print` (108 of 621), and report-row
+> appends account for much of the rest — presentation code on unexercised
+> branches, not silent logic. That is a reason not to panic, not a reason to
+> have asserted it. The conclusion survives the correction; the sentence that
+> reached it did not, and the difference is the whole subject of ADR-066 and
+> ADR-067.
 
 **Deleting the six dead functions.** That is a `src/` change and therefore a
 visible decision, not a tidy-up to fold into a test-only commit. `is_terminal`

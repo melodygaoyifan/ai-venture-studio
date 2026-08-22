@@ -265,12 +265,20 @@ def test_a_hang_inside_the_docker_sandbox_blocks_the_gate_too(monkeypatch, tmp_p
     """
     from ai_venture_studio import testing as t
 
+    # Hermetic regardless of whether this machine has docker: since ADR-069
+    # the T3 path resolves `docker` to an absolute path before running it, so
+    # without this the test would quietly start depending on the daemon it
+    # exists to fake.
+    monkeypatch.setattr("ai_venture_studio.executables.shutil.which",
+                        lambda name: f"/usr/bin/{name}")
+
     def _fake_run(cmd, cwd, timeout=None):
         parts = [str(part) for part in cmd]
         # `docker exec … sh -c` is the dependency sync; any other exec is the
         # suite. Matching on a word would also match the tmp path and the
-        # `pip install pytest` inside the sync command.
-        is_exec = parts[:2] == ["docker", "exec"]
+        # `pip install pytest` inside the sync command. argv[0] is now the
+        # resolved path, so match its basename rather than the bare name.
+        is_exec = (Path(parts[0]).name == "docker" and parts[1:2] == ["exec"])
         is_sync = is_exec and parts[3:4] == ["sh"]
         if is_sync if wedged == "sync" else (is_exec and not is_sync):
             raise subprocess.TimeoutExpired(cmd, timeout or 300, stderr="stuck")

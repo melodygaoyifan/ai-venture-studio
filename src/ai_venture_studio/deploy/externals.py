@@ -40,10 +40,11 @@ from __future__ import annotations
 
 import json
 import pathlib
-import shutil
 import subprocess
 
 from pydantic import BaseModel, Field
+
+from ai_venture_studio.executables import find
 
 TIMEOUT_S = 300
 
@@ -65,6 +66,10 @@ def _skipped(tool: str, binary: str, hint: str) -> ExternalReport:
 
 
 def _run(cmd: list[str], cwd: str | pathlib.Path) -> subprocess.CompletedProcess:
+    # Callers pass the absolute path their availability gate returned, never a
+    # bare name (ADR-069). `S607` cannot see that from here — the head is a
+    # parameter — which is exactly how these six sites sat unconverted through
+    # ADR-064 with both the linter and its ratchet reporting clean.
     return subprocess.run(  # noqa: S603 — fixed argv, no shell
         cmd, capture_output=True, text=True, cwd=str(cwd), timeout=TIMEOUT_S
     )
@@ -74,13 +79,14 @@ def terraform_validate(config_dir: str, *, repo_dir: str = ".") -> ExternalRepor
     """`terraform validate -json`. Requires an initialized directory; an
     uninitialized one is reported as such rather than silently passing."""
     tool = "terraform_validate"
-    if not shutil.which("terraform"):
+    binary = find("terraform")
+    if not binary:
         return _skipped(tool, "terraform", "https://developer.hashicorp.com/terraform/install")
     target = pathlib.Path(repo_dir) / config_dir
     if not target.is_dir():
         return ExternalReport(tool=tool, status="error",
                               detail=f"{config_dir} is not a directory")
-    proc = _run(["terraform", "validate", "-json"], target)
+    proc = _run([binary, "validate", "-json"], target)
     try:
         payload = json.loads(proc.stdout or "")
     except json.JSONDecodeError:
@@ -114,13 +120,14 @@ def terraform_validate(config_dir: str, *, repo_dir: str = ".") -> ExternalRepor
 def helm_lint(chart_dir: str, *, repo_dir: str = ".") -> ExternalReport:
     """`helm lint` one chart directory."""
     tool = "helm_lint"
-    if not shutil.which("helm"):
+    binary = find("helm")
+    if not binary:
         return _skipped(tool, "helm", "https://helm.sh/docs/intro/install/")
     target = pathlib.Path(repo_dir) / chart_dir
     if not target.is_dir():
         return ExternalReport(tool=tool, status="error",
                               detail=f"{chart_dir} is not a directory")
-    proc = _run(["helm", "lint", str(target)], repo_dir)
+    proc = _run([binary, "lint", str(target)], repo_dir)
     output = (proc.stdout or "") + (proc.stderr or "")
     findings = [
         line.strip() for line in output.splitlines()
@@ -148,7 +155,8 @@ def kubectl_dry_run(
     to be current.
     """
     tool = "kubectl_dry_run"
-    if not shutil.which("kubectl"):
+    binary = find("kubectl")
+    if not binary:
         return _skipped(tool, "kubectl", "https://kubernetes.io/docs/tasks/tools/")
     target = pathlib.Path(repo_dir) / manifest
     if not target.exists():
@@ -156,7 +164,7 @@ def kubectl_dry_run(
                               detail=f"{manifest} does not exist")
     mode = "server" if server_side else "client"
     proc = _run(
-        ["kubectl", "apply", f"--dry-run={mode}", "-f", str(target)], repo_dir
+        [binary, "apply", f"--dry-run={mode}", "-f", str(target)], repo_dir
     )
     output = (proc.stdout or "") + (proc.stderr or "")
     if proc.returncode == 0:
@@ -183,12 +191,13 @@ def argocd_app_diff(app: str, *, repo_dir: str = ".") -> ExternalReport:
     not something to reconcile automatically.
     """
     tool = "argocd_app_diff"
-    if not shutil.which("argocd"):
+    binary = find("argocd")
+    if not binary:
         return _skipped(tool, "argocd",
                         "https://argo-cd.readthedocs.io/en/stable/cli_installation/")
     if not str(app).strip():
         return ExternalReport(tool=tool, status="error", detail="app is required")
-    proc = _run(["argocd", "app", "diff", str(app)], repo_dir)
+    proc = _run([binary, "app", "diff", str(app)], repo_dir)
     output = (proc.stdout or "") + (proc.stderr or "")
     # argocd exits 1 when a diff exists — that is data, not failure.
     if proc.returncode == 0 and not output.strip():
@@ -208,10 +217,11 @@ def flagger_inspect(namespace: str = "default", *, repo_dir: str = ".") -> Exter
     """Read Flagger Canary resources via kubectl. Read-only: `get`, never
     `patch` — promoting or aborting a canary is a human's call."""
     tool = "flagger_inspect"
-    if not shutil.which("kubectl"):
+    binary = find("kubectl")
+    if not binary:
         return _skipped(tool, "kubectl", "https://kubernetes.io/docs/tasks/tools/")
     proc = _run(
-        ["kubectl", "get", "canaries", "-n", str(namespace), "-o", "json"], repo_dir
+        [binary, "get", "canaries", "-n", str(namespace), "-o", "json"], repo_dir
     )
     if proc.returncode != 0:
         return ExternalReport(
@@ -253,9 +263,10 @@ def railway_inspect(*, repo_dir: str = ".") -> ExternalReport:
     """`railway status --json` for the linked project. Read-only: this
     module never invokes `up`, `down`, or `redeploy`."""
     tool = "railway_inspect"
-    if not shutil.which("railway"):
+    binary = find("railway")
+    if not binary:
         return _skipped(tool, "railway", "https://docs.railway.com/guides/cli")
-    proc = _run(["railway", "status", "--json"], repo_dir)
+    proc = _run([binary, "status", "--json"], repo_dir)
     if proc.returncode != 0:
         return ExternalReport(
             tool=tool, status="error",
