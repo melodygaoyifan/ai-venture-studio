@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from ai_venture_studio import testing
+from ai_venture_studio.executables import resolve
 from ai_venture_studio.testing import run_mutation, run_test_gate
 
 pytestmark = [
@@ -38,10 +39,11 @@ def _repo(tmp_path: Path, source: str) -> Path:
     (repo / "tests").mkdir(parents=True)
     (repo / "calc.py").write_text(source)
     (repo / "tests" / "test_calc.py").write_text(WELL_TESTED)
+    git = resolve("git")
     for cmd in (
-        ["git", "init", "-q"],
-        ["git", "add", "-A"],
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
+        [git, "init", "-q"],
+        [git, "add", "-A"],
+        [git, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
     ):
         subprocess.run(cmd, cwd=repo, check=True)
     return repo

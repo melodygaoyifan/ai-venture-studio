@@ -20,10 +20,11 @@ def _git_repo(tmp_path: Path, test_body: str) -> Path:
     (repo / "calc.py").write_text("def add(a, b):\n    return a + b\n")
     (repo / "tests").mkdir()
     (repo / "tests" / "test_calc.py").write_text(test_body)
+    git = resolve("git")
     for cmd in (
-        ["git", "init", "-q"],
-        ["git", "add", "-A"],
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
+        [git, "init", "-q"],
+        [git, "add", "-A"],
+        [git, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
     ):
         subprocess.run(cmd, cwd=repo, check=True)
     return repo

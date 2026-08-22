@@ -4,6 +4,42 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.113.0 — the argv that was never a literal
+
+### ADR-070 — a bare name that never appears at a subprocess call
+
+ADR-069 closed on a floor: *"at least these 35, and zero remaining of the
+shape it can see."* The floor was right and the shape was narrower than it
+reads. `S607`, ADR-064's ratchet and ADR-069's own scan all require the list
+literal to sit **at** the call, so two shapes had no detector at all: argv
+bound to a local name (`argv = [...]`, or `for cmd in (["git", "init"], ...)`),
+and argv **returned by a factory**, where no `subprocess` call appears
+anywhere near the literal.
+
+What forced the question was noticing that ADR-069's own `sync_cmd_argv` fix
+landed because that file was under a hand sweep at the time, not because any
+instrument reported it. A defect fixed by luck is an open class.
+
+**Fixed (`src/`, all `testing.py` — 6 call sites over 3 return sites):**
+`pytest_cmd` gated on `shutil.which("uv")`, threw the path away and returned
+`["uv", "run", "--project", ..., "pytest"]`, which `testing.py:316` and
+`maintenance/fixpr.py:151` then executed — the product's own suite, in the
+workspace built from model output. `_mutmut_cmd` repeated it for `uv` and for
+`mutmut`. `_uv_for` now returns the path rather than a bool, so the gate's
+answer is the executable.
+
+**Fixed (`tests/` — 3 sites):** the `_git_repo` helpers in `test_test_gate.py`,
+`test_fixpr.py` and `test_mutation.py` looped over `(["git", "init", "-q"], ...)`
+and now use `resolve("git")`. ADR-069 had declined `tests/` partly on the
+claim that `S607` held them; that half is corrected in place.
+
+**Ratchet:** `tests/test_argv_is_not_always_a_literal.py`, over both trees, no
+ledger and no allowlist because the count is zero. A factory nothing executes
+is not an accusation (`netem_command` keeps its deliberate bare `["tc", ...]`
+record), a name bound twice is dropped rather than guessed at, and a synthetic
+tree pins that the scan still measures when the wrapper closure is empty —
+which it legitimately is over `tests/`.
+
 ## v0.112.0 — the wrapper the ratchet could not see
 
 ### ADR-069 — a helper is not an escape hatch

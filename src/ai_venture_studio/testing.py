@@ -230,9 +230,21 @@ def pytest_flags() -> list[str]:
     return ["-q", "-o", f"faulthandler_timeout={_HANG_DUMP_S}"]
 
 
+def _uv_for(worktree: Path) -> str | None:
+    """The `uv` that will run this project's suite, as a path, or None.
+
+    A predicate here would answer the wrong question. `shutil.which("uv")`
+    used to gate these commands and then hand `["uv", ...]` to the kernel, so
+    the `uv` that was checked and the `uv` that ran were two independent PATH
+    lookups (ADR-070). Returning the path makes them one.
+    """
+    return find("uv") if (worktree / "uv.lock").exists() else None
+
+
 def pytest_cmd(worktree: Path) -> list[str]:
-    if (worktree / "uv.lock").exists() and shutil.which("uv"):
-        return ["uv", "run", "--project", str(worktree), "pytest", *pytest_flags()]
+    uv = _uv_for(worktree)
+    if uv:
+        return [uv, "run", "--project", str(worktree), "pytest", *pytest_flags()]
     return [sys.executable, "-m", "pytest", *pytest_flags()]
 
 
@@ -474,7 +486,7 @@ def run_mutation(worktree: Path, changed_files: list[str]) -> MutationReport:
     ]
     if not targets:
         return MutationReport(status="skipped", summary="no mutatable changed files")
-    if not shutil.which("mutmut") and not _mutmut_in_env(worktree):
+    if find("mutmut") is None and not _mutmut_in_env(worktree):
         return MutationReport(status="skipped", summary="mutmut not installed")
 
     pyproject = worktree / "pyproject.toml"
@@ -529,7 +541,7 @@ def run_mutation(worktree: Path, changed_files: list[str]) -> MutationReport:
 
 
 def _mutmut_in_env(worktree: Path) -> bool:
-    return (worktree / "uv.lock").exists() and shutil.which("uv") is not None
+    return _uv_for(worktree) is not None
 
 
 def _mutmut_cmd(worktree: Path, subcommand: str) -> list[str]:
@@ -538,13 +550,15 @@ def _mutmut_cmd(worktree: Path, subcommand: str) -> list[str]:
     # mutmut resolves imports against the host checkout, so worktree
     # mutations never load and every mutant reports "no tests" (found on
     # the PR #9 self-review).
-    if _mutmut_in_env(worktree):
+    uv = _uv_for(worktree)
+    if uv:
         return [
-            "uv", "run", "--project", str(worktree), "--with", "mutmut",
+            uv, "run", "--project", str(worktree), "--with", "mutmut",
             "mutmut", subcommand,
         ]
-    if shutil.which("mutmut"):
-        return ["mutmut", subcommand]
+    mutmut = find("mutmut")
+    if mutmut:
+        return [mutmut, subcommand]
     return [sys.executable, "-m", "mutmut", subcommand]
 
 

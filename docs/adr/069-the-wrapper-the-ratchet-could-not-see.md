@@ -183,12 +183,28 @@ tree the developer controls; the threat model that motivates the rule is the
 *product* workspace, and that is `src/`. Recorded as a scope decision, not an
 oversight.
 
+> **Half of that was wrong, and corrected by ADR-070 the same day.** The
+> threat-model argument stands. **"`S607` holds them" does not**: `S607`
+> cannot see a loop-bound argv, and three `_git_repo` helpers
+> (`test_test_gate.py`, `test_fixpr.py`, `test_mutation.py`) each looped over
+> `(["git", "init", "-q"], ...)`. The decline was made on a population that
+> had never been counted — the exact move ADR-066, ADR-067 and ADR-068 exist
+> to condemn. Measured at three sites, fixed, and `tests/` is now scanned.
+
 **Following wrappers through aliases, attributes, or `*args`.** The scan
 resolves a call by same-file definition or a single unambiguous
 `from ... import`, and gives up otherwise. Widening it means guessing, and a
 guessing detector produces false accusations, which is how a ratchet gets
 turned off. The honest claim is a floor: **at least** these 35, and zero
 remaining of the shape it can see.
+
+> **The floor was right and the shape was narrower than it reads.** ADR-070
+> found that this scan, `S607` and ADR-064's ratchet all require the list
+> literal to sit AT the call — so argv bound to a local name, and argv
+> *returned* by a factory, had no detector at all. `pytest_cmd` returned
+> `["uv", "run", ..., "pytest"]` and three callers ran it. Note also that the
+> `sync_cmd_argv` site fixed in this ADR was caught by a hand sweep, not by
+> the instrument; ADR-070's control confirms it.
 
 **Merging this into the ADR-064 ratchet.** They stay two tests because they
 fail for different reasons and a reader should be able to tell which shape

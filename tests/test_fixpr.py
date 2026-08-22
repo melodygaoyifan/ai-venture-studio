@@ -23,10 +23,11 @@ def _repo(tmp_path: Path, source=BUGGY) -> Path:
     (repo / "tests").mkdir(parents=True)
     (repo / "calc.py").write_text(source)
     (repo / "tests" / "test_calc.py").write_text(TEST)
+    git = resolve("git")
     for cmd in (
-        ["git", "init", "-q"],
-        ["git", "add", "-A"],
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
+        [git, "init", "-q"],
+        [git, "add", "-A"],
+        [git, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
     ):
         subprocess.run(cmd, cwd=repo, check=True)
     return repo
