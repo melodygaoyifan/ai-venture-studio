@@ -311,12 +311,29 @@ def test_a_case_with_a_rejected_task_keeps_its_workspace():
     from ai_venture_studio import product_bench
 
     source = inspect.getsource(product_bench.run_case)
-    # Split on the CALL, not on its argument list — the arguments grew a
-    # `run_stamp` in v0.107.0 and this guard silently stopped matching, which
-    # is the shape of failure it exists to prevent one level up.
-    preserve = source.split("_preserve_workspace(")[0]
-    condition = preserve.rsplit("if ", 1)[-1]
-    assert "len(clean) < len(built)" in condition, (
+    # Read the CONDITION, via the AST, not a text slice up to the call.
+    #
+    # Two text slices have already gone wrong here. The first split on the
+    # argument list, which grew a `run_stamp` in v0.107.0, and the guard
+    # silently stopped matching. The second split on the call and took
+    # everything after the last `if ` — a span that runs past the condition
+    # and into the fourteen-line comment below it, and that comment restates
+    # ``len(clean) < len(built)`` verbatim in backticks. So the assertion was
+    # satisfied by the prose explaining the rule while the rule itself said
+    # `<=` (ADR-067). Twice is the pattern: this guard is about source text,
+    # and source text has to be parsed, not sliced.
+    tree = ast.parse(source.lstrip())
+    conditions = [
+        ast.unparse(node.test)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.If)
+        and any(
+            isinstance(c, ast.Call) and getattr(c.func, "id", "") == "_preserve_workspace"
+            for c in ast.walk(node)
+        )
+    ]
+    assert conditions, "run_case no longer preserves a workspace under any condition"
+    assert any("len(clean) < len(built)" in c for c in conditions), (
         "a case whose work was rejected still throws away the reviews that "
-        "say why"
+        f"say why; the conditions found were {conditions}"
     )

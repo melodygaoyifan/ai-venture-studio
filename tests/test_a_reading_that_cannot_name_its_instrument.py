@@ -31,6 +31,7 @@ series the kill criterion evaluates.
 
 from __future__ import annotations
 
+import collections
 import pathlib
 
 import yaml
@@ -159,6 +160,38 @@ def test_the_registry_is_the_only_place_that_names_simulated_providers():
         if "SIMULATED_PROVIDERS" in p.read_text(encoding="utf-8")
     ]
     assert hits == ["providers/base.py"], hits
+
+    # AND THE ASSERTION ABOVE DOES NOT SAY WHAT ITS NAME SAYS. It finds the
+    # places that spell `SIMULATED_PROVIDERS`, and the way a second definition
+    # actually arrives is `== "mock"` written out by hand — which this test
+    # was blind to for its whole life (ADR-067). Five such sites exist today.
+    # They are not a defect the registry can fix from here: each is a
+    # *routing* decision (pick the stub, pick the cheap model), not a reading
+    # of whether a bench result measured anything, and rewriting them is a
+    # `src/` change this release is not allowed to make.
+    #
+    # So the debt is pinned at its true size instead of left unsaid. A sixth
+    # site fails this line, and the fix for that failure is to call
+    # `is_simulated`, never to raise the number.
+    # Counted per FILE, not per line number: a line number moves when anything
+    # above it is edited, and a guard that fails for a reason it is not named
+    # for gets deleted rather than read.
+    literal = collections.Counter(
+        p.relative_to(src).as_posix()
+        for p in src.rglob("*.py")
+        if p.relative_to(src).as_posix() != "providers/base.py"
+        for line in p.read_text(encoding="utf-8").splitlines()
+        if '"mock"' in line and ("==" in line or "!=" in line)
+    )
+    assert dict(literal) == {
+        "cli.py": 2,
+        "product_bench.py": 1,
+        "studio.py": 1,
+        "upstream/autopilot.py": 1,
+    }, (
+        "a site asks 'is this the stub?' by hand instead of calling "
+        f"is_simulated(): {dict(literal)}"
+    )
 
 
 def test_the_watchdog_does_not_read_a_simulated_run_as_the_bench_having_run(tmp_path):

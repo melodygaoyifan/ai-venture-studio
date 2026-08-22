@@ -94,14 +94,39 @@ targeted runs were green; only the full suite found them.
 
 **After the release, tests and docs only — no version bump** (ADR-067, and
 `7646b03` before it). ADR-066's control was generalised from one change to the
-whole population: for each of the twenty-six test files an ADR names as its
+whole population: for each of the thirty-two test files an ADR names as its
 mechanism, check out the parent of the commit that added it and run today's
 test file there. Anything green is a test that would not have caught the defect
 it is named for. Forty-four passed; most are the deliberately narrow half of a
 guard and must stay that way, but **five were named for behaviour they did not
 pin** and have been fixed — two of them by reading the artifact they guard
-instead of keeping their own copy of it. Eleven files fail to *collect* against
-their parent commit and are recorded as unresolved rather than clean.
+instead of keeping their own copy of it. Eighteen files fail to *collect*
+against their parent commit; rather than record them as unresolved, the control
+was escalated through four finer operators — per hunk, per statement, per line
+over every artifact the change touched, and condition negation — down to a
+hand-picked mutation per test where no mechanical operator applies. That found
+**four more** holes (a "test end to end" that asserted a constructor argument
+echoed back; a source-text guard whose slice ran past the condition into a
+comment restating it verbatim; a durability test that hand-committed the flag
+itself and then asserted git could not lose it, which is true on every build
+ever written; and an ADR-060 guard that could not fail for any state of the
+code, because the document *about* the fix spells the field names and the test's
+own tuple of names supplied the readers it then asserted existed), and reading
+the survivors found a fifth (a registry guard blind to the five sites that write
+`== "mock"` by hand). **Ten in total.** The ledger's final reading is **382
+tests, 382 killed, 0 survived, 0 unresolved** — 346 by the mechanical rungs, 36
+by a mutation named for each.
+
+Eleven defects were found in the instruments along the way, eight of which
+produced an *empty measurement*: six empty controls, one empty baseline, and one
+run that never returned at all. An empty measurement reads exactly like a passing
+one, and twice the empty one arrived as the fix for an earlier entry on the same
+list. The eleventh is the sharpest: the harness scoring ADR-036 used
+`subprocess.run(timeout=…)`, which signals the direct child only — so a product
+server the mutated tests booted outlived the kill holding the stdout pipe and the
+budget was never enforced, which is verbatim the defect ADR-036 exists to fix.
+Five mutants on a forty-five-second budget cannot take ten minutes; that
+arithmetic was the only tell, because there was no output to read.
 
 **Buying run 19 in slices is now the recommended way** to run an expensive
 bench on a constrained account: slice as far as credit allows, then close with

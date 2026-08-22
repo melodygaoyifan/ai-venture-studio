@@ -119,18 +119,44 @@ def _read_names(tree: ast.Module, wanted: frozenset[str]) -> set[str]:
     return seen
 
 
-def unread_fields(repo: Path) -> dict[str, list[str]]:
+def unread_fields(
+    repo: Path,
+    *,
+    prose_counts: bool = True,
+    exclude: tuple[str, ...] = (),
+) -> dict[str, list[str]]:
     """Declared fields that nothing in the repo reads.
 
     Returns the same mapping shape as `declared_fields`, filtered down.
+
+    Two knobs, both off by default, both for the same kind of caller: a
+    regression guard that names specific fields and must be able to fail.
+
+    `prose_counts=False` drops the non-Python sweep. The generous default is
+    right for the audit — a field whose only reader is a human with the YAML
+    open is still read — and wrong for a guard on a specific fix, because the
+    document that describes the fix spells the field names, and prose about a
+    reader is not a reader.
+
+    `exclude` drops repo-relative paths from BOTH sweeps. A guard that lists
+    the names it guards, as string constants, in a file this function scans is
+    supplying its own readers: the generous rule counts a bare string literal
+    anywhere in a scanned `.py`, so every name in that list is read by the act
+    of listing it, and the guard passes for any state of the code whatsoever.
+    ADR-067 measured this — the six names in
+    `test_the_five_defects_adr_060_fixed_stay_fixed` were all read, by that
+    test's own tuple, and nothing else was required.
     """
     repo = Path(repo)
+    skip = {repo / e for e in exclude}
     declared = declared_fields(repo / "src", repo)
     wanted = frozenset(declared)
     read: set[str] = set()
 
     for scan in ("src", "tests", "scripts", "benchmarks"):
         for path in _py_files(repo / scan):
+            if path in skip:
+                continue
             tree = _parse(path)
             if tree is not None:
                 read |= _read_names(tree, wanted)
@@ -138,16 +164,17 @@ def unread_fields(repo: Path) -> dict[str, list[str]]:
     # Non-Python readers: a field rendered into a report, keyed in a fixture,
     # or named in a doc is read by a person, which is the only reader some of
     # these records have ever had.
-    for path in repo.rglob("*"):
-        if path.suffix not in _TEXT_SUFFIXES or not path.is_file():
-            continue
-        if _SKIP_DIRS & set(path.relative_to(repo).parts):
-            continue
-        try:
-            body = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            continue
-        read |= wanted & set(_WORD.findall(body))
+    if prose_counts:
+        for path in repo.rglob("*"):
+            if path.suffix not in _TEXT_SUFFIXES or not path.is_file():
+                continue
+            if _SKIP_DIRS & set(path.relative_to(repo).parts) or path in skip:
+                continue
+            try:
+                body = path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            read |= wanted & set(_WORD.findall(body))
 
     return {f: sites for f, sites in sorted(declared.items()) if f not in read}
 

@@ -85,6 +85,17 @@ def unread() -> dict[str, list[str]]:
     return unread_fields(REPO)
 
 
+#: This file and its helper name the fields they guard, in string constants,
+#: inside a tree the audit scans. Neither may count as a reader of them.
+_GUARD_FILES = ("tests/write_without_reader.py", "tests/test_write_without_reader.py")
+
+
+@pytest.fixture(scope="module")
+def unread_by_code() -> dict[str, list[str]]:
+    """The same audit with prose and this guard's own text excluded."""
+    return unread_fields(REPO, prose_counts=False, exclude=_GUARD_FILES)
+
+
 def test_every_written_fact_has_a_reader_or_a_written_reason(unread):
     surprises = {f: sites for f, sites in unread.items() if f not in KNOWN_UNREAD}
     assert not surprises, (
@@ -135,9 +146,21 @@ def test_the_audit_finds_a_planted_defect(tmp_path):
     assert "read_by_someone" not in unread
 
 
-def test_the_five_defects_adr_060_fixed_stay_fixed(unread):
+def test_the_five_defects_adr_060_fixed_stay_fixed(unread_by_code):
     """Named individually, because each was a distinct reader that had to be
-    built — not one change that happened to clear five rows."""
+    built — not one change that happened to clear five rows.
+
+    Asks the narrowed audit deliberately. The first version read the ordinary
+    `unread` fixture and could not fail, twice over. ADR-060's own document
+    spells all six names, and the audit counts a name in a `.md` as read by
+    the human reading it — so the document *about* the fix stood in for the
+    fix. Worse, the tuple below is a list of string constants in a file the
+    audit scans, and a bare string literal counts as a read: this test was
+    supplying every reader it then asserted existed. Deleting the only code
+    reader of two of these left it green. It is scored now against code that
+    is not this file.
+    """
+    unread = unread_by_code
     for field in (
         "wireup_issues",      # built, tests green, nothing imports it
         "modified_existing",  # "visible, reviewed, never silent", and invisible

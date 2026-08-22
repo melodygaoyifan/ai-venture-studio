@@ -153,10 +153,68 @@ def test_an_advisory_is_not_a_dag_issue():
     assert "advisories = lane_advisories(tasks)" in source
 
 
-def test_a_collapsed_plan_still_passes_planning(tmp_path):
-    """End to end: nothing about the advisory changes the verdict."""
-    plan = Plan(status="proposed", brief_title="b", tasks=CASE_04, dag_issues=[])
-    assert plan.status == "proposed"
+class _PlansCase04:
+    """A planner that returns run 18's case 04: three tasks, one lane, one file.
+
+    The stub is the point. Nothing short of driving `run_planning` can answer
+    the question this test is named for, because the advisory is computed,
+    appended and rendered on that path and nowhere else.
+    """
+
+    PLAN = yaml.safe_dump({"tasks": [
+        {"id": t.id, "title": t.id, "description": "d", "lane": t.lane,
+         "estimate_hours": 2, "files_expected": list(t.files_expected)}
+        for t in CASE_04
+    ]})
+
+    def complete(self, **kwargs):
+        from ai_venture_studio.product.stage_engine import (
+            PRODUCT_LEADER_MARKER,
+            PRODUCT_VERIFIER_MARKER,
+            PRODUCT_VOTER_MARKER,
+        )
+
+        system = kwargs.get("system", "")
+        if PRODUCT_VOTER_MARKER in system:
+            return "findings: []"
+        if PRODUCT_VERIFIER_MARKER in system:
+            return "verdict: refuted\nreason: stub"
+        if PRODUCT_LEADER_MARKER in system:
+            return "summary: stub leader"
+        return self.PLAN
+
+
+def test_a_collapsed_plan_still_passes_planning(monkeypatch, tmp_path):
+    """End to end: nothing about the advisory changes the verdict.
+
+    This test used to build a `Plan(status="proposed", ...)` by hand and
+    assert its status was "proposed" — a constructor echo that would have
+    passed on a build where the advisory blocked the plan, which is the one
+    outcome this whole record exists to prevent (ADR-067).
+    """
+    from ai_venture_studio.upstream import approve_brief, init_workspace, run_discovery
+    from ai_venture_studio.upstream import plan as plan_mod
+
+    root = init_workspace(tmp_path / "p", "p", "web")
+    run_discovery(root, "a candidate ranker", provider="mock")
+    approve_brief(root)
+    monkeypatch.setattr(plan_mod, "get_provider", lambda name: _PlansCase04())
+    plan = plan_mod.run_planning(root, provider="mock")
+
+    assert [t.lane for t in plan.tasks] == ["core"] * 3, (
+        "the stub's plan has to survive the round trip, or the assertions "
+        "below are about some other plan"
+    )
+    assert lane_advisories(plan.tasks), "this plan must be the collapsed one"
+    assert plan.status == "proposed", (
+        f"a legal single-lane plan must not be blocked; dag_issues="
+        f"{plan.dag_issues!r}"
+    )
+    assert plan.dag_issues == [], "the advisory must not have reached dag_issues"
+    assert any(
+        i.get("lens") == "parallelism" and i.get("severity") == "minor"
+        for i in plan.critic_issues
+    ), "and it still has to be delivered, as a minor finding"
 
 
 def test_advisories_ride_along_only_when_a_revision_happens_anyway():
