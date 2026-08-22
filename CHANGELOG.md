@@ -4,6 +4,50 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.114.0 — asking the kernel instead of the source
+
+**Tests-and-tooling only. No `src/` behaviour changes.**
+
+ADR-064, ADR-069 and ADR-070 each closed the "no bare executable name in
+`argv`" rule on a stated *floor*, and each found a shape its predecessor could
+not read — because all four detectors (`S607`, ADR-064's ratchet, ADR-069's
+wrapper scan, ADR-070's binder/factory scan) read source text, and following
+argv through a dataclass field or a reshaping function is interprocedural
+dataflow. Three consecutive misses is evidence about the mechanism, not about
+any one scan.
+
+- **New: a runtime exec audit** (`tests/exec_audit.py`, installed from the
+  rootdir `conftest.py`). A `sys.addaudithook` on CPython's
+  `subprocess.Popen` event observes argv **as the kernel receives it**,
+  whatever built it. `pytest_sessionfinish` fails the run on any bare head
+  handed over by a frame under `src/` or `tests/`.
+- **The floor became a measurement**: 4,295 exec events, 7 interpreters, 16
+  distinct heads — 13 absolute, 1 relative, 2 bare, and **zero bare
+  attributable to our own frames**. The two bare heads are CPython's own
+  (`platform.architecture()` shells out to `file`).
+- Scoped **by stack frame, never by an allowlist of names**: `{"file",
+  "uname"}` would silence the stdlib and forgive our own code for running
+  `file`, leaving the detector quietest about the case it exists to catch.
+- The accusation carries the caller chain, not just the nearest frame — which
+  for a wrapper is the wrapper's own `subprocess` line, ADR-069's blind spot
+  reproduced inside the instrument built after it.
+- **Corrected in place**: the rootdir conftest claimed pytest calls
+  `pytest_sessionfinish` "never from a subdirectory" conftest. Measured on
+  pytest 9.1.1: it does. The rule to keep session hooks in the rootdir stands
+  on the reason that actually holds — a subdirectory conftest is loaded only
+  when collection reaches it, so a session-wide check living there is
+  conditional on the invocation.
+- Measured cost of the hook: **+0.6%** (medians 19.82s → 19.94s over three
+  alternating pairs). An earlier full-suite reading of +4.8% was noise.
+
+Stated limit, because a new detector invites the assumption that it
+supersedes the old ones: a line the suite never executes is never observed
+(ADR-068 measured 2,315 such statements), and `uv` appears zero times in the
+4,295 observed execs — so this instrument **could not have found ADR-070's own
+finding**. Neither is sound alone; they fail in opposite directions.
+
+See `docs/adr/071-asking-the-kernel-instead-of-the-source.md`.
+
 ## v0.113.0 — the argv that was never a literal
 
 ### ADR-070 — a bare name that never appears at a subprocess call

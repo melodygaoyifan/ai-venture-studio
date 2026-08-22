@@ -185,15 +185,22 @@ def test_the_scan_still_recognises_the_wrappers_it_composes_with():
 
 
 def test_a_tree_with_no_wrappers_at_all_is_still_really_scanned(tmp_path):
-    """`tests/` legitimately has no subprocess wrappers.
+    """The wrapper half of a scan can be empty, and an empty half proves nothing.
 
-    That makes the wrapper-dependent half of both scans empty there, and an
-    empty half proves nothing — so the clean result over `tests/` rests
-    entirely on the direct `subprocess.*` half still working with an empty
-    wrapper closure. This pins that it does, rather than assuming it.
+    When this was written `tests/` had no subprocess wrappers at all, so the
+    clean result over `tests/` rested entirely on the direct `subprocess.*`
+    half continuing to work with an empty wrapper closure — which is
+    indistinguishable from a broken scan unless something pins it. ADR-071
+    then added `_spawn`, so the real tree no longer exercises that case and
+    the synthetic one below is now the only place it is pinned.
     """
-    assert subprocess_wrappers(REPO, src_rel="tests") == {}, (
-        "tests/ grew a subprocess wrapper; the reasoning below no longer holds"
+    assert subprocess_wrappers(REPO, src_rel="tests") == {
+        ("tests/test_the_kernel_sees_what_we_think_it_sees.py", "_spawn"): 0
+    }, (
+        "tests/ gained or lost a subprocess wrapper. This is a one-entry ledger "
+        "on purpose: `_spawn` exists to hand the runtime audit a deliberately "
+        "bad argv (ADR-071), and a second wrapper in tests/ should be a "
+        "decision someone made, not a thing that happened."
     )
     root = _tree(tmp_path, "src/x/m.py", """
         import subprocess

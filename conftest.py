@@ -1,10 +1,21 @@
 """Root conftest — session-scoped hooks only.
 
-`pytest_sessionfinish` is one of the hooks pytest invokes **only** from the
-rootdir conftest (or a plugin), never from a subdirectory one. It was written
-into `tests/conftest.py` first and silently never ran: the suite passed 1667
-against a PC-1 of 1655 and said nothing, which is the same class of quiet
-non-enforcement this check exists to end.
+Session hooks live here and not in `tests/conftest.py`. The original reason
+given was that pytest invokes `pytest_sessionfinish` "only from the rootdir
+conftest, never from a subdirectory one", and **that is not true** — measured
+directly on pytest 9.1.1 while adding the ADR-071 hook, a subdirectory
+conftest's `pytest_sessionfinish` fires. Whatever silently swallowed the
+original PC-1 check (the suite passed 1667 against a claim of 1655 and said
+nothing), it was not this.
+
+The rule survives its explanation, with the real reason: a subdirectory
+conftest is loaded only if collection reaches that directory, so a session
+hook living there is conditional on the run's arguments. A check that measures
+the whole session must not be one the invocation can switch off.
+
+Correcting it in place rather than leaving it standing — a false reason
+attached to a correct rule is what ADR-069's `tests/` scope note turned out to
+be, and ADR-070 had to go and count the population it had been declined on.
 """
 
 from __future__ import annotations
@@ -15,8 +26,41 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "tests"))
 
+import exec_audit  # noqa: E402 - needs the sys.path line above
+
+# Installed at rootdir-conftest import, which is the earliest hook pytest has,
+# so the audit covers collection as well as the tests themselves (ADR-071).
+exec_audit.install()
+
 
 def pytest_sessionfinish(session, exitstatus):
+    """Fail the run on a bare executable name, then measure PC-1.
+
+    The exec audit is checked first and unconditionally: unlike PC-1 it is not
+    a whole-suite-only question, and a subset that spawns an offender should
+    fail on the subset.
+
+    Reported here rather than raised from the audit hook itself. An exception
+    thrown inside `subprocess.Popen` surfaces at the call site, and this
+    codebase has try/except around plenty of external tools — the accusation
+    could be swallowed by the very code it is accusing.
+    """
+    if exec_audit.VIOLATIONS:
+        reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+        if reporter is not None:
+            reporter.write_line("")
+            reporter.write_line(exec_audit.report(), red=True)
+        else:
+            print("\n" + exec_audit.report())
+        session.exitstatus = 1
+
+    # `or session.exitstatus` so a bare-name failure suppresses the PC-1 line
+    # for the same reason any other failure does: a failing suite has a louder
+    # problem than a stale claim.
+    _check_pc1(session, exitstatus or session.exitstatus)
+
+
+def _check_pc1(session, exitstatus):
     """Measure PC-1 against the run that just happened (see tests/claim_count.py).
 
     Only on a whole-suite, unfiltered run — a subset would compare its own

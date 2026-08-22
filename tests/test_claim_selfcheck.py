@@ -148,16 +148,26 @@ def _root_conftest():
 
 
 def test_the_hook_lives_in_the_root_conftest_where_pytest_calls_it():
+    """Every session-scoped hook in one place, which is the rootdir conftest.
+
+    The reason recorded here used to be that a subdirectory conftest's
+    `pytest_sessionfinish` "would never be called". Measured on pytest 9.1.1
+    while adding the ADR-071 audit, that is false: it fires. The rule is kept
+    on the reason that actually holds — a subdirectory conftest is loaded only
+    when collection reaches that directory, so a session-wide check living
+    there is conditional on how the run was invoked, and a check the
+    invocation can switch off is not a check.
+    """
     assert hasattr(_root_conftest(), "pytest_sessionfinish")
 
-    # And not in tests/conftest.py, where it would never be called. Checked as
-    # text: importing a conftest by hand gives it a second module identity
-    # alongside the one pytest already loaded, which is its own trap.
+    # Checked as text: importing a conftest by hand gives it a second module
+    # identity alongside the one pytest already loaded, which is its own trap.
     from pathlib import Path
 
     here = Path(__file__).parent / "conftest.py"
     assert "def pytest_sessionfinish" not in here.read_text(encoding="utf-8"), (
-        "a session hook here is dead code — pytest only calls it from rootdir"
+        "session hooks belong in the rootdir conftest, where no choice of "
+        "pytest arguments can leave them unloaded"
     )
 
 
