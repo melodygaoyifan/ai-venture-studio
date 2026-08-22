@@ -16,7 +16,10 @@ import pathlib
 import subprocess
 import sys
 
-WORK = pathlib.Path(os.environ.get("AVS_DEMO_WORK", "/tmp/avs-demo")).expanduser()
+# Must match build_demo.py's default exactly — this reads what that writes.
+WORK = pathlib.Path(
+    os.environ.get("AVS_DEMO_WORK", "~/.cache/avs-demo")
+).expanduser()
 FRAMES = WORK / "frames"
 AUDIO = WORK / "audio"
 AUDIO.mkdir(parents=True, exist_ok=True)

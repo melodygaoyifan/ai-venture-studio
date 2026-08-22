@@ -167,7 +167,15 @@ def main() -> int:
               f"({', '.join(r.id for r in ledger)})")
         print()
 
-        for fdr, expected in zip(case.feature_fdrs, case.feature_expectations):
+        # strict=True is defence in depth, not a fix: `main` already refuses a
+        # case whose fdrs and expectations differ in length. But that guard is
+        # forty lines away and this loop is where truncation would actually
+        # cost something — a rate printed over a denominator nobody chose
+        # (ADR-035). Two layers, each silent about the other's case, the same
+        # arrangement ADR-056 used for simulated results.
+        for fdr, expected in zip(
+            case.feature_fdrs, case.feature_expectations, strict=True
+        ):
             slice_ = relevant(root, fdr)
             rec = _rec.reconcile(
                 fdr, slice_, provider=args.provider, model=args.model

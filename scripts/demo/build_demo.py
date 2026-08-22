@@ -19,7 +19,13 @@ from PIL import Image, ImageDraw, ImageFont
 SRC = pathlib.Path(
     os.environ.get("AVS_DEMO_SRC", "~/Downloads/autoproduct-demo-frames")
 ).expanduser()
-WORK = pathlib.Path(os.environ.get("AVS_DEMO_WORK", "/tmp/avs-demo")).expanduser()
+# Default under the user's own cache, not /tmp. `build_voiceover.py` reads
+# what this writes, so the two must agree on a deterministic path and a
+# `mkdtemp` cannot be used — which leaves the world-writable predictable name
+# as the thing to remove, rather than the predictability itself.
+WORK = pathlib.Path(
+    os.environ.get("AVS_DEMO_WORK", "~/.cache/avs-demo")
+).expanduser()
 OUT = WORK / "frames"
 OUT.mkdir(parents=True, exist_ok=True)
 

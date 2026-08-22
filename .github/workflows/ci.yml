@@ -7,6 +7,14 @@
 # exactly where `avs bench-criterion` kept a call to a function that existed
 # nowhere (ADR-054). `ruff check` reads every line whether or not anything
 # runs it, which is the one thing the suite structurally cannot do.
+#
+# It reads `.` and not `src/ tests/`. The enumerated form left `scripts/`
+# outside the gate for seventeen ADRs — the one directory that is by definition
+# code no test calls, which is the case ADR-055's whole argument is about. What
+# it was carrying was modest (a shared world-writable default path, and a
+# `zip()` whose invariant was enforced only forty lines away), and that is the
+# point: nobody knew either way, because nothing read the files.
+# A gate whose scope is a list is a gate someone has to remember to extend.
 name: ci
 on:
   push: {branches: [main]}
@@ -24,5 +32,5 @@ jobs:
       # Before the suite, not after: this one is 300ms and needs no fixtures,
       # so a name that resolves nowhere fails in seconds instead of at the end
       # of a full run.
-      - run: uv run ruff check src/ tests/
+      - run: uv run ruff check .
       - run: uv run pytest -q

@@ -123,7 +123,7 @@ def test_no_name_in_the_tree_resolves_nowhere():
     present here so `pytest` alone catches this class locally, instead of the
     author learning about it from a red workflow after the push."""
     proc = subprocess.run(
-        [shutil.which("ruff"), "check", "--no-cache", "src/", "tests/"],
+        [shutil.which("ruff"), "check", "--no-cache", "."],
         cwd=REPO, capture_output=True, text=True, timeout=120,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
@@ -137,10 +137,39 @@ def test_both_workflows_run_the_gate():
     workflows = REPO / ".github" / "workflows"
     for name in ("ci.yml", "publish.yml"):
         body = (workflows / name).read_text(encoding="utf-8")
-        assert "ruff check src/ tests/" in body, (
+        assert "ruff check ." in body, (
             f"{name} does not run the lint gate — the two workflows have "
             f"drifted, which is the thing this test exists to prevent"
         )
+
+
+def test_the_gate_reads_the_whole_tree_and_not_a_list_of_directories():
+    """`src/ tests/` left `scripts/` unlinted for seventeen ADRs.
+
+    That is the one directory ADR-055's argument is squarely about — code no
+    test calls. What was actually sitting there was modest: a world-writable
+    predictable default path shared by two scripts, and a `zip()` whose length
+    invariant was enforced forty lines away. The point is that nobody knew
+    either way, because nothing read the files. A gate whose scope is an
+    enumeration is a gate someone has to remember to extend, and nobody did.
+    """
+    for name in ("ci.yml", "publish.yml"):
+        body = (REPO / ".github" / "workflows" / name).read_text(encoding="utf-8")
+        assert "ruff check src/ tests/" not in body, (
+            f"{name} narrowed the gate back to an enumeration; anything added "
+            f"outside that list becomes unlinted silently"
+        )
+
+
+def test_the_two_demo_scripts_agree_on_where_the_work_lives():
+    """`build_voiceover.py` reads what `build_demo.py` writes, so the default
+    path is one constant with two copies — ADR-051's shape, and the reason
+    neither could use a `mkdtemp`. Pinned because the failure is silent: the
+    second script would find no frames and report an empty run."""
+    default = '"AVS_DEMO_WORK", "~/.cache/avs-demo"'
+    for name in ("build_demo.py", "build_voiceover.py"):
+        body = (REPO / "scripts" / "demo" / name).read_text(encoding="utf-8")
+        assert default in body, f"scripts/demo/{name} drifted from {default}"
 
 
 def test_the_gate_is_scoped_to_rules_about_code_that_cannot_work():
