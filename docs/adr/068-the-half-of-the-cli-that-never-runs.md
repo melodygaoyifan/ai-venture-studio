@@ -184,7 +184,16 @@ visible decision, not a tidy-up to fold into a test-only commit. `is_terminal`
 in particular wants a judgment — whether the partition its docstring describes
 should exist, or the function should not.
 
-**A ratchet on the 93 dead functions or the 10 unmeasured MCP tools.** Both
-would need the coverage run in CI, and the audit above runs in 0.36s against
-source text alone. The CLI ratchet is the one that pays for itself, because it
-guards the layer where the defect that cost eleven bench runs actually lived.
+**A ratchet on the 93 dead functions or the 10 unmeasured MCP tools**, and for
+the MCP registry the reason is measured rather than budgeted. The cheap
+detector has **zero discrimination there**: all 18 `@_register` tools are
+already "named by a test", so a static ratchet reports nothing on day one and
+keeps reporting nothing — an empty measurement wearing a green tick. The
+names match for the wrong reason, which is ADR-064's lesson in new clothes:
+`tests/test_deploy.py` names `migration_scan`, but that is the well-tested
+function in `deploy/probes.py`, not the registered wrapper around it; and
+`run_tests` is matched by `guard.authorize("run_tests", 2)`, a risk-level
+assertion that never calls the tool. A name is a weak key. Measuring this
+surface honestly needs the coverage run, and the CLI ratchet is the one that
+pays for itself in 0.36s against source text alone, because it guards the
+layer where the defect that cost eleven bench runs actually lived.
