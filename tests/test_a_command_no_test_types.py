@@ -11,20 +11,21 @@ does the audit; `KNOWN_UNTYPED` below is the ledger.
 
 **`KNOWN_UNTYPED` is debt, not justification.** The allowlist in
 `test_write_without_reader.py` records fields that have a *reason* to have no
-reader. This one records the opposite: thirty commands that ought to have a
-test and do not, frozen at the 2026-08-22 measurement so the set can only
-shrink. Each line says what the command is, so a reader can tell which of
-these are merely unmeasured and which are load-bearing — `brief-approve`,
-`plan-approve`, `spec-approve` and `scr-approve` are the human judgment
-gates, and `automerge` and `deploy-execute` are the two commands that
-actually merge and actually deploy.
+reader. This one records the opposite: commands that ought to have a test and
+do not, so the set can only shrink. It opened at the thirty measured on
+2026-08-22 and **stands at twenty-four**: the six that mattered most were
+paid off the same day by `test_the_gates_a_human_touches.py` — all four human
+judgment gates (`brief-approve`, `plan-approve`, `spec-approve`,
+`scr-approve`) and both commands that act on the world (`automerge`,
+`deploy-execute`). Each remaining line says what the command is, so the next
+reader can tell a `dbt` wrapper from something load-bearing.
 
-That reads worse than it is, and the ADR is careful about it: the *logic*
-under those commands is tested — `src/ai_venture_studio/policy.py` runs at
-94% — and every one of these thirty was probed in an empty directory with
-the credentials stripped, where all of them either refused cleanly or ran as
-a server. None is broken today. What is missing is the CLI path around them,
-which is exactly where ADR-054's defect lived.
+The twenty-four read worse than they are, and the ADR is careful about it:
+the *logic* under these commands is tested — `src/ai_venture_studio/policy.py`
+runs at 94% — and every one of the original thirty was probed in an empty
+directory with the credentials stripped, where all of them either refused
+cleanly or ran as a server. None is broken today. What is missing is the CLI
+path around them, which is exactly where ADR-054's defect lived.
 
 Deliberately a subset check, not equality. A command that GAINS a test drops
 out of the audit and leaves a harmless stale entry;
@@ -55,18 +56,7 @@ SELF = {Path(__file__)}
 
 #: command -> what it is. Measured 2026-08-22 at 0.111.0; see ADR-068.
 KNOWN_UNTYPED: dict[str, str] = {
-    # --- the human judgment gates -----------------------------------------
-    # The decisions the system is forbidden to make for itself. Their CLI
-    # path is the one a human actually touches, and it is unmeasured.
-    "brief-approve": "Gate U1 — the human problem-selection decision",
-    "plan-approve": "Gate U2 — locks scope; later changes need an SCR",
-    "spec-approve": "Gate U3 — the approval that makes a spec buildable",
-    "scr-approve": "grants exactly one regeneration of the named spec",
-    # --- the two commands that act on the world ---------------------------
-    # Both refuse without an armed, human-authored, expiring policy file
-    # (ADR-031), and policy.py is 94% covered. The wrapper is not.
-    "automerge": "merges a reviewed PR under .mas/automerge-policy.yaml",
-    "deploy-execute": "runs the deploy a human wrote in .mas/deploy-exec-policy.yaml",
+    # --- deploy bookkeeping -----------------------------------------------
     "deploy-outcome": "records the human verdict on a past deploy recommendation",
     # --- gate and ledger machinery ----------------------------------------
     "attest": "attestation ledger — chains a review's gate/verdict records",

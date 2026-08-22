@@ -172,6 +172,31 @@ measurement reads exactly like a passing one.
 
 `git diff src/` is empty. Version stays `0.111.0`, and PC-1 moves 2432 → 2437.
 
+**Paid down the same day, 30 → 24.** A ratchet that only stops the number
+growing leaves the measured debt sitting there, and the six worst entries were
+the four human judgment gates and the two commands that act on the world.
+`tests/test_the_gates_a_human_touches.py` now drives all six through
+`CliRunner`, and a coverage run over that file alone confirms they are
+**entered**, not merely named: `brief-approve` 3/4 body statements,
+`spec-approve` 3/4, `scr-approve` 3/4, `plan-approve` 6/7, `automerge` 23/32,
+`deploy-execute` 24/32. The unexecuted remainder on the last two is the point —
+`--dry-run` returns before `forge.merge` and before
+`subprocess.run(policy.command)`, so the suite enters every line of the
+decision and none of the action.
+
+What that bought is specific, and it is not the policy rules, which
+`test_automation.py` already pinned. It is the seven lines of wrapper around
+them: `plan_approve` reaching through `plan_result.tasks` and then `t.id` and
+`t.description`; `scr_approve` indexing `data['spec_slug']` and
+`data['reason']`; `automerge_cmd` pulling four nested keys out of a final YAML
+and passing them to `evaluate_merge` by keyword. A test of the callee says
+nothing about any of it, and a return shape that moves breaks all of it
+silently. Two defects in the tests themselves surfaced on the way and were
+fixed in the same change — a `Dockerfile` chosen as an innocuous deploy file
+when it is in `ALWAYS_HUMAN_PATHS` (now its own assertion, that no policy can
+arm one), and a rich-wrapped console line asserted raw, which would have made
+the test pass or fail on terminal width. PC-1 2437 → **2451**.
+
 ## What stays out
 
 **A coverage percentage gate.** ADR-055 declined one and the measurement makes
