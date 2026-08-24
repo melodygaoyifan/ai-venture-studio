@@ -267,6 +267,28 @@ the two rules made the run due, beside the command that spends the money.
 > Fixed in v0.107.0 (ADR-058): keyed `workspaces/<run-stamp>/<case>`, with the
 > stamp shared with the result filename, and bounded by dropping whole old
 > runs rather than by collision.
+>
+> **Run 18, the one row that gave no reason at all** *(found 2026-08-24, after
+> the notes above — the twelfth known issue, diagnosed from run 18's own
+> recorded output while verifying that all of them were fixed before run 19).*
+> `04-direction-workbench t4` built, passed 26 tests, and was recorded
+> `review: null` with an **empty** `detail`, then scored against the clean
+> rate as though a voter had objected. Nothing objected: the DoR gate refused
+> the diff at `diff too large (2361 lines > 2000); split the PR`, the graph
+> stopped at step 2, and no voter ever ran — and 1697 of those 2361 lines
+> (72%) were the autopilot's own generated paperwork (`product/`, `specs/`,
+> FDR.md); the code was 664 lines. The reason existed twice —
+> `state["dor_reasons"]` and the workspace's `02-dor_fail.yaml` — and
+> `_review_head`'s `review, _ = run_review(...)` discarded it both times. The
+> bias is systematic: the **first** feature commit carries the whole product
+> scaffold, so the bigger the case the likelier its *opening* task goes
+> unreviewed, and case 04 is the biggest case in the suite. Fixed in v0.116.0
+> (ADR-074) by ADR-061's rule one scope down: unjudged is neither clean nor
+> unclean, the row carries the gate's own words, `clean_review_rate` divides
+> by the tasks actually judged, and `no_review_reading` names the exclusion
+> as `case:task` in the result file, the CLI and the Discord alert. **Run
+> 18's 49.8% is not re-scored** — under the new rule the same rows would have
+> read `clean 52.2%` with `no_review_reading: ['04-direction-workbench:t4']`.
 
 > **Comparability break after run 15 — read run 16's clean rate against
 > nothing above it.** Four ADRs landed between run 15 and the next run, and

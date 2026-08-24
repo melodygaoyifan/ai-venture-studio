@@ -1551,6 +1551,16 @@ def product_bench(
             f"{', '.join(summary.no_probe_reading)} built nothing to probe. "
             f"That failure is in the build rate, counted once.[/dim]"
         )
+    # And the clean rate can cover fewer TASKS than the case built, for the
+    # same kind of reason and with the same obligation to say so out loud.
+    if summary.no_review_reading:
+        console.print(
+            f"  [dim]clean reviews excludes "
+            f"{len(summary.no_review_reading)} built task(s) the reviewer "
+            f"never saw — {', '.join(summary.no_review_reading)}. The DoR "
+            f"gate refused the diff, so there is no verdict to be clean or "
+            f"unclean; each row says which reason.[/dim]"
+        )
     # The increment axis is reported on its own line, never folded into the
     # three above: it has its own cases and its own denominator, and a
     # reader who sees one number cannot tell which question it answered.

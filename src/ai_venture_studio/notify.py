@@ -307,6 +307,16 @@ def bench_alert(
             f"{total} cases:** {', '.join(no_probe)} built nothing to probe. "
             "That failure is in the build rate, counted once."
         )
+    # Same obligation, one level down: tasks, not cases. The clean rate is the
+    # number this bench most often has to explain, so an exclusion inside it
+    # is exactly the thing that must not travel only on a terminal.
+    no_review = list(getattr(summary, "no_review_reading", []) or [])
+    if no_review:
+        lines.append(
+            f"**clean reviews excludes {len(no_review)} built task(s):** "
+            f"{', '.join(no_review)} — the DoR gate refused the diff, so no "
+            "voter ever saw the code. Unjudged, not unclean."
+        )
     # Its own line, never folded into the three rates above: separate cases,
     # separate denominator, and a reader shown one number cannot tell which
     # question it answered (ADR-049).

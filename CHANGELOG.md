@@ -4,6 +4,38 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.116.0 — a review that never ran is not a review that objected
+
+Found while verifying that every known run-18 defect was fixed before buying
+run 19 (ADR-074). Run 18's `04-direction-workbench t4` built, passed 26
+tests, and was recorded `review: null` with an **empty** `detail` — the only
+row in the run that gave no reason at all — then scored against
+`clean_review_rate` as though a voter had objected. Nothing objected: the DoR
+gate refused the diff at `diff too large (2361 lines > 2000); split the PR`,
+of which 1697 lines (72%) were the autopilot's own generated paperwork; the
+graph stopped at step 2 and no voter ever ran. The reason existed twice —
+`state["dor_reasons"]` and the workspace's `02-dor_fail.yaml` — and
+`_review_head`'s `review, _ = run_review(...)` discarded it both times. The
+bias is systematic: the first feature commit carries the whole product
+scaffold, so the bigger the case the likelier its opening task goes
+unreviewed, and case 04 is the biggest case in the suite.
+
+- `_review_head` returns a falsy `ReviewDidNotRun(reasons)` instead of bare
+  `None` — every existing caller idiom (`if review`, `review.verdict.value if
+  review else None`, …) is unchanged; a caller may now *ask why*.
+- `review_and_repair` writes the gate's own words into the row:
+  `[the review did not run: …]`. No more empty details.
+- `CaseResult.unreviewed` + `clean_review_rate` over tasks actually judged
+  (`None`, never `0.0`, when none were) — ADR-061's rule one scope down:
+  unjudged is neither clean nor unclean.
+- `BenchSummary.no_review_reading` names the exclusion as `case:task` in the
+  saved result file, the CLI's denominator line, and the Discord alert.
+- Run 18 is **not** re-scored; under this build the same rows read
+  clean 52.2% (was 49.8%) with `no_review_reading:
+  ['04-direction-workbench:t4']`.
+- `tests/test_a_review_that_never_ran.py` (16 tests, controls run in both
+  directions). Suite 2501 → 2517.
+
 ## v0.115.0 — deleting the dead, wiring the one that mattered
 
 ADR-068 measured 93 functions with zero executed statements and triaged six as

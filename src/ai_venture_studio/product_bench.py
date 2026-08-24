@@ -390,6 +390,13 @@ class CaseResult(BaseModel):
     tasks_total: int = 0
     tasks_built: int = 0
     clean_reviews: int = 0
+    #: Built tasks whose review never ran — the DoR gate refused the diff, so
+    #: no voter ever saw the code. NOT clean and NOT unclean: unjudged. They
+    #: come out of `clean_review_rate`'s denominator for the same reason a
+    #: case that built nothing comes out of the probe rate (ADR-061), and
+    #: they are NAMED for the same reason too — a rate quietly averaged over
+    #: fewer tasks than the case built is the defect, not the exclusion.
+    unreviewed: list[str] = Field(default_factory=list)
     outcomes: list[dict] = Field(
         default_factory=list, description="per-task forensics: status + detail"
     )
@@ -497,7 +504,14 @@ class CaseResult(BaseModel):
         # built nothing has no review to be clean, and the failure is already
         # fully counted one column left. Pinned by
         # `test_a_real_zero_is_still_a_zero`.
-        return self.clean_reviews / self.tasks_built if self.tasks_built else None
+        #
+        # The same sentence, one scope down: a TASK the reviewer never looked
+        # at has no review to be clean either. Run 18's `04-t4` built, passed
+        # 26 tests, and was refused by the DoR gate on diff size — 72% of
+        # which was the autopilot's own generated paperwork — and then scored
+        # against the clean rate as though a voter had objected to it.
+        judged = self.tasks_built - len(self.unreviewed)
+        return self.clean_reviews / judged if judged > 0 else None
 
     @property
     def gate_rate(self) -> float | None:
@@ -537,6 +551,13 @@ class BenchSummary(BaseModel):
     #: rate is real. So the probe rate gets its own list, and every renderer
     #: that prints the rate prints the scope with it.
     no_probe_reading: list[str] = Field(default_factory=list)
+    #: The same price, paid for the clean rate: `case:task_id` for every built
+    #: task the reviewer never got to look at. One list level up rather than a
+    #: count, because "which task" is the whole diagnostic value — run 18's
+    #: was the FIRST feature task of the biggest case, which is not a random
+    #: victim: the first commit carries the product scaffold, so the bigger
+    #: the case the likelier its opening task goes unreviewed.
+    no_review_reading: list[str] = Field(default_factory=list)
     # The increment axis (ADR-049). Separate rate, separate denominator,
     # separate cases: "did it build what was asked" and "did it correctly
     # decline to build" are different questions, and a case whose CORRECT
@@ -1166,6 +1187,13 @@ def run_case(
             o for o in built
             if o.review_verdict in CLEAN_VERDICTS
         ]
+        # A built task with no verdict is one the review never produced a
+        # leader for — `_attempt_task` only leaves `review_verdict` unset
+        # when `review_and_repair` got a falsy review back, and the parallel
+        # path routes through the same call. Keyed on the absent verdict
+        # rather than on the detail string, because the row's prose is for a
+        # human and a denominator must not depend on wording.
+        unreviewed = [o.task_id for o in built if o.review_verdict is None]
         case_probes = list(case.probes)
         probegen_dry = False
         if case.auto_probes:
@@ -1235,6 +1263,7 @@ def run_case(
             tasks_total=len(result.outcomes),
             tasks_built=len(built),
             clean_reviews=len(clean),
+            unreviewed=unreviewed,
             # The pipeline knows why it stopped; the scoreboard used to be
             # the place that forgot. Run 16's case 02 came back `failed`
             # with no tasks, and the reason — the planner's output would not
@@ -1531,6 +1560,13 @@ def summarise(
         # and produced no product to observe.
         no_probe_reading=[
             r.name for r in build if r.measured and r.probe_pass_rate is None
+        ],
+        # Every axis, not just `build`: an increment case builds a base
+        # product through the same path and its tasks can go unreviewed the
+        # same way. The clean rate only averages build-axis cases, but the
+        # list is a statement about what happened in the run.
+        no_review_reading=[
+            f"{r.name}:{task}" for r in results for task in r.unreviewed
         ],
         # None, not 0.0, when no increment case reported: a rate of zero
         # says the gate answered wrongly every time, and a run that never

@@ -1209,6 +1209,13 @@ def review_and_repair(
         progress.step(root, task_id, "review", "checking the code that was written")
     review = _review_head(root, provider)
     verdict = review.verdict.value if review else None
+    if not review:
+        # A review that did not run is not a review that found nothing, and
+        # until now the row could not tell them apart. Say it in the words
+        # the gate used, so the reader is not left inferring a silence.
+        detail = (detail + " " if detail else "") + (
+            f"[the review did not run: {getattr(review, 'why', 'no verdict was produced')}]"
+        )
     # Fix loop: ONE bounded repair iteration — recorded, re-reviewed, never
     # silent. The set is imported from the leader rather than re-listed here,
     # because this list USED to read ("critical", "high") while the leader
@@ -1404,6 +1411,38 @@ def _findings_summary(findings, limit: int = 3, width: int = 240) -> str:
     return f"[review: {tally} — {titles}{more}]"[:width]
 
 
+class ReviewDidNotRun:
+    """Falsy stand-in for a review the graph refused to start.
+
+    `run_review` returns `(None, state)` whenever no leader node ran — the
+    DoR gate refusing is the common way — and `_review_head` unpacked that
+    tuple as `review, _`, throwing the state away. So "the reviewer read the
+    code and would not sign it off" and "the reviewer was never allowed to
+    look" arrived at the caller as the identical `None`, and the task was
+    recorded with an empty verdict and an EMPTY detail while every other
+    rejected row in the run explained itself. The reason existed twice over
+    — in `state["dor_reasons"]` and on disk in `02-dor_fail.yaml` — and was
+    written down neither time. ADR-042's shape: the one piece of evidence
+    that explains the row, discarded one stack frame away.
+
+    Falsy on purpose. Every existing caller tests `if review` / `if after`
+    and every one of them must keep behaving exactly as it did for `None`;
+    `findings` is empty for the same reason. What changes is only that a
+    caller may now ASK why, and the bench does.
+    """
+
+    def __init__(self, reasons: list[str] | None = None) -> None:
+        self.reasons = [str(r) for r in (reasons or [])]
+        self.findings: list = []
+
+    def __bool__(self) -> bool:
+        return False
+
+    @property
+    def why(self) -> str:
+        return "; ".join(self.reasons) or "no verdict was produced"
+
+
 def _review_head(root: Path, provider: str):
     import os
 
@@ -1420,13 +1459,15 @@ def _review_head(root: Path, provider: str):
             skills_dir = os.pathsep.join([skills_dir, str(skills / "data")])
     except FileNotFoundError:
         pass  # not an avs workspace — core roster only
-    review, _ = run_review(
+    review, state = run_review(
         # Committed range only — the working tree carries uncommitted
         # bookkeeping from later tasks mid-autopilot (Gate 2 apply
         # conflicts otherwise; found by the product bench).
         "HEAD~1..HEAD", repo_dir=str(root), skills_dir=skills_dir,
         provider_override=provider if provider == "mock" else None,
     )
+    if review is None:
+        return ReviewDidNotRun((state or {}).get("dor_reasons") or [])
     return review
 
 
