@@ -3,10 +3,10 @@
 # the hermetic suite enforces it (tests/test_editions_platform.py).
 claims:
   - id: PC-1
-    text: "2517 hermetic tests pass via uv run pytest at the current tag"
+    text: "2537 hermetic tests pass via uv run pytest at the current tag"
     kind: demand
     source_type: primary_measured
-    n: 2517
+    n: 2537
     evidence:
       - {method: pytest_run, locator: "repo://tests (uv run pytest)",
          retrieved_at: "2026-08-21T00:00:00Z"}
@@ -231,12 +231,20 @@ claims:
       are capability movements (03-groupbuy-auto went 0 built to 5/5 under
       ADR-058's lane-advisory remedy, its first live exercise). The clean
       rate is NOT a comparable movement against run 18's 50%: eleven of the
-      twenty-seven rejections are voters exhausting their transient-failure
-      budget in a degraded provider window, labeled as voter absence in the
-      rows, and the increment gate's 0% contains the first genuine gate
-      miss (expected raises_scr, actual completed) — a different fact than
-      run 18's 0%, which meant the gate was never asked. HISTORY.md carries
-      the full three-way decomposition of the clean rate.
+      twenty-seven rejections are voters returning no verdict — recorded on
+      run day as a degraded provider window, an attribution the v0.117.0
+      debug REFUTED: six parse/protocol failures (4x an entire 4096-token
+      output budget spent on a thinking block, 1x tool-name-as-key YAML,
+      1x prose with no verdict), every call returned and paid for — and the
+      Gate 2 blocked rows were the harness host's own site-packages
+      shadowing the products' tests/ (PEP 420), not the products' suites.
+      The increment gate's 0% was recorded as containing the first genuine
+      gate miss (expected raises_scr, actual completed); the same debug
+      corrected that too — cross-language retrieval handed the reconciler
+      an empty slice (checked false), so the gate was inert, not wrong.
+      All of these are fixed in v0.117.0 (ADR-075); NONE OF THE RECORDED
+      VALUES here are re-scored. HISTORY.md carries the corrected
+      three-way decomposition of the clean rate.
 
       Six defects found by inspecting this run and run 17 are fixed in
       v0.107.0 (ADR-058) — the intake bar above among them, plus the YAML

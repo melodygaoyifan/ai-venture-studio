@@ -159,77 +159,94 @@ class AnthropicProvider(Provider):
         import anthropic
 
         client = _make_client()
-        # Transient-error resilience at the ADAPTER layer: overload/rate
-        # limits retry with backoff here, so every direct .complete() call
-        # site (writers, critics, implementer) inherits it — a 529 killed
-        # an entire 2-hour bench run before this existed.
+        # Two budget passes at most: models that think by default (observed
+        # live on claude-sonnet-5, bench run 19) can spend the ENTIRE output
+        # budget on a thinking block and return zero text with
+        # `stop_reason == "max_tokens"` — four voters blocked this way, each
+        # after three blind retries that bought the same empty answer at the
+        # same price. The second pass quadruples the budget, which is paid
+        # only when the first pass has already proven it too small; 4096→16384
+        # crosses _STREAM_ABOVE, so the streaming path below handles it.
+        budget = max_tokens
+        text = ""
         response = None
-        for attempt in range(_TRANSIENT_ATTEMPTS):
-            try:
-                if max_tokens > _STREAM_ABOVE:
-                    # The SDK REFUSES a non-streaming request whose max_tokens
-                    # implies it could run past 10 minutes — it raises before
-                    # sending anything. The implementer asks for 32000 (it
-                    # writes whole files, and 16384 truncated real builds), so
-                    # every single build call died on
-                    #   ValueError: Streaming is required for operations that
-                    #   may take longer than 10 minutes
-                    # and no task could be built at all. Streaming the big
-                    # calls is the fix the SDK is asking for; the final
-                    # message has the same shape, so everything below is
-                    # unchanged.
-                    with client.messages.stream(
-                        model=model,
-                        max_tokens=max_tokens,
-                        system=system,
-                        messages=messages,
-                    ) as stream:
-                        response = stream.get_final_message()
-                else:
-                    response = client.messages.create(
-                        model=model,
-                        max_tokens=max_tokens,
-                        system=system,
-                        messages=messages,
+        for _budget_pass in range(2):
+            # Transient-error resilience at the ADAPTER layer: overload/rate
+            # limits retry with backoff here, so every direct .complete() call
+            # site (writers, critics, implementer) inherits it — a 529 killed
+            # an entire 2-hour bench run before this existed.
+            response = None
+            for attempt in range(_TRANSIENT_ATTEMPTS):
+                try:
+                    if budget > _STREAM_ABOVE:
+                        # The SDK REFUSES a non-streaming request whose max_tokens
+                        # implies it could run past 10 minutes — it raises before
+                        # sending anything. The implementer asks for 32000 (it
+                        # writes whole files, and 16384 truncated real builds), so
+                        # every single build call died on
+                        #   ValueError: Streaming is required for operations that
+                        #   may take longer than 10 minutes
+                        # and no task could be built at all. Streaming the big
+                        # calls is the fix the SDK is asking for; the final
+                        # message has the same shape, so everything below is
+                        # unchanged.
+                        with client.messages.stream(
+                            model=model,
+                            max_tokens=budget,
+                            system=system,
+                            messages=messages,
+                        ) as stream:
+                            response = stream.get_final_message()
+                    else:
+                        response = client.messages.create(
+                            model=model,
+                            max_tokens=budget,
+                            system=system,
+                            messages=messages,
+                        )
+                    break
+                except (
+                    anthropic.APIStatusError,
+                    anthropic.APIConnectionError,
+                ) as exc:
+                    status = getattr(exc, "status_code", None)
+                    transient = status in (429, 500, 502, 503, 529) or isinstance(
+                        exc, anthropic.APIConnectionError
                     )
-                break
-            except (
-                anthropic.APIStatusError,
-                anthropic.APIConnectionError,
-            ) as exc:
-                status = getattr(exc, "status_code", None)
-                transient = status in (429, 500, 502, 503, 529) or isinstance(
-                    exc, anthropic.APIConnectionError
+                    if not transient or attempt == _TRANSIENT_ATTEMPTS - 1:
+                        raise
+                    time.sleep(_backoff_seconds(attempt, exc))
+            # Record why the model stopped on EVERY response, not only the empty
+            # ones. `stop_reason == "max_tokens"` means the text below is a partial
+            # answer, and a partial answer that parses is worse than one that
+            # doesn't — see providers/base.py.
+            record_stop_reason(getattr(response, "stop_reason", None))
+
+            # Meter here, where usage exists — INSIDE the budget loop, so a
+            # truncated first pass is still a paid call and still on the ledger.
+            # The chat() contract still returns str — threading a usage object
+            # through the writers, critics, implementer and verifier would
+            # touch every call site for no gain, and this adapter already owns
+            # retries and empty-response diagnostics. Recording never raises;
+            # the ledger is written later by whoever knows the workspace
+            # (spend.flush).
+            usage = getattr(response, "usage", None)
+            if usage is not None:
+                from ai_venture_studio import spend
+
+                spend.record(
+                    model,
+                    getattr(usage, "input_tokens", None),
+                    getattr(usage, "output_tokens", None),
+                    stop_reason=getattr(response, "stop_reason", None),
                 )
-                if not transient or attempt == _TRANSIENT_ATTEMPTS - 1:
-                    raise
-                time.sleep(_backoff_seconds(attempt, exc))
-        # Record why the model stopped on EVERY response, not only the empty
-        # ones. `stop_reason == "max_tokens"` means the text below is a partial
-        # answer, and a partial answer that parses is worse than one that
-        # doesn't — see providers/base.py.
-        record_stop_reason(getattr(response, "stop_reason", None))
 
-        # Meter here, where usage exists. The chat() contract still returns
-        # str — threading a usage object through the writers, critics,
-        # implementer and verifier would touch every call site for no gain,
-        # and this adapter already owns retries and empty-response
-        # diagnostics. Recording never raises; the ledger is written later by
-        # whoever knows the workspace (spend.flush).
-        usage = getattr(response, "usage", None)
-        if usage is not None:
-            from ai_venture_studio import spend
-
-            spend.record(
-                model,
-                getattr(usage, "input_tokens", None),
-                getattr(usage, "output_tokens", None),
-                stop_reason=getattr(response, "stop_reason", None),
+            text = "".join(
+                block.text for block in response.content if block.type == "text"
             )
-
-        text = "".join(
-            block.text for block in response.content if block.type == "text"
-        )
+            if text.strip() or getattr(response, "stop_reason", None) != "max_tokens":
+                break
+            budget *= 4
         if not text.strip():
             # Diagnostics for the empty-response mystery (context voter,
             # PR #9): keep the API's own explanation for the failure note.

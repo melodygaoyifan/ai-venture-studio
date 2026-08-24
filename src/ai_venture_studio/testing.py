@@ -300,7 +300,8 @@ def _hang_detail(cmd: list[str], exc: subprocess.TimeoutExpired) -> str:
 
 
 def _run_and_classify(
-    cmd: list[str], worktree: Path, *, sandbox: str = "subprocess"
+    cmd: list[str], worktree: Path, *, sandbox: str = "subprocess",
+    env: dict[str, str] | None = None,
 ) -> TestReport:
     """A suite that hangs is a BLOCKED GATE, not a dead process.
 
@@ -313,7 +314,7 @@ def _run_and_classify(
     pass, and it must not take the run down either.
     """
     try:
-        proc = _run(cmd, worktree)
+        proc = _run(cmd, worktree, env=env)
     except subprocess.TimeoutExpired as exc:
         return TestReport(
             status="error",
@@ -325,7 +326,47 @@ def _run_and_classify(
 
 
 def _pytest_in_subprocess(worktree: Path) -> TestReport:
-    return _run_and_classify(pytest_cmd(worktree), worktree)
+    """Host-run pytest, shielded against site-packages shadowing the suite.
+
+    A product's `tests/` directory usually has no `__init__.py`, which makes
+    it a PEP 420 namespace portion — and a REGULAR `tests` package installed
+    into the host's site-packages (pyannote.pipeline and speechbrain both
+    ship one) beats a namespace portion at EVERY sys.path position,
+    regardless of order. Every `from tests.conftest import ...` inside the
+    product's suite then resolves into site-packages and dies at collection.
+
+    Bench run 19 is the measurement: 16 of 19 review-time test gates in
+    cases 01–04 failed exactly this way — while the BUILD gate, which runs
+    in a clean Docker container, passed the same suites minutes earlier.
+    Two gates, two environments, opposite verdicts on identical code.
+
+    The shield, applied only when `tests/` exists without `__init__.py`:
+    - drop a temporary empty `tests/__init__.py`, making the product's
+      `tests` a regular package too, so sys.path ORDER decides again and
+      cwd (sys.path[0] under `python -m pytest`) wins;
+    - prepend the `tests/` directory itself to PYTHONPATH, because the
+      shim alone breaks the OTHER import idiom — bare `from conftest
+      import ...` relies on pytest inserting `tests/` for init-less
+      directories, and case 04 mixes both idioms in one suite (measured:
+      shim alone took it from 15 collection errors to 4).
+    The shim is removed afterward: build/autopilot callers run this against
+    the live workspace repo, and a leftover `__init__.py` would end up in
+    the product's next commit.
+    """
+    tests_dir = worktree / "tests"
+    init = tests_dir / "__init__.py"
+    shield = tests_dir.is_dir() and not init.exists() and any(tests_dir.rglob("*.py"))
+    env = None
+    if shield:
+        init.write_text("", encoding="utf-8")
+        env = dict(os.environ)
+        prior = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = str(tests_dir) + (os.pathsep + prior if prior else "")
+    try:
+        return _run_and_classify(pytest_cmd(worktree), worktree, env=env)
+    finally:
+        if shield:
+            init.unlink(missing_ok=True)
 
 
 def _has_js_tests(root: Path) -> bool:

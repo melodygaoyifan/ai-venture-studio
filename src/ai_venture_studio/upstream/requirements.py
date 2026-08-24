@@ -145,6 +145,10 @@ class RequirementSlice:
     shown: list[Requirement] = field(default_factory=list)
     matched: int = 0
     cap: int = 0
+    #: True when lexical retrieval matched NOTHING against a non-empty
+    #: ledger and the whole ledger was shown instead. The reader must know
+    #: the slice is unranked — see `relevant` for why this exists.
+    fallback: bool = False
 
     @property
     def dropped(self) -> int:
@@ -352,6 +356,14 @@ def supersede(
     return moved
 
 
+#: How much of the ledger the empty-match fallback may show. Far above the
+#: normal cap because the fallback's whole job is completeness — an EARS
+#: criterion is ~30 words, so even 200 is a modest prompt — while still
+#: bounding what one model call is asked to judge. A ledger past the bound
+#: is reported as dropped, never silently truncated.
+_FALLBACK_CAP = 200
+
+
 def relevant(
     repo_dir: str | Path,
     text: str,
@@ -376,6 +388,26 @@ def relevant(
             score += 2
         if score:
             scored.append((score, req.id, req))
+    if not scored and ledger:
+        # Zero overlap against a NON-EMPTY ledger does not mean the ledger
+        # says nothing — it means this retrieval could not read the request.
+        # Bench run 19: the ledger was English EARS text (the spec pipeline
+        # writes it), the founder's follow-ups were Chinese, so every score
+        # was zero, the reconciler was handed an empty slice, and a feature
+        # that DIRECTLY contradicted a live promise ("expose no route that
+        # deletes a repair") was built without a murmur — it deleted the
+        # promise's own test on the way (ADR-048's inert-gate shape, one
+        # layer up: ADR-050 fixed CJK-vs-CJK matching, cross-language was
+        # still blind). Degrading toward MORE context is the safe direction:
+        # show everything and let the model-judged stage do the relevance
+        # work lexical overlap could not. The bound stays honest (ADR-039) —
+        # dropped requirements are counted and reported by render_slice.
+        return RequirementSlice(
+            shown=ledger[:_FALLBACK_CAP],
+            matched=len(ledger),
+            cap=_FALLBACK_CAP,
+            fallback=True,
+        )
     # Highest score first; ties broken by id so the same corpus and the same
     # request always produce the same slice.
     scored.sort(key=lambda row: (-row[0], row[1]))
@@ -467,6 +499,12 @@ def render_slice(slice_: RequirementSlice) -> str:
     if not slice_.shown:
         return "(no existing requirement matched this request)"
     lines = []
+    if slice_.fallback:
+        lines.append(
+            "(word-overlap retrieval matched nothing — the request and the "
+            "ledger may not share a language — so EVERY live requirement is "
+            "shown, unranked; judge each one)"
+        )
     for req in slice_.shown:
         verified = (
             " · verified by " + ", ".join(req.verified_by[:2]) if req.verified_by else ""

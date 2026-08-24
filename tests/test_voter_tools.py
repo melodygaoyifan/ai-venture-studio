@@ -227,8 +227,128 @@ def test_requote_nudges_are_bounded(repo, tmp_path):
     output = voter.run("(diff)", repo_dir=str(repo))
     assert output.status is VoterStatus.BLOCKED_TOOL_FAILURE
     # Three calls per attempt (first + two nudges), and the retry loop is
-    # bounded by max_retries. A voter that will not requote still terminates.
+    # bounded by max_retries. A voter that will not requote still terminates —
+    # and the verdict nudge below must NOT stack a third kind of correction
+    # on top of a voter that already refused two of the same one.
     assert AlwaysMalformedProvider.calls <= 3 * (voter.spec.max_retries + 1)
+
+
+# --- Run 19's two remaining voter-side shapes ---------------------------------
+#
+# The requote nudge (above) covered run 18's failure. Run 19 produced two more:
+# a context voter wrote `read_file: tool: read_file args: {...}` — the tool
+# name as a LEADING KEY — and was told, twice, to quote its globs: a correction
+# for a mistake it had not made, so it kept its shape and blocked. And a
+# correctness voter answered with 3,381 chars of prose analysis containing no
+# YAML at all; the retry loop restarted `_investigate` with the identical
+# prompt and reliably bought the identical prose.
+
+RUN_19_MALFORMED = (
+    'read_file: tool: read_file args: {path: "tests/test_eliminate.py", '
+    "start: 1, limit: 60}"
+)
+
+
+def test_the_run_19_request_really_is_unparseable():
+    """The premise: the tool-name-as-key shape cannot be read either."""
+    from ai_venture_studio.yamlx import extract_mapping
+
+    with pytest.raises(ValueError):
+        extract_mapping(RUN_19_MALFORMED, ("tool",))
+
+
+@register
+class ToolNameAsKeyProvider(Provider):
+    """Run 19's context voter, then the corrected request after being told
+    the rule it actually broke."""
+
+    name = "tool_name_as_key"
+    calls = 0
+    nudge = ""
+
+    def chat(self, *, model, system, messages, max_tokens=4096):
+        ToolNameAsKeyProvider.calls += 1
+        if ToolNameAsKeyProvider.calls == 1:
+            return RUN_19_MALFORMED
+        if ToolNameAsKeyProvider.calls == 2:
+            ToolNameAsKeyProvider.nudge = messages[-1]["content"]
+            return yaml.safe_dump(
+                {"tool_request": {"tool": "read_file", "args": {"path": "app/utils.py"}}}
+            )
+        return yaml.safe_dump({"status": "OK", "findings": []})
+
+
+def test_the_tool_name_as_key_shape_is_nudged_with_the_rule_it_broke(repo, tmp_path):
+    ToolNameAsKeyProvider.calls = 0
+    voter = Voter(_tooled_skill(tmp_path), provider_override="tool_name_as_key")
+    output = voter.run("(diff)", repo_dir=str(repo))
+    assert output.status is VoterStatus.OK          # was BLOCKED_TOOL_FAILURE
+    nudge = ToolNameAsKeyProvider.nudge
+    assert "tool_request:" in nudge                 # shows the exact template
+    assert "VALUE" in nudge                         # names the rule it broke
+    assert "**/*.py" in nudge                       # still names run 18's rule
+    assert ToolNameAsKeyProvider.calls == 3         # nudge, tool call, verdict
+
+
+@register
+class ProseThenVerdictProvider(Provider):
+    """Run 19's correctness voter: pure prose, no YAML — then a verdict once
+    told, in-conversation, what was missing."""
+
+    name = "prose_then_verdict"
+    calls = 0
+    nudge = ""
+    echoed = ""
+
+    def chat(self, *, model, system, messages, max_tokens=4096):
+        ProseThenVerdictProvider.calls += 1
+        if ProseThenVerdictProvider.calls == 1:
+            return "Analyzing the diff: the change to app/main.py looks safe because..."
+        ProseThenVerdictProvider.nudge = messages[-1]["content"]
+        ProseThenVerdictProvider.echoed = messages[-2]["content"]
+        return yaml.safe_dump({"status": "OK", "findings": []})
+
+
+def test_a_prose_reply_is_corrected_in_conversation_not_blindly_retried(tmp_path):
+    ProseThenVerdictProvider.calls = 0
+    path = tmp_path / "plain.md"
+    path.write_text(
+        "---\nname: plain\ndescription: d\nprovider: mock\nmodel: m\n---\nJudge.\n"
+    )
+    voter = Voter(SpecValidator().load(path), provider_override="prose_then_verdict")
+    output = voter.run("(diff)")
+    assert output.status is VoterStatus.OK          # was BLOCKED_TOOL_FAILURE
+    assert ProseThenVerdictProvider.calls == 2      # corrected, not restarted
+    # The correction says what a verdict is...
+    assert "status" in ProseThenVerdictProvider.nudge
+    assert "explanation" in ProseThenVerdictProvider.nudge
+    # ...and the failed reply rides along, so the model sees what it wrote
+    # instead of being handed the identical prompt again (ADR-041).
+    assert ProseThenVerdictProvider.echoed.startswith("Analyzing the diff")
+
+
+@register
+class AlwaysProseProvider(Provider):
+    """Never produces YAML. The verdict nudges must not run forever."""
+
+    name = "always_prose"
+    calls = 0
+
+    def chat(self, *, model, system, messages, max_tokens=4096):
+        AlwaysProseProvider.calls += 1
+        return "I considered the diff at length and have many thoughts."
+
+def test_reverdict_nudges_are_bounded(tmp_path):
+    AlwaysProseProvider.calls = 0
+    path = tmp_path / "plain.md"
+    path.write_text(
+        "---\nname: plain\ndescription: d\nprovider: mock\nmodel: m\n---\nJudge.\n"
+    )
+    voter = Voter(SpecValidator().load(path), provider_override="always_prose")
+    output = voter.run("(diff)")
+    assert output.status is VoterStatus.BLOCKED_TOOL_FAILURE
+    # First reply + two corrections per attempt, retries bound the attempts.
+    assert AlwaysProseProvider.calls <= 3 * (voter.spec.max_retries + 1)
 
 
 @register

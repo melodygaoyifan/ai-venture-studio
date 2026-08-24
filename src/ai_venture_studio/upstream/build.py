@@ -1178,16 +1178,33 @@ def _run_build_inner(
         + f"<repo_tree>\n{_file_tree(repo)}\n</repo_tree>\n\n"
         + (f"{existing}\n\n" if existing else "")
         + "You are EXTENDING the existing product above — integrate with it, "
-        "never recreate it. Existing test files are read-only to you. Your "
-        "spec's skeleton tests already exist ON DISK: do not resubmit them "
+        "never recreate it. Existing test files are read-only to you. Each "
+        "skeleton below is marked with whether its file exists on disk yet: "
+        "a skeleton NOT on disk is YOURS TO WRITE as a real test file — "
+        "writing only source files fails the gate with 'collected no "
+        "tests'. A test file already on disk is a wall: do not resubmit it "
         "(a version missing any existing assert is silently discarded and "
-        "the skeleton kept) — write the SOURCE files that make them pass, "
-        "plus any NEW test files.\n\n"
+        "the on-disk file kept) — write the SOURCE files that make it "
+        "pass, plus any NEW test files.\n\n"
         + (f"<source_contract>\n{source_contract[:3000]}\n</source_contract>\n\n"
            if source_contract.strip() else "")
         + f"<spec>\n{yaml.safe_dump(spec.model_dump(include={'title', 'design', 'criteria'}), sort_keys=False, allow_unicode=True)}"
+        # Truth per path, checked against the disk, because for sixteen
+        # versions this prompt asserted the skeletons "already exist ON
+        # DISK" while nothing ever wrote them — the spec stores only
+        # path/purpose/covers. The system prompt said "write them as real
+        # tests"; this line forbade exactly that, and which instruction the
+        # model obeyed decided the task: bench run 19's 04-t1/t2 obeyed
+        # this one, submitted source only, and died on 'pytest collected
+        # no tests' three attempts straight — with the feedback naming the
+        # symptom and the prompt still forbidding the fix.
         f"test_skeletons:\n"
-        + "\n".join(f"- {s.path}: {s.purpose} (covers {s.covers})" for s in spec.test_skeletons)
+        + "\n".join(
+            f"- {s.path}: {s.purpose} (covers {s.covers}) "
+            + ("[on disk — read-only wall]" if (repo / s.path).exists()
+               else "[NOT on disk — write this file]")
+            for s in spec.test_skeletons
+        )
         + "\n</spec>"
         # A retried task's implementer must know what killed the previous
         # attempt, or it walks into the same wall: the run-3 forensics showed

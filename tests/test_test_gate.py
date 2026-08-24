@@ -136,7 +136,7 @@ def test_a_hanging_suite_blocks_the_gate_instead_of_killing_the_run(monkeypatch,
 
     from ai_venture_studio import testing
 
-    def _hang(cmd, cwd, timeout=testing._TEST_TIMEOUT_S):
+    def _hang(cmd, cwd, timeout=testing._TEST_TIMEOUT_S, env=None):
         raise subprocess.TimeoutExpired(cmd, timeout)
 
     monkeypatch.setattr(testing, "_run", _hang)
@@ -257,6 +257,54 @@ def test_the_faulthandler_dump_is_clipped_from_the_top_not_the_bottom():
     assert "elided" in detail  # and it is still clipped, not dumped whole
 
 
+def test_a_regular_tests_package_on_the_path_cannot_shadow_the_suite(tmp_path, monkeypatch):
+    """Run 19: 16 of 19 review-time test gates in cases 01–04 died at
+    collection because a REGULAR `tests` package installed on the host
+    (pyannote.pipeline and speechbrain both ship one into site-packages)
+    beats the product's init-less `tests/` at EVERY sys.path position —
+    PEP 420 prefers a regular package over namespace portions regardless
+    of path order. The build gate, running the same suites in a clean
+    Docker container minutes earlier, had passed them all: two gates,
+    two environments, opposite verdicts on identical code.
+
+    The product here uses BOTH import idioms in one suite — `from
+    tests.helpers import` (cases 01–03) and bare `from conftest import`
+    (cases 04/05) — because the first fix draft (the `__init__.py` shim
+    alone) fixed the former by breaking the latter, measured on case 04.
+    """
+    from ai_venture_studio import testing as t
+
+    pollution = tmp_path / "site"
+    (pollution / "tests").mkdir(parents=True)
+    (pollution / "tests" / "__init__.py").write_text("")
+    (pollution / "tests" / "conftest.py").write_text("")  # lacks every needed name
+
+    proj = tmp_path / "proj"
+    (proj / "tests").mkdir(parents=True)
+    (proj / "app.py").write_text("def add(a, b):\n    return a + b\n")
+    (proj / "tests" / "conftest.py").write_text("BARE = 'bare'\n")
+    (proj / "tests" / "helpers.py").write_text("def double(x):\n    return 2 * x\n")
+    (proj / "tests" / "test_both_idioms.py").write_text(
+        "from tests.helpers import double\n"
+        "from conftest import BARE\n"
+        "from app import add\n\n\n"
+        "def test_both_idioms_resolve_to_this_project():\n"
+        "    assert double(add(1, 2)) == 6\n"
+        "    assert BARE == 'bare'\n"
+    )
+
+    # The pollution rides PYTHONPATH so the test is hermetic on any machine:
+    # same PEP 420 rule, no dependence on what this host's site-packages holds.
+    monkeypatch.setenv("PYTHONPATH", str(pollution))
+    report = t._pytest_in_subprocess(proj)
+
+    assert report.status == "passed", f"{report.summary}\n{report.detail}"
+    # The shim is a run-time shield, not a dropping: build/autopilot run this
+    # against the live workspace repo, where a leftover __init__.py would ride
+    # into the product's next commit.
+    assert not (proj / "tests" / "__init__.py").exists()
+
+
 @pytest.mark.parametrize("wedged", ["suite", "sync"])
 def test_a_hang_inside_the_docker_sandbox_blocks_the_gate_too(monkeypatch, tmp_path, wedged):
     """The T3 path called `_run` bare, so a sandboxed hang raised through.
@@ -273,7 +321,7 @@ def test_a_hang_inside_the_docker_sandbox_blocks_the_gate_too(monkeypatch, tmp_p
     monkeypatch.setattr("ai_venture_studio.executables.shutil.which",
                         lambda name: f"/usr/bin/{name}")
 
-    def _fake_run(cmd, cwd, timeout=None):
+    def _fake_run(cmd, cwd, timeout=None, env=None):
         parts = [str(part) for part in cmd]
         # `docker exec … sh -c` is the dependency sync; any other exec is the
         # suite. Matching on a word would also match the tmp path and the

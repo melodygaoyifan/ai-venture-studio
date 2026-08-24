@@ -278,6 +278,10 @@ class MockProvider(Provider):
                 sort_keys=False,
             )
         if PLANNER_MARKER in system:
+            if "MOCK_NO_TASKS" in user:
+                # A deliberate `tasks: []` — the planner's real channel for
+                # "the product already does this" (run 19, increment 0).
+                return yaml.safe_dump({"tasks": []}, sort_keys=False)
             if "parallel plan" in user:
                 return yaml.safe_dump(
                     {"tasks": [

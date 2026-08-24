@@ -45,41 +45,68 @@ the two rules made the run due, beside the command that spends the money.
 | 13 | result-2026-08-13-0837.yaml | c3aa2e3 | **94%** | **92%** | **75%** | **best composite by a wide margin, and the first run where all four cases were measured** (`cases_measured: 4` of 4). The two v0.83.0 fixes were judged in anger: case 03 went **5/5 on probes**, up from 3/5 — both of its old failures were the `{}` error-body pair, now readable; case 04 **completed 6/6 with no timeout at all**, so `_run_and_classify` never fired and run 12's hang remains unexplained rather than fixed. Case 02 is the one real failure: the build gate never went green on *database-backed short-link store with atomic CLI* (first attempt an `ImportError` loading conftest, auto-retry `test_create_returns_201_with_code`), nothing committed, workspace reset — the system refusing to ship broken work. Case 04's single probe failure was `URLError: Connection refused` — **the harness again, fixed below** |
 | 14 | result-2026-08-14-0139.yaml | f05f69d (v0.86.0) | **100%** | **100%** | 38% | **every task in every case built, and every probe passed** — 17/17 and 13/13, four of four cases measured. The composite's ceiling moved to the review: 37.5% clean, *down* from run 13's 75% on a run that built strictly more. That gap is what ADR-037 was written from — the repair pass filtered by a hard-coded severity list while the leader blocked on its own wider one, so MEDIUM could block a verdict that nothing would ever try to fix. Case 03 (0 of 3) and case 04 (0 of 6) took no clean review at all despite building everything. The file carries **no `avs_version`** — the run predates ADR-037's rule that a result names the build that produced it, which is why "which code scored this" had to be recovered from commit times |
 | 16 | result-2026-08-16-0612.yaml | 08d8ba9 (v0.93.0) | **100%** | 75% | 31% | 3 of 4 cases measured — `02-shortener-api` is **excluded**, and both halves of that exclusion are wrong in opposite directions (see the note below). Every task in every case that ran was built: **16/16**, and **16/16 probes passed**. The ceiling is the review again: 5 clean of 16 tasks. **ADR-039 did what it was built to do and it did not move this number** — reviews now arrive at one or two findings each rather than one issue wearing nine hats, and a repair pass fires on all of them, but **6 of the 11 rejections read "a fix was attempted and rolled back — it did not clear the review"**. Two rejections are the reviewer earning its keep: `04-t1` held a shared `sqlite3` connection across `ThreadingHTTPServer` worker threads without `check_same_thread=False` (3 critical), and `04-t3` removed the non-integer id guard, answering 404 where it owed 400 — `ESCALATE_SECURITY_RISK`. Three more were not about severity at all (see below) |
-| 19 | result-2026-08-24-0733.yaml | (v0.116.0) | **96%** | **100%** | 0% | **the first conclusive reading**: every known run-18 harness fault was fixed and verified before the run was bought, and both exclusion lists it introduced are present and **empty** (`no_probe_reading: []`, `no_review_reading: []`) — nothing in these rates is silently averaged over less than the run. Five cases, four in the rates, none unmeasured. Build 27/28 — the sole failure is `04-t2`, the build gate refusing to go green after 3 iterations (`implementer returned no files — every file was discarded`), nothing committed, honestly recorded. **`03-groupbuy-auto` went 0 → 5/5 built**: run 18's fatal `lane collision` is now `2 parallelism advisory(ies)` — ADR-058's describe-don't-refuse remedy confirmed live for the first time (the one fix mock could not exercise). Probes 13/13. Clean **0%**, and the rows say why in three distinct shapes: **11 of 27 rejections carry `[N voter(s) returned no verdict]` — the run overlapped a provider-degraded window** (observed live: the client sat in its 6-attempt backoff loop with half-closed sockets); several are `Gate 2 blocked` rows; and some are the reviewer earning its keep (`N+1 per-candidate query`, `B310`). Increment gate 0% over 3, but for the first time each miss is legible: one follow-up failed its build, one **reached the gate and missed** (`expected raises_scr → completed`, no SCR — the first true gate reading ever), one stopped at intake **with the assessor's questions recorded** (ADR-058's fix visible: run 18 recorded nothing). Cost **$81.72** over 2046 calls / 17.1M tokens, fully priced; by case: 01 $7.05 · 02 $7.27 · 03 $17.22 · 04 $28.40 · 05 $21.77. ~5.5h |
+| 19 | result-2026-08-24-0733.yaml | (v0.116.0) | **96%** | **100%** | 0% | **the first conclusive reading**: every known run-18 harness fault was fixed and verified before the run was bought, and both exclusion lists it introduced are present and **empty** (`no_probe_reading: []`, `no_review_reading: []`) — nothing in these rates is silently averaged over less than the run. Five cases, four in the rates, none unmeasured. Build 27/28 — the sole failure is `04-t2`, the build gate refusing to go green after 3 iterations (`implementer returned no files — every file was discarded`), nothing committed, honestly recorded. **`03-groupbuy-auto` went 0 → 5/5 built**: run 18's fatal `lane collision` is now `2 parallelism advisory(ies)` — ADR-058's describe-don't-refuse remedy confirmed live for the first time (the one fix mock could not exercise). Probes 13/13. Clean **0%**, and the rows say why in three distinct shapes: **11 of 27 rejections carry `[N voter(s) returned no verdict]` — recorded on run day as a provider-degraded window, an attribution the post-run forensics REFUTED: six parse/protocol failures** (4× a model spending its entire 4096-token output budget on a thinking block, 1× tool-name-as-key YAML, 1× prose with no verdict — all three shapes fixed in v0.117.0); several are `Gate 2 blocked` rows — **which the same forensics showed were the harness HOST's errors, not the products': a regular `tests` package in the runner's site-packages shadowed 16 of 19 review-gate suites (PEP 420), the same suites the build gate had run green in Docker minutes earlier** (shielded in v0.117.0); and some are the reviewer earning its keep (`N+1 per-candidate query`, `B310`). Increment gate 0% over 3, but for the first time each miss is legible: one follow-up failed its build, one **reached the gate and missed** (`expected raises_scr → completed`, no SCR — the first true gate reading ever), one stopped at intake **with the assessor's questions recorded** (ADR-058's fix visible: run 18 recorded nothing). Cost **$81.72** over 2046 calls / 17.1M tokens, fully priced; by case: 01 $7.05 · 02 $7.27 · 03 $17.22 · 04 $28.40 · 05 $21.77. ~5.5h |
 | 18 | result-2026-08-20-1459.yaml | (v0.106.0) | 75% | 75% | 50% | **the first run that says what it cost: $67.88** over 1913 calls and 13.9M tokens, fully priced, 0 unpriced calls (ADR-057). Also the first run with a **`provider: anthropic`** stamp (ADR-056) and the first to score the **increment axis** — `gate_rate: 0%` over the one increment case, which is a separate denominator and is *not* in the four columns. Five cases, four in these rates, none unmeasured. Two failures, and **neither is what its row looks like**: `05-increment-repairs` scored 0/3 on the gate because all three follow-up FDRs stopped at **intake** (`status=needs_answers`) and never reached the reconciliation gate at all — the gate was not wrong, it never ran (see below) — and one of its two probes could never have passed in any run, because it did not parse. `03-groupbuy-auto` never built a task: the planner produced the same `lane collision: t1 (api) and t3 (orders) both expect 'app/models*.py'` three times, was told so verbatim each time, and the run was blocked at Gate U2. Cost by case: 01 $14.08 · 02 $8.58 · 03 $1.29 · 04 $32.05 · 05 $11.88 |
 | 15 | result-2026-08-14-0702.yaml | 9807c32 (v0.88.0) | 83% | **100%** | 55% | 3 of 4 cases measured — **04-direction-workbench died on a provider `529 Overloaded` and is excluded, not scored `0.0`** (ADR-035). Probes stayed perfect on everything that shipped. Two independent cases were blocked by a spec containing *nothing* — no criteria, no skeletons — reported as the flat sentence "no acceptance criteria"; an empty spec passed every quality check by having nothing to check, so the revision loop's good-enough break fired on it (ADR-041). Case 01 also lost a task to a build that failed `1 failed, 27 passed` three times, whose recorded cause was 240 characters of pytest banner art naming no assertion (ADR-042); re-running the preserved workspace showed a genuine product defect — a 40-digit id matching the spec's own `^[0-9]+$` criterion answered 400 where it owed 404 |
 
 > **Run 19, the clean rate of 0% is three findings wearing one number.**
 > All 27 reviewed tasks took `REQUEST_CHANGES`, and unlike run 18 every row
 > explains itself (ADR-074's contract, holding under fire). The shapes:
-> (1) **eleven rejections are `[N voter(s) returned no verdict]`** — the
-> `context`/`performance`/`security` voters exhausting their transient-failure
-> budget. The run overlapped a degraded provider window: during case 05 the
-> process was observed live sleeping in the 6-attempt/60s-cap backoff loop
-> with a stack of half-closed connections, and the result file's own rule —
-> "this is what rejected the task, not the findings below" — kept those
-> rejections labeled as voter absence rather than dressed as findings.
-> A no-verdict voter rejecting the task is the deliberate fail-closed posture;
-> what this run adds is the first measurement of what that posture costs in a
-> bad window: on the order of 40% of all reviews. (2) Several rejections are
-> `Gate 2 blocked — failed: N errors` — the product's own suite red at review
-> time. (3) The remainder are the reviewer working: the `N+1 per-candidate
-> query` catch in case 04 and the `B310` catch in case 01 are real findings,
-> and several repairs were attempted and honestly discarded because they broke
-> the suite. Per the standing direction, no new instrument was built off this
-> reading — the rows already say which shape each rejection is, and the next
-> action on (1) is a debug of voter retry behaviour if it recurs in a healthy
-> window, not a bench run.
+> (1) **eleven rejections are `[N voter(s) returned no verdict]`** — recorded
+> on run day as "voters exhausting their transient-failure budget in a
+> degraded provider window", and **that attribution is wrong; corrected here
+> after the v0.117.0 debug.** The live observation was real — during case 05
+> the process was seen sleeping in the 6-attempt/60s-cap backoff loop with a
+> stack of half-closed connections — but it is not the cause. Every blocked
+> vote traces to six preserved records whose API calls all *returned and were
+> paid for*: four are the model spending its **entire 4096-token output budget
+> on a thinking block** (`stop_reason: max_tokens`, content `['thinking']`,
+> zero text — then retried blind three times at the same budget, same result),
+> one is a tool request with the **tool name as a YAML key** (unparseable),
+> one is a **verdict delivered as prose with no YAML mapping**. These are
+> parse/protocol failures, not provider absence. v0.117.0 fixes each at its
+> layer: an empty-because-thinking response is re-bought once at 4× budget,
+> a malformed tool request is answered with the exact shape it broke, and an
+> unparseable verdict gets an in-conversation correction instead of a blind
+> retry. The fail-closed posture (a no-verdict voter rejects the task) stands
+> unchanged. (2) Several rejections are `Gate 2 blocked — failed: N errors` —
+> recorded as the product's own suite red at review time, **also corrected:
+> the errors were the harness host's, not the products'.** The review gate
+> runs the suite in a subprocess on the host, where a regular `tests` package
+> installed in the runner's site-packages shadows a product's init-less
+> `tests/` directory (PEP 420: a regular package at any `sys.path` entry
+> beats namespace portions everywhere), so `from tests.X import …` imported
+> the wrong package in **16 of 19** review-gate runs across cases 01–04 —
+> the same suites the *build* gate had just run green in Docker. v0.117.0
+> shields the subprocess gate (temporary `tests/__init__.py` + `PYTHONPATH`
+> prepend, removed after). (3) The remainder are the reviewer working: the
+> `N+1 per-candidate query` catch in case 04 and the `B310` catch in case 01
+> are real findings, and several repairs were attempted and honestly
+> discarded because they broke the suite. The 0% clean rate is therefore
+> dominated by two harness-side defects, not by product quality. Per the
+> standing direction, no new instrument was built off this reading — the
+> debug that produced these corrections is the v0.117.0 change itself.
 >
-> **Run 19, the gate produced its first real reading, and it is a miss.**
-> Increment 2 (`expected raises_scr`) reached the reconciliation gate —
-> `assess_fdr` passed it through intake — and completed **without raising an
-> SCR** against the requirement it contradicts. Run 18's 0% meant "the gate
-> was never asked"; this 0% contains one genuine wrong answer, which is what
-> the axis exists to detect. Increment 3 stopped at intake with the
-> assessor's questions recorded verbatim (评分用什么形式…), so "stopped at
-> intake" is now a legible state rather than a silent one; increment 1's
-> follow-up build failed before any gate question arose.
+> **Run 19, the gate's "first real reading" was itself a harness miss —
+> corrected.** The run-day read was that increment 2 (`expected raises_scr`)
+> reached the reconciliation gate and answered wrongly. Forensics: the gate
+> never saw the ledger. Retrieval scores by content-word overlap; the ledger
+> is English EARS (the spec pipeline writes it) and the follow-up is Chinese,
+> so the slice came back **empty**, `reconcile()` wrote `checked: false`, and
+> the delete-endpoint contradiction built straight through an inert gate —
+> ADR-048's shape one layer up (ADR-050 fixed CJK-vs-CJK matching but not
+> cross-language). v0.117.0 makes zero-overlap-against-a-non-empty-ledger
+> show the *whole* live ledger, marked as a fallback — degrading toward more
+> context, never toward silence. Increment 1's "failed" is also corrected:
+> the planner deliberately produced `tasks: []` (it recognized the request as
+> already satisfied from the codebase map), and the harness mapped "nothing
+> to build" to `failed`; that is now a distinct `already_satisfied` status.
+> Increment 3 stopped at intake with the assessor's questions recorded
+> verbatim (评分用什么形式…) — legible, but a `--yes` run has nobody to
+> answer, so v0.117.0 proceeds with defaults on an established product and
+> records the questions in `FDR-QUESTIONS.md` instead of parking the request.
+> Net: the gate axis has still never been genuinely asked its question; the
+> three misses were three different harness defects, all now fixed.
 
 > **Reading gap: runs 16 → 17 spans nine releases, not one.** Run 16 ran on
 > **v0.93.0** (2026-08-16). Run 17 fired early on 2026-08-17 against the then

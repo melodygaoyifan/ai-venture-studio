@@ -185,7 +185,13 @@ def test_retired_requirements_are_not_offered_to_a_planner(tmp_path: Path) -> No
     req.sync_ledger(tmp_path)
     _write_spec(tmp_path, "orders", ["Something unrelated shall happen."])
     req.sync_ledger(tmp_path)
-    assert not req.relevant(tmp_path, "checkout order").shown
+    # Zero overlap against a non-empty live ledger now shows the WHOLE live
+    # ledger as a marked fallback (run 19: an empty slice made the
+    # reconciliation gate silently inert) — but retired stays dead: the
+    # fallback may only ever show live rows.
+    slice_ = req.relevant(tmp_path, "checkout order")
+    assert slice_.fallback
+    assert [r.text for r in slice_.shown] == ["Something unrelated shall happen."]
 
 
 def test_the_slice_is_stable_for_the_same_corpus_and_request(tmp_path: Path) -> None:

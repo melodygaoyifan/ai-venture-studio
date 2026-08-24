@@ -33,6 +33,15 @@ _MALFORMED_TOOL_REQUEST: dict = {"__malformed__": True}
 # time — and every nudge is a paid round trip.
 _MAX_REQUOTE_NUDGES = 2
 
+# Same bound, other failure: a reply that is neither a tool request nor a
+# readable verdict (run 19: correctness/opus sent 3,381 chars of prose
+# analysis — real review work with no YAML anywhere in it). The retry loop
+# used to handle this by restarting `_investigate` with the IDENTICAL prompt,
+# which reliably bought the identical prose (ADR-041: a writer that is not
+# told what broke cannot fix it). Correct in-conversation instead: the voter
+# keeps its tool results and its analysis, and is told where the YAML goes.
+_MAX_REVERDICT_NUDGES = 2
+
 
 def _carries_a_verdict(raw: str) -> bool:
     """Whether this response can be read as a final verdict."""
@@ -183,6 +192,7 @@ class Voter:
         messages: list[dict[str, str]] = [{"role": "user", "content": user}]
         nudged = False
         requote = 0
+        reverdict = 0
         while True:
             raw = provider.chat(model=model, system=system, messages=messages)
             if not raw.strip() and not nudged:
@@ -214,19 +224,31 @@ class Voter:
                 # blocks were this. Say what was wrong and let it try again
                 # (ADR-041: a writer that is not told what broke cannot fix it).
                 messages.append({"role": "assistant", "content": raw})
+                # Names BOTH observed mistakes, not just the first one found.
+                # Run 18's was the unquoted glob; run 19's context voter wrote
+                # `read_file: tool: read_file args: {...}` — the tool name as
+                # a leading key — and was nudged twice about glob quoting, a
+                # correction for a mistake it had not made. It kept its shape.
                 messages.append({
                     "role": "user",
                     "content": (
-                        "Your tool_request was not valid YAML and could not be "
-                        "run. Globs and regexes must be QUOTED — `glob: "
-                        '"**/*.py"`, not `glob: **/*.py`, because a bare `*` '
-                        "starts a YAML alias. Re-send the tool_request with "
-                        "every pattern and glob in double quotes, or send your "
-                        "final status/findings YAML if you have enough already."
+                        "Your tool request could not be parsed as YAML. Send "
+                        "EXACTLY this shape:\n\n"
+                        "tool_request:\n"
+                        "  tool: read_file\n"
+                        '  args: {path: "app/main.py"}\n\n'
+                        "The tool name is the VALUE of the `tool:` key, never "
+                        "a key of its own — `read_file: tool: read_file ...` "
+                        "does not parse. Globs and regexes must be QUOTED — "
+                        '`glob: "**/*.py"`, not `glob: **/*.py`, because a '
+                        "bare `*` starts a YAML alias. Re-send the "
+                        "tool_request, or send your final status/findings "
+                        "YAML if you have enough already."
                     ),
                 })
                 continue
-            if request is _MALFORMED_TOOL_REQUEST:
+            fell_through_malformed = request is _MALFORMED_TOOL_REQUEST
+            if fell_through_malformed:
                 # Nudged and still malformed. Fall through to `_parse`, which
                 # raises and consumes a retry — the old behaviour, now reached
                 # only after the voter was actually told what was wrong.
@@ -251,7 +273,31 @@ class Voter:
                 raw = provider.chat(model=model, system=system, messages=messages)
                 return self._parse(raw)
             if request is None:
-                return self._parse(raw)
+                try:
+                    return self._parse(raw)
+                except ValueError:
+                    # A malformed tool request that survived both requote
+                    # nudges gets no third kind of nudge — that voter is not
+                    # taking corrections, and the bound on paid round trips
+                    # per attempt must hold (see the requote constant).
+                    if fell_through_malformed or reverdict >= _MAX_REVERDICT_NUDGES:
+                        raise
+                    reverdict += 1
+                    messages.append({"role": "assistant", "content": raw})
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "Your reply could not be read as a verdict — it "
+                            "contains no YAML mapping with `status` and "
+                            "`findings`. Respond now with ONLY that YAML "
+                            "mapping: `status: OK | BLOCKED_MISSING_CONTEXT | "
+                            "BLOCKED_REQUIREMENT_CONFLICT` and `findings: "
+                            "[...]` — no prose before or after it, no code "
+                            "fences. Put any analysis you want to keep inside "
+                            "each finding's `explanation` field."
+                        ),
+                    })
+                    continue
             messages.append({"role": "assistant", "content": raw})
             try:
                 result = toolbox.call(request.get("tool", ""), request.get("args") or {})

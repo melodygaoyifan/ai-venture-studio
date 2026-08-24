@@ -14,8 +14,12 @@ Two stages, and the split is the point:
    it is what makes this affordable at 300 requirements.
 
 2. **One model call** judges ONLY those candidates and returns a typed
-   relation each. It never sees the whole ledger, so its answer cannot
-   degrade as the product grows.
+   relation each. It normally never sees the whole ledger, so its answer
+   cannot degrade as the product grows — with one exception: when lexical
+   retrieval matches NOTHING against a non-empty ledger (a request and a
+   ledger that do not share a language, bench run 19), the whole ledger IS
+   the slice, because an empty slice makes this gate silently inert and a
+   live contradiction built right through it.
 
 Three relations, deliberately not four. There is no `unclear`: a judgment
 the reconciler cannot make must fall through to `extends`, which is the

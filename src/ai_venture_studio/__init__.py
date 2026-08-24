@@ -7,4 +7,4 @@ traditional-industry adoption track (substrate ladder, Gate R,
 toolchain/data profiles, attestation ledger).
 """
 
-__version__ = "0.116.0"
+__version__ = "0.117.0"

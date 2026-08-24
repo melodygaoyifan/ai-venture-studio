@@ -1831,11 +1831,34 @@ def run_feature(
     )
     if not assessment.ready:
         questions = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(assessment.questions))
+        if not yes:
+            (root / "FDR-QUESTIONS.md").write_text(
+                f"# 请回答这些问题 / Please answer\n\n{assessment.summary}\n\n{questions}\n",
+                encoding="utf-8",
+            )
+            return AutopilotResult(status="needs_answers", assessment=assessment)
+        # `--yes` is a NON-INTERACTIVE run: nobody is there to answer, so
+        # stopping here parks the request forever — bench run 19's third
+        # increment ("让住户给维修打个分") died at intake on three questions a
+        # one-line founder request never answers ("1-5 stars or 1-10?").
+        # On an ESTABLISHED product the intake bar is advisory: the planner
+        # and spec writers choose sensible defaults for exactly these gaps.
+        # The questions are still recorded — visibly, with the fact that the
+        # build went ahead — so the founder can answer them and re-run if
+        # the defaults miss. First-FDR intake (run_autopilot) keeps the
+        # strict bar: with no established users, actions or scope there is
+        # nothing to default FROM.
         (root / "FDR-QUESTIONS.md").write_text(
-            f"# 请回答这些问题 / Please answer\n\n{assessment.summary}\n\n{questions}\n",
+            f"# 我们先按常规做法继续了 / We proceeded with sensible defaults\n\n"
+            f"{assessment.summary}\n\n"
+            "这次运行带了 `--yes`（无人值守），所以没有停下来等回答。下面这些问题，"
+            "系统按常见做法自行选择了；如果和你想的不一样，回答后重新运行即可。\n"
+            "This run used `--yes` (unattended), so it did not stop to ask. "
+            "The system chose common-sense defaults for the questions below; "
+            "answer them and re-run if they miss.\n\n"
+            f"{questions}\n",
             encoding="utf-8",
         )
-        return AutopilotResult(status="needs_answers", assessment=assessment)
 
     features_dir = root / "product" / "features"
     features_dir.mkdir(parents=True, exist_ok=True)
@@ -1964,6 +1987,30 @@ def run_feature(
     )
     data = extract_mapping(raw, ("tasks",))
     tasks = [Task.model_validate(t) for t in data.get("tasks", [])]
+    if not tasks:
+        # A deliberate `tasks: []` is the planner's only channel for "there
+        # is nothing to build here" — it has read the codebase map and the
+        # existing tree, and found every acceptance criterion already met.
+        # Bench run 19: a reworded duplicate slipped past the reconciler
+        # (empty retrieval slice), the planner planned zero tasks — doing
+        # the reconciler's job by accident — and the empty outcome list fell
+        # through the completion check below as `failed`. "Nothing to do"
+        # reported as a failure is a false alarm on the founder's desk.
+        (feature_dir / "plan.yaml").write_text("[]\n", encoding="utf-8")
+        (feature_dir / "REPORT.md").write_text(
+            "# Already satisfied\n\nThis feature was not built: the planner "
+            "examined the existing code and found no work to do — the "
+            "product already appears to provide what this FDR asks for.\n\n"
+            "如果你想要的和现有功能不一样，请把区别写清楚再试一次。\n"
+            "If you wanted something different, say what is different and "
+            "try again.\n",
+            encoding="utf-8",
+        )
+        return AutopilotResult(
+            status="already_satisfied", assessment=assessment,
+            blocked_reason="the feature planner found no tasks to build — "
+            "the product already appears to provide this",
+        )
     for task in tasks:
         if not task.files_expected:
             task.files_expected = blast_radius(

@@ -4,6 +4,51 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.117.0 — the rates were right; the reasons were wrong
+
+The run-19 debug (ADR-075), per the standing direction: debug, push, deploy
+— one release, six fixes, no new instrument. The run's numbers stood; every
+run-day *explanation* of a failure was refuted by artifacts the run had
+already preserved, and the wrong attributions ("degraded provider window",
+"the product's own suite red at review time", "the first genuine gate
+miss") are corrected in place in HISTORY.md and the PC-19 note. The clean
+0% decomposes to two harness defects (A, B); the gate 0/3 to three more
+(C, D, E) — the gate axis has still never been genuinely asked.
+
+- **A — voters**: the eleven no-verdict rejections were parse/protocol
+  failures, not a bad window. (A1) a response empty because the whole
+  4096-token budget went to a thinking block is re-bought once at 4× budget
+  (`anthropic_provider.py`); (A2) an unparseable verdict gets an
+  in-conversation correction, bounded (`_MAX_REVERDICT_NUDGES = 2`);
+  (A3) the malformed-request nudge names both observed breakages
+  (tool-name-as-key, unquoted globs). Fail-closed posture unchanged.
+- **B — review test gate**: a regular `tests` package in the runner's
+  site-packages shadowed the products' init-less `tests/` (PEP 420) in 16
+  of 19 review-gate runs — the same suites Docker built green.
+  `_pytest_in_subprocess` now shields the run (temporary
+  `tests/__init__.py` + `PYTHONPATH` prepend, removed in `finally`).
+- **C — reconciliation gate**: cross-language retrieval (English EARS
+  ledger, Chinese follow-up) matched nothing, the empty slice made the
+  gate silently inert, and a delete contradiction built through it. Zero
+  overlap against a non-empty ledger now shows the whole live ledger
+  (`fallback=True`, capped 200, drops reported, retired never resurrected).
+- **D — planner**: a deliberate `tasks: []` ("nothing to build — already
+  provided") returns `already_satisfied` with a bilingual REPORT.md
+  instead of being scored `failed`.
+- **E — intake under `--yes`**: on an established product, a not-ready
+  assessment records its questions in `FDR-QUESTIONS.md` under a
+  "proceeded with sensible defaults" heading and continues; first-FDR
+  intake keeps the strict bar. `needs_answers` in an unattended run parks
+  the request forever.
+- **F — implementer prompt**: it claimed skeleton tests "already exist ON
+  DISK" — nothing has ever written them; two case-04 tasks obeyed it and
+  died on `pytest collected no tests` ×3. The skeleton listing now states
+  the disk truth per path (`[NOT on disk — write this file]` /
+  `[on disk — read-only wall]`).
+- New tests across 6 files, all take-the-fix-away verified; one existing
+  test updated to the new fallback contract (retired stays dead — the
+  fallback may only show live rows). Suite 2517 → 2537.
+
 ## v0.116.0 — a review that never ran is not a review that objected
 
 Found while verifying that every known run-18 defect was fixed before buying

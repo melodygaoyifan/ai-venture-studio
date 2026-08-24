@@ -185,6 +185,80 @@ def test_backoff_is_jittered_so_pooled_voters_do_not_retry_in_lockstep():
     assert len(waits) > 1, "identical waits mean every voter retries together"
 
 
+# ── thinking-eats-the-budget escalation (bench run 19) ───────────────────
+# claude-sonnet-5 thinks by default, and with max_tokens=4096 it can spend
+# the ENTIRE output budget on the thinking block: zero text blocks,
+# stop_reason == "max_tokens". Four run-19 voters blocked this way — each
+# after three blind retries that bought the identical empty answer at the
+# identical price. One escalated pass is cheaper than three flat ones, and
+# it is paid only when the first pass has already proven the budget short.
+
+
+class _ThinkingBlock:
+    type = "thinking"
+
+
+class _AllThinkingMessage:
+    stop_reason = "max_tokens"
+    usage = _Usage()
+
+    def __init__(self):
+        self.content = [_ThinkingBlock()]
+
+
+def test_an_all_thinking_response_escalates_the_budget_once(calls, monkeypatch):
+    monkeypatch.setattr(
+        _Messages, "create",
+        lambda self, **kw: (
+            self._recorder.append(("create", kw["max_tokens"])),
+            _AllThinkingMessage(),
+        )[1],
+    )
+    # 4096 → 16384 crosses _STREAM_ABOVE, so the second pass streams — and
+    # the default _Stream fake answers with text, i.e. the bigger budget
+    # left room for the answer.
+    assert _chat(4096) == "streamed"
+    assert calls == [("create", 4096), ("stream", 16384)]
+
+
+def test_a_response_with_text_is_never_escalated_even_when_truncated(calls, monkeypatch):
+    """A PARTIAL answer is the truncation guard's problem (providers/base
+    reads the recorded stop_reason) — re-buying it 4× would pay for text
+    the caller is going to reject anyway."""
+
+    class _Truncated(_Message):
+        stop_reason = "max_tokens"
+
+    monkeypatch.setattr(
+        _Messages, "create",
+        lambda self, **kw: (
+            self._recorder.append(("create", kw["max_tokens"])),
+            _Truncated("partial"),
+        )[1],
+    )
+    assert _chat(4096) == "partial"
+    assert calls == [("create", 4096)]
+
+
+def test_a_still_empty_escalated_pass_gives_up_with_the_diagnostics(calls, monkeypatch):
+    """Two passes, then stop: the voter loop owns what happens next, and
+    LAST_EMPTY_META must describe the escalated attempt it just watched."""
+    monkeypatch.setattr(
+        _Messages, "create",
+        lambda self, **kw: (
+            self._recorder.append(("create", kw["max_tokens"])),
+            _AllThinkingMessage(),
+        )[1],
+    )
+    monkeypatch.setattr(
+        _Stream, "get_final_message", lambda self: _AllThinkingMessage()
+    )
+    assert _chat(4096) == ""
+    assert [size for _, size in calls] == [4096, 16384]
+    assert anthropic_provider.LAST_EMPTY_META["stop_reason"] == "max_tokens"
+    assert anthropic_provider.LAST_EMPTY_META["content_blocks"] == ["thinking"]
+
+
 def test_a_transient_error_is_retried_then_succeeds(calls, monkeypatch):
     """The behaviour that matters: one 529 must not end the run."""
     import anthropic
