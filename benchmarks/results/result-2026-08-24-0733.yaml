@@ -1,0 +1,522 @@
+cases:
+- name: 01-groupbuy-api
+  autopilot_status: completed
+  axis: build
+  increments: []
+  tasks_total: 4
+  tasks_built: 4
+  clean_reviews: 0
+  unreviewed: []
+  outcomes:
+  - task_id: t1
+    title: Group-buy persistence and creation endpoint
+    status: built
+    review: REQUEST_CHANGES
+    detail: '[Gate 2 blocked — failed: 3 errors in 5.16s] [review: 1 low — B310: blacklist]'
+    test_summary: 12 passed in 1.51s
+    iterations: 1
+  - task_id: t2
+    title: Get group-buy endpoint
+    status: built
+    review: REQUEST_CHANGES
+    detail: '[Gate 2 blocked — failed: 3 errors in 1.22s]'
+    test_summary: 12 passed in 1.51s
+    iterations: 1
+    modified_existing:
+    - app/main.py
+  - task_id: t3
+    title: Create order endpoint
+    status: built
+    review: REQUEST_CHANGES
+    detail: '[2 voter(s) returned no verdict: performance, security — this is what
+      rejected the task, not the findings below]'
+    test_summary: 26 passed in 3.11s
+    iterations: 2
+  - task_id: t4
+    title: Group-buy summary endpoint
+    status: built
+    review: REQUEST_CHANGES
+    detail: '[2 voter(s) returned no verdict: performance, security — this is what
+      rejected the task, not the findings below]'
+    test_summary: 30 passed in 3.64s
+    iterations: 1
+  preserved_workspace: .mas/product-bench/workspaces/2026-08-24-0733/01-groupbuy-api
+  probes:
+  - name: create-and-read
+    passed: true
+    detail: create/read ok
+    harness_fault: false
+  - name: order-summary-math
+    passed: true
+    detail: summary math ok
+    harness_fault: false
+  - name: unknown-id-is-client-error
+    passed: true
+    detail: 404 ok
+    harness_fault: false
+  duration_s: 2069.4
+  spend:
+    calls: 236
+    input_tokens: 1163478
+    output_tokens: 175391
+    usd: 7.0543
+    unpriced_calls: 0
+  failure_reason: ''
+  lanes: '2 lane(s) over 4 task(s): groupbuys, orders — 2 parallelism advisory(ies)'
+  resumed: false
+- name: 02-shortener-api
+  autopilot_status: completed
+  axis: build
+  increments: []
+  tasks_total: 3
+  tasks_built: 3
+  clean_reviews: 0
+  unreviewed: []
+  outcomes:
+  - task_id: t1
+    title: Create short link endpoint with validation and SSRF guard
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(repair attempted, not applied: the repair broke the suite (failed) and
+      was discarded) [review: 1 high, 2 medium — Shared sqlite3 connection used across
+      ThreadingHTTPServer threads (not thread-safe); Broad `except Exception` masks
+      real DB/logic errors as generic 400; Incomplete endpoint implementation vs.
+      brief scope]'
+    test_summary: 17 passed in 1.61s
+    iterations: 2
+    blocking_by_voter:
+      correctness: 2
+      style: 1
+  - task_id: t2
+    title: Redirect endpoint with accurate click counting
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(repair attempted, not applied: the repair broke the suite (failed) and
+      was discarded) [1 voter(s) returned no verdict: security] [review: 1 high, 1
+      medium — Broad `except Exception` masking real errors as generic 4xx reintroduces
+      a previously flagged high-severity issue; Duplicated try/except/response boilerplate
+      across _handle_redirect and _handle_stats]'
+    test_summary: 25 passed in 1.64s
+    iterations: 1
+    blocking_by_voter:
+      context: 2
+    modified_existing:
+    - app/links.py
+    - app/main.py
+  - task_id: t3
+    title: Link stats endpoint
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(repair attempted, not applied: the repair broke the suite (failed) and
+      was discarded) [review: 2 high, 2 medium, 1 low — Broad `except Exception` maps
+      real server errors to a client 400; build_server() silently ignores its `conn`
+      parameter, diverging from callers'' expectations; get_stats() duplicates get_clicks()
+      and is neve'
+    test_summary: 31 passed in 3.73s
+    iterations: 2
+    blocking_by_voter:
+      correctness: 2
+      repo_graph: 1
+      context: 1
+    modified_existing:
+    - app/links.py
+    - app/main.py
+  preserved_workspace: .mas/product-bench/workspaces/2026-08-24-0733/02-shortener-api
+  probes:
+  - name: shorten-and-redirect
+    passed: true
+    detail: redirect ok
+    harness_fault: false
+  - name: click-counting
+    passed: true
+    detail: click count ok
+    harness_fault: false
+  duration_s: 1967.2
+  spend:
+    calls: 236
+    input_tokens: 1267504
+    output_tokens: 181695
+    usd: 7.2737
+    unpriced_calls: 0
+  failure_reason: ''
+  lanes: '1 lane(s) over 3 task(s): api — 2 parallelism advisory(ies)'
+  resumed: false
+- name: 03-groupbuy-auto
+  autopilot_status: completed
+  axis: build
+  increments: []
+  tasks_total: 5
+  tasks_built: 5
+  clean_reviews: 0
+  unreviewed: []
+  outcomes:
+  - task_id: t0
+    title: 数据模型与持久化基础
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(repair attempted, not applied: the repair broke the suite (failed) and
+      was discarded) [1 voter(s) returned no verdict: security] [review: 2 high, 1
+      medium, 1 low — Boot-time schema init failure silently swallowed, hiding broken-DB
+      state; Spec/requirements claim test files that were not added and don''t exist
+      in the repo; Guard added around schema check hides connectio (recovered on auto-retry)'
+    test_summary: 20 passed in 11.60s
+    iterations: 1
+    blocking_by_voter:
+      correctness: 2
+      repo_graph: 1
+    modified_existing:
+    - app/db.py
+    - app/main.py
+  - task_id: t1
+    title: 创建团购端点
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(repair attempted, not applied: the repair broke the suite (failed) and
+      was discarded) [1 voter(s) returned no verdict: security] [review: 1 medium,
+      2 low — Redundant schema initialization and directory stat/mkdir on every request;
+      B310: blacklist; Schema/spec divergence — t0 order table never created, order-model
+      requirements unbacked]'
+    test_summary: 15 passed in 8.62s
+    iterations: 2
+    blocking_by_voter:
+      performance: 1
+  - task_id: t2
+    title: 查看团购详情端点
+    status: built
+    review: REQUEST_CHANGES
+    detail: '[Gate 2 blocked — failed: 3 errors in 1.22s] [review: 1 low — Duplicated/divergent
+      ''files:'' trailer appended to design.md]'
+    test_summary: 15 passed in 8.61s
+    iterations: 1
+    modified_existing:
+    - app/main.py
+  - task_id: t3
+    title: 住户下单端点
+    status: built
+    review: REQUEST_CHANGES
+    detail: '[Gate 2 blocked — failed: 9 errors in 1.23s] [review: 2 low — B310: blacklist;
+      NotFound exception class added but never raised or used] (recovered on auto-retry)'
+    test_summary: 26 passed in 15.14s
+    iterations: 1
+    modified_existing:
+    - app/groupbuys.py
+    - app/main.py
+  - task_id: t4
+    title: 团购汇总端点
+    status: built
+    review: REQUEST_CHANGES
+    detail: '[Gate 2 blocked — error: reviewed diff did not apply cleanly to HEAD]
+      [review: 1 low — B310: blacklist]'
+    test_summary: 20 passed in 11.65s
+    iterations: 1
+    modified_existing:
+    - app/db.py
+    - app/groupbuys.py
+    - app/main.py
+  preserved_workspace: .mas/product-bench/workspaces/2026-08-24-0733/03-groupbuy-auto
+  probes:
+  - name: health-ok
+    passed: true
+    detail: ''
+    harness_fault: false
+  - name: create-read-and-summary-empty
+    passed: true
+    detail: ''
+    harness_fault: false
+  - name: order-then-summary-math
+    passed: true
+    detail: ''
+    harness_fault: false
+  - name: invalid-id-and-missing
+    passed: true
+    detail: ''
+    harness_fault: false
+  - name: method-and-notfound
+    passed: true
+    detail: ''
+    harness_fault: false
+  duration_s: 4770.8
+  spend:
+    calls: 495
+    input_tokens: 3118274
+    output_tokens: 399833
+    usd: 17.2219
+    unpriced_calls: 0
+  failure_reason: ''
+  lanes: '3 lane(s) over 5 task(s): api, infra, orders — 2 parallelism advisory(ies)'
+  resumed: false
+- name: 04-direction-workbench
+  autopilot_status: failed
+  axis: build
+  increments: []
+  tasks_total: 7
+  tasks_built: 6
+  clean_reviews: 0
+  unreviewed: []
+  outcomes:
+  - task_id: t1
+    title: Create candidate endpoint
+    status: built
+    review: REQUEST_CHANGES
+    detail: '[2 voter(s) returned no verdict: performance, security — this is what
+      rejected the task, not the findings below] (recovered on auto-retry)'
+    test_summary: 53 passed in 30.85s
+    iterations: 1
+  - task_id: t2
+    title: Get single candidate
+    status: error
+    review: null
+    detail: 'implementer returned no files — every file was discarded: tests/test_candidate_detail.py
+      (skeleton kept — your version dropped: removed_assert: assert body[''name'']
+      == ''Direction Both''; removed_assert: assert ''day12'' not in rounds; removed_assert:
+      assert body[''error'']) (failed attempt preserved at .mas/failed-builds/get-api-candidates-id-candidate-detail-with-scor;
+      workspace reset) (auto-retry also failed; first attempt: build_failed — build
+      gate still failing after max iterations; nothing committed — last failure: pytest
+      collected no tests (failed attempt preserved at .mas/failed-builds/candi)'
+    iterations: 3
+  - task_id: t3
+    title: Submit round scores
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(repair attempted, not applied: the repair broke the suite (failed) and
+      was discarded) [2 voter(s) returned no verdict: context, performance] [review:
+      2 high, 1 medium, 2 low — POST /api/candidates returns HTTP 200 but the approved
+      spec/requirement mandates 201; scores table schema in implementation contradicts
+      the approved candidate-detail spec''s data model; Non-integer <id> pat'
+    test_summary: 17 passed in 10.05s
+    iterations: 1
+    blocking_by_voter:
+      repo_graph: 2
+      correctness: 1
+  - task_id: t4
+    title: Eliminate candidate with reason
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(repair attempted, not applied: the repair broke the suite (failed) and
+      was discarded) [2 voter(s) returned no verdict: context, security] [review:
+      1 high, 1 medium — Removed round-query validation lets invalid/missing `round`
+      silently return 200 instead of 400; Unscored candidates now report vetoed/qualified
+      as False instead of None (unknown)]'
+    test_summary: 27 passed in 16.42s
+    iterations: 1
+    blocking_by_voter:
+      correctness: 2
+    modified_existing:
+    - app/main.py
+  - task_id: t5
+    title: List eliminated candidates
+    status: built
+    review: REQUEST_CHANGES
+    detail: '[Gate 2 blocked — failed: 13 errors in 1.21s] [1 voter(s) returned no
+      verdict: performance]'
+    test_summary: 36 passed in 21.71s
+    iterations: 1
+  - task_id: t6
+    title: Ranked candidate list by round
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(repair attempted, not applied: the repair broke the suite (failed) and
+      was discarded) [review: 2 high, 1 medium — N+1 per-candidate query in GET /api/candidates
+      handler; Logic change in _round_summary() guard condition; Reusable per-round
+      query helper replaced with copy-pasted, hardcoded SQL blocks]'
+    test_summary: 43 passed in 25.84s
+    iterations: 2
+    blocking_by_voter:
+      performance: 1
+      style: 1
+      context: 1
+    modified_existing:
+    - app/main.py
+  - task_id: t7
+    title: Compare day5 vs day12
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(repair attempted, not applied: the repair broke the suite (failed) and
+      was discarded) [1 voter(s) returned no verdict: context] [review: 1 medium —
+      Eliminate endpoint response silently dropped the ''reason'' field] (recovered
+      on auto-retry)'
+    test_summary: 61 passed in 35.77s
+    iterations: 1
+    blocking_by_voter:
+      repo_graph: 1
+    modified_existing:
+    - app/main.py
+  preserved_workspace: .mas/product-bench/workspaces/2026-08-24-0733/04-direction-workbench
+  probes:
+  - name: score-veto-qualify-sort
+    passed: true
+    detail: score/veto/sort ok
+    harness_fault: false
+  - name: score-validation-and-evidence-downgrade
+    passed: true
+    detail: validation ok
+    harness_fault: false
+  - name: eliminate-and-two-round-compare
+    passed: true
+    detail: eliminate/compare ok
+    harness_fault: false
+  duration_s: 5348.7
+  spend:
+    calls: 498
+    input_tokens: 5632458
+    output_tokens: 561266
+    usd: 28.3965
+    unpriced_calls: 0
+  failure_reason: ''
+  lanes: '1 lane(s) over 7 task(s): api — 3 parallelism advisory(ies)'
+  resumed: false
+- name: 05-increment-repairs
+  autopilot_status: failed
+  axis: increment
+  increments:
+  - index: 0
+    fdr: 我希望住户可以把家里坏掉的东西报上来，让物业知道。必须有：报修入口。
+    expected: already_satisfied
+    actual: failed
+    correct: false
+    detail: 'status=failed; new proposed SCR(s): none'
+  - index: 1
+    fdr: 住户应该能自己删掉自己发的报修单，发错了很尴尬。必须有：删除入口。
+    expected: raises_scr
+    actual: completed
+    correct: false
+    detail: 'status=completed; new proposed SCR(s): none'
+  - index: 2
+    fdr: 报修完成以后，住户可以给这次维修打个分。必须有：评分入口。
+    expected: completed
+    actual: needs_answers
+    correct: false
+    detail: 'status=needs_answers; new proposed SCR(s): none; STOPPED AT INTAKE, the
+      gate never ran — assessor asked: 评分用什么形式？比如1到5颗星，还是1到10分？; 除了打分，住户是否还能写文字评价？;
+      评分能否修改，还是提交后就不能改了？'
+  tasks_total: 6
+  tasks_built: 6
+  clean_reviews: 3
+  unreviewed: []
+  outcomes:
+  - task_id: t1
+    title: 报修持久化与数据模型
+    status: built
+    review: APPROVE
+    detail: (after fix iteration)
+    test_summary: 11 passed in 5.78s
+    iterations: 2
+  - task_id: t2
+    title: POST 报修提交端点
+    status: built
+    review: APPROVE
+    detail: ''
+    test_summary: 24 passed in 12.66s
+    iterations: 1
+    modified_existing:
+    - app/handler.py
+  - task_id: t4
+    title: 物业查看全部报修列表
+    status: built
+    review: APPROVE_WITH_NOTES
+    detail: ''
+    test_summary: 31 passed in 15.70s
+    iterations: 2
+    modified_existing:
+    - app/handler.py
+  - task_id: t3
+    title: 住户按标识查看自己的报修列表
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(repair attempted, not applied: the repair broke the suite (failed) and
+      was discarded) [1 voter(s) returned no verdict: security] [review: 1 high, 1
+      medium — list_repairs raises NameError on the no-filter path (bare GET /repairs);
+      New db helper duplicates existing list_repairs(house_number=...) filtering logic]'
+    test_summary: 39 passed in 20.38s
+    iterations: 1
+    blocking_by_voter:
+      correctness: 1
+      context: 1
+    modified_existing:
+    - app/db.py
+    - app/handler.py
+  - task_id: t5
+    title: 物业标记报修为已完成
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(repair attempted, not applied: the repair was reviewed, found critical
+      findings of its own, and was discarded) [review: 1 critical, 2 medium, 1 info
+      — Shipped implementation for t5 contradicts outcomes.yaml''s own ''build_failed
+      / workspace reset'' record, and its ''built'' requirements cite test files that
+      do not exist; mark_repair_complete duplicates m (recovered on auto-retry)'
+    test_summary: 39 passed in 20.34s
+    iterations: 1
+    blocking_by_voter:
+      repo_graph: 1
+      context: 1
+      style: 1
+    modified_existing:
+    - app/db.py
+    - app/handler.py
+  - task_id: f1
+    title: Delete own repair request endpoint
+    status: built
+    review: REQUEST_CHANGES
+    detail: '(repair attempted, not applied: the repair was reviewed, found high findings
+      of its own, and was discarded) [2 voter(s) returned no verdict: context, security]
+      [review: 1 high — Requirement R-009 (''no delete route'') and its acceptance
+      criterion are left unreconciled after adding the DELETE endpoint, and its verifying
+      test file does not exist]'
+    test_summary: 45 passed in 23.54s
+    iterations: 1
+    blocking_by_voter:
+      repo_graph: 1
+    modified_existing:
+    - app/db.py
+    - app/handler.py
+  preserved_workspace: .mas/product-bench/workspaces/2026-08-24-0733/05-increment-repairs
+  probes:
+  - name: the-duplicate-was-not-built-twice
+    passed: true
+    detail: no second submit path across 0 follow-up modules
+    harness_fault: false
+  - name: the-real-addition-still-landed
+    passed: false
+    detail: 'AssertionError: the third follow-up added nothing: []'
+    harness_fault: false
+  duration_s: 5786.1
+  spend:
+    calls: 581
+    input_tokens: 4073944
+    output_tokens: 496158
+    usd: 21.7703
+    unpriced_calls: 0
+  failure_reason: ''
+  lanes: '3 lane(s) over 5 task(s): admin, api, infra'
+  resumed: false
+build_rate: 0.9642857142857143
+probe_pass_rate: 1.0
+clean_review_rate: 0.0
+unmeasured: []
+no_probe_reading: []
+no_review_reading: []
+gate_rate: 0.0
+gate_unmeasured: []
+aborted: ''
+run_stamp: 2026-08-24-0733
+avs_version: 0.116.0
+provider: anthropic
+rates:
+  build_rate: 0.964
+  probe_pass_rate: 1.0
+  clean_review_rate: 0.0
+  cases_measured: 4
+  cases_total: 4
+  unmeasured: []
+  resumed: []
+  increment:
+    gate_rate: 0.0
+    cases_measured: 1
+    cases_total: 1
+    unmeasured: []
+cost:
+  calls: 2046
+  input_tokens: 15255658
+  output_tokens: 1814343
+  usd: 81.7167
+  unpriced_calls: 0

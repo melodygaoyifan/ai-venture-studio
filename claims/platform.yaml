@@ -213,6 +213,31 @@ claims:
       The gate rate here measures the intake bar, not reconciliation.
       HISTORY.md records both in full.
 
+  - id: PC-19
+    text: "product benchmark, real cases run 19 (2026-08-24, v0.116.0, provider anthropic, n=4 of 4 cases measured, no_probe_reading and no_review_reading both empty): build 96%, probe pass 100%, clean review 0%; increment gate 0% over 1 of 1 increment case; measured cost $81.72 over 2046 provider calls"
+    kind: demand
+    source_type: primary_measured
+    n: 4
+    evidence:
+      - {method: product_bench_run, locator: "repo://benchmarks/results/result-2026-08-24-0733.yaml (cases_measured 4 of 4; rates.increment.cases_measured 1 of 1; no_probe_reading []; no_review_reading [])",
+         retrieved_at: "2026-08-24T13:05:00Z"}
+    falsifier: "the preserved run-19 result containing different rates, a non-empty exclusion list, a cases_measured other than the 4 of 4 this claim names, or a cost block whose usd is not 81.7167 with unpriced_calls 0"
+    note: >-
+      The first reading taken by a harness with zero known defects: every
+      run-18 harness fault (twelve, ADR-058/059/061/074) was fixed and
+      verified before the run was bought, and the two exclusion lists the
+      last fix introduced are present and empty — nothing in these rates is
+      averaged over less than the run produced. The build and probe rates
+      are capability movements (03-groupbuy-auto went 0 built to 5/5 under
+      ADR-058's lane-advisory remedy, its first live exercise). The clean
+      rate is NOT a comparable movement against run 18's 50%: eleven of the
+      twenty-seven rejections are voters exhausting their transient-failure
+      budget in a degraded provider window, labeled as voter absence in the
+      rows, and the increment gate's 0% contains the first genuine gate
+      miss (expected raises_scr, actual completed) — a different fact than
+      run 18's 0%, which meant the gate was never asked. HISTORY.md carries
+      the full three-way decomposition of the clean rate.
+
       Six defects found by inspecting this run and run 17 are fixed in
       v0.107.0 (ADR-058) — the intake bar above among them, plus the YAML
       quoting rule behind twelve of the run's seventeen blocked votes, which
