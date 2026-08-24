@@ -235,7 +235,9 @@ people raise by testing what is easy.
 > ADR-067.
 
 **Deleting the six dead functions.** That is a `src/` change and therefore a
-visible decision, not a tidy-up to fold into a test-only commit. `is_terminal`
+visible decision, not a tidy-up to fold into a test-only commit. **Taken in
+ADR-073 (v0.115.0)**: five deleted, and `record_calibration` wired up instead —
+it was the one with behaviour attached. `is_terminal`
 in particular wants a judgment — whether the partition its docstring describes
 should exist, or the function should not.
 

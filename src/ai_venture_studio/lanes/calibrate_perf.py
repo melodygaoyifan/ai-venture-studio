@@ -144,20 +144,50 @@ def run_perf_calibration(*, requests_per_endpoint: int = 40) -> CalibrationResul
 
 
 def record_calibration(result: CalibrationResult, *, at: str) -> pathlib.Path:
+    """Write the calibration `lane_status()` reads.
+
+    `avs_version` is written on EVERY record, not only on stale ones. A field
+    that appears exactly when something is wrong is a field nobody looks for
+    (ADR-056), and the whole point of stamping the build is that a reader can
+    see the answer before deciding whether to trust it.
+    """
+    from ai_venture_studio import __version__
+
     CALIBRATION_FILE.parent.mkdir(parents=True, exist_ok=True)
     CALIBRATION_FILE.write_text(yaml.safe_dump(
-        {"calibration": {**result.model_dump(), "at": at}}, sort_keys=False))
+        {"calibration": {**result.model_dump(), "at": at,
+                         "avs_version": __version__}}, sort_keys=False))
     return CALIBRATION_FILE
 
 
 def lane_status() -> str:
     """PROVISIONAL until a recorded calibration catches >=80% of the
-    seeded manifest — then CALIBRATED, with its scope stated."""
+    seeded manifest — then CALIBRATED, with its scope stated.
+
+    The scope now includes the BUILD the reading was taken on. It said
+    `CALIBRATED (loopback, low parity, relative detection, 2026-07-26)` for
+    ninety releases, and a date is a proxy that breaks exactly when releases
+    outpace the measurement — the same defect ADR-054 found in `avs cadence`
+    reading "ok (4d)" over a reading nine releases old. Staleness is
+    DESCRIBED, never a downgrade: nothing here knows whether the perf lane's
+    behaviour actually moved between two builds, and silently demoting a
+    real reading to PROVISIONAL on a version bump would be a guess wearing a
+    verdict's clothes.
+    """
     if CALIBRATION_FILE.exists():
         raw = yaml.safe_load(CALIBRATION_FILE.read_text()) or {}
         calibration = raw.get("calibration") or {}
         if float(calibration.get("catch_rate", 0)) >= 0.8:
+            from ai_venture_studio import __version__
+
+            # Absent reads as "unrecorded", never as "current". Guessing the
+            # other way turns a file this code has never seen into a fresh
+            # reading, which is the one error that cannot be noticed.
+            measured_on = calibration.get("avs_version")
+            build = f"v{measured_on}" if measured_on else "an unrecorded build"
+            if measured_on != __version__:
+                build += f", current build v{__version__}"
             return (f"CALIBRATED ({calibration.get('environment')}, "
                     f"{calibration.get('parity')} parity, relative detection, "
-                    f"{calibration.get('at', '?')})")
+                    f"{calibration.get('at', '?')} on {build})")
     return "PROVISIONAL"

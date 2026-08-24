@@ -26,7 +26,10 @@ def is_escalation(verdict: str) -> bool:
     return verdict in ESCALATIONS
 
 
-def is_terminal(verdict: str) -> bool:
-    """Approvals end a stage; escalations end it toward a human; BLOCKED
-    verdicts end the attempt without pretending to a judgment."""
-    return verdict in ALL_VERDICTS
+# `is_terminal(v)` lived here and returned `v in ALL_VERDICTS` — true for
+# every verdict there is, so as a filter it filtered nothing. Its docstring
+# argued that all three families end a stage, which makes the body correct
+# and the NAME the defect: what it actually answered was "is this a known
+# verdict". Nothing called it. Deleted rather than renamed, because a
+# renamed function nothing calls is still dead code, and `v in ALL_VERDICTS`
+# says it in one expression at whatever call site eventually needs it.

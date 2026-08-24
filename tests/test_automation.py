@@ -277,21 +277,12 @@ def test_claude_md_and_adr_record_the_reversal():
     assert "auto-hotfix" in adr.lower()
 
 
-def test_merge_helper_refuses_non_pr_targets_and_admin_override():
-    """No --admin: branch protection is a human's configured intent."""
-    import inspect
-
-    from ai_venture_studio import github
-
-    ok, note = github.merge_pr("not-a-url")
-    assert ok is False and "refusing to merge" in note
-    ok, note = github.merge_pr(
-        "https://github.com/o/r/pull/1", method="force-push-somehow"
-    )
-    assert ok is False and "unknown merge method" in note
-    source = inspect.getsource(github.merge_pr)
-    body = source[source.index('"""', source.index('"""') + 3):]  # skip the docstring
-    assert '"--admin"' not in body and "'--admin'" not in body
+# The `--admin` guard used to be asserted here against `github.merge_pr`, and
+# again in `test_forge.py` against `forge.merge`. `forge` superseded the
+# `github` module and `cli.py:3326` calls `forge.merge`, so this copy watched
+# code nothing invoked — the weaker of two copies, on the dead path. Deleted
+# with the module; `test_forge.py::test_merge_never_overrides_branch_protection`
+# keeps the guarantee on the path that runs.
 
 
 # --- branch resolution: never defaulted (the v0.39 follow-up fix) -------------

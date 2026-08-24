@@ -4,6 +4,44 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.115.0 — deleting the dead, wiring the one that mattered
+
+ADR-068 measured 93 functions with zero executed statements and triaged six as
+genuinely dead, then left them in place on purpose: *"deleting the six dead
+functions stays out — that is a `src/` change and a visible decision."* This is
+that decision, taken, and it splits two ways.
+
+**Five deleted** (ADR-068's deferral, closed):
+
+- `upstream/verdicts.py:is_terminal` — returned `verdict in ALL_VERDICTS`,
+  `True` for every verdict there is. Its docstring argues that all three
+  families end a stage, which makes the body correct and the *name* the defect:
+  what it answered was "is this a known verdict". Deleted rather than renamed —
+  a renamed function nothing calls is still dead code.
+- `tools/wireup.py:wireup_diff_gate` — `return wireup_check(repo_dir)` under a
+  name promising a build-gate step. `wireup_check` is the real one, wired at
+  `upstream/build.py`.
+- `profile_schema.py:load_structured_profile` — a one-line wrapper over
+  `validate_profile(yaml.safe_load(...))` that nothing called.
+- **`github.py`, the whole module.** ADR-068 named `post_pr_comment` and
+  `pr_head_branch`; the wider fact is that nothing in `src/` imported `github`
+  at all. `forge.py` replaced it with a forge-aware superset and `cli.py` and
+  `orchestrator/graph.py` call forge. Its `--admin` guard was asserted twice —
+  once here, once in `test_forge.py` against the path that runs. Only the copy
+  on the dead path is gone.
+
+**One wired instead — ADR-073.** `record_calibration` was the only writer of
+`benchmarks/perf_seeded/calibration.yaml`, which is committed and read by
+`lane_status()` to report `CALIBRATED`. So the lane's status rested on a file
+no code path could produce. New **`avs perf-calibrate`** takes the reading
+(free, loopback, no provider; `--dry-run` to look without replacing), every
+record now stamps `avs_version`, and `lane_status()` names the build — it had
+been reporting a v0.24.0 reading under v0.114.0 for ninety releases with only a
+date to show for it. Staleness is described, never a downgrade.
+
+`tests/test_the_dead_stay_dead.py` (6) and
+`tests/test_the_calibration_can_be_regenerated.py` (9).
+
 ## v0.114.0 — asking the kernel instead of the source
 
 **Tests-and-tooling only. No `src/` behaviour changes.**

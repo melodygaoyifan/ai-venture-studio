@@ -105,7 +105,12 @@ def test_merge_refuses_non_cr_targets_and_unknown_methods():
 
 def test_merge_never_overrides_branch_protection():
     """No `gh --admin`, no GitLab force flag: a blocked merge is a human's
-    configured intent (mirrors test_automation's github.py guarantee)."""
+    configured intent.
+
+    This was the mirror of an identical assertion in `test_automation.py`
+    against `github.merge_pr`. That module was superseded by this one and
+    deleted, so this is no longer one of two copies — it is the only one, on
+    the path `cli.py` actually calls."""
     source = inspect.getsource(forge.merge)
     body = source[source.index('"""', source.index('"""') + 3):]
     assert "--admin" not in body

@@ -32,3 +32,9 @@ calibration:
   note: 'relative-detection calibration: proves the lane can see its seeded defects;
     satisfies no AC (ADR-U30 precondition 4 still applies to AC runs)'
   at: '2026-07-26'
+  # Backfilled by hand, not written by `record_calibration`: this file was
+  # added by commit cbbd421, "feat(lanes): v0.24.0 — … the perf lane is
+  # CALIBRATED", so v0.24.0 is the build that took the reading. Recovered
+  # from git rather than guessed. Every record written from now on carries
+  # this key automatically.
+  avs_version: 0.24.0

@@ -149,8 +149,3 @@ def wireup_check(repo_dir: str | Path) -> ToolReport:
             )
         )
     return ToolReport(tool="wireup_check", status="ok", findings=findings)
-
-
-def wireup_diff_gate(repo_dir: str | Path) -> ToolReport:
-    """Same check, run as a build-gate step after the implementer writes."""
-    return wireup_check(repo_dir)
