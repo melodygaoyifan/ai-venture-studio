@@ -28,6 +28,14 @@ PLANNER_MARKER = "task planner in a greenfield product system"
 
 MAX_REVISIONS = 2
 
+# Parse failures spend this budget, not MAX_REVISIONS. A response that does
+# not parse is a protocol failure, not a plan the critics rejected — and if
+# it lands on the last revision (run 19b, case 04: attempts 1–2 parsed,
+# attempt 3 broke at an unquoted {"error": …} in a description), the
+# corrective feedback is composed and never shown. Same shape and remedy as
+# ADR-075's bounded voter nudges.
+_MAX_PARSE_NUDGES = 2
+
 # A 7-task plan carries a description, a lane, an estimate and file globs per
 # task; 4096 output tokens is a tight fit for the wide end of that and buys
 # nothing, since the planner runs once per feature.
@@ -550,9 +558,15 @@ def run_planning(
     dag_issues: list[str] = []
     advisories: list[str] = []
     critics: list[dict] = []
-    # `revision` is read after the loop as the revision count, which is
-    # why it is not `_revision`; B007 does not look past the loop body.
-    for revision in range(MAX_REVISIONS + 1):  # noqa: B007
+    # `revision` counts substantive re-asks (critic/dag feedback, and a
+    # truncated response, which loses the plan itself). Parse failures spend
+    # `parse_nudges` instead — see _MAX_PARSE_NUDGES. `attempt` counts every
+    # provider call and names the preserved failures.
+    revision = 0
+    parse_nudges = 0
+    attempt = 0
+    while revision <= MAX_REVISIONS:
+        attempt += 1
         raw = provider_impl.complete(
             model=planner_model,
             system=planner_system(scope_tier),
@@ -575,6 +589,7 @@ def run_planning(
             tasks, dag_issues, critics, advisories = (
                 [], ["planner response truncated at the output cap"], [], []
             )
+            revision += 1
             continue
         try:
             data = extract_mapping(raw, ("tasks",))
@@ -593,7 +608,7 @@ def run_planning(
             # their response.
             kept = (
                 Path(repo_dir) / ".mas" / "failed-plans"
-                / f"attempt-{revision + 1}.txt"
+                / f"attempt-{attempt}.txt"
             )
             kept.parent.mkdir(parents=True, exist_ok=True)
             kept.write_text(str(raw), encoding="utf-8")
@@ -618,6 +633,10 @@ def run_planning(
                 f"response began: {opening!r}; full response preserved at "
                 f".mas/failed-plans/{kept.name}"
             ], [], []
+            if parse_nudges < _MAX_PARSE_NUDGES:
+                parse_nudges += 1
+            else:
+                revision += 1
             continue
         for task in tasks:
             if not task.files_expected:
@@ -672,6 +691,7 @@ def run_planning(
         if advisories:
             payload["advisories_not_blocking"] = advisories
         feedback = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
+        revision += 1
 
     source_fdr = fdr_text if fdr_text is not None else read_fdr(repo_dir)
     plan = Plan(
@@ -680,7 +700,9 @@ def run_planning(
         tasks=tasks,
         dag_issues=dag_issues,
         critic_issues=critics,
-        revisions=revision,
+        # The while-exit path leaves `revision` one past the count the old
+        # for-loop recorded; parse nudges are not revisions and never count.
+        revisions=min(revision, MAX_REVISIONS),
         fdr_fingerprint=fdr_fingerprint(source_fdr) if source_fdr else "",
     )
     for advisory in advisories:

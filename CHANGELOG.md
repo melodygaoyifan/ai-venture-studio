@@ -4,6 +4,19 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.122.0 — a nudge is not a revision
+
+Run 19b case 04, third run — the first debuggable by reading, thanks to
+ADR-079's preserved attempts: attempts 1–2 parsed and were revised on
+substance, attempt 3 broke at an unquoted `{"error": …}` in a description
+(line 4, column 187) — and because parse failures and plan revisions
+shared `MAX_REVISIONS`, the loop was exhausted and the corrective
+feedback was composed and never shown (ADR-080). Parse failures now spend
+their own `_MAX_PARSE_NUDGES = 2` budget — ADR-075's bounded voter nudges,
+at the planner — so a parse failure is always answered at least once with
+feedback naming the break. Worst-case planner spend rises 3 → 5 calls,
+only on the path that was previously a guaranteed dead product.
+
 ## v0.121.0 — the feedback names the problem, and the evidence stays
 
 Run 19b case 04 died after three planner attempts on "no YAML mapping with

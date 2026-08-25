@@ -87,9 +87,10 @@ def test_every_failed_attempt_leaves_its_response_on_disk(
 
     assert plan.status == "blocked"
     kept = sorted((root / ".mas" / "failed-plans").glob("attempt-*.txt"))
+    total = plan_mod.MAX_REVISIONS + 1 + plan_mod._MAX_PARSE_NUDGES
     assert [p.name for p in kept] == [
-        f"attempt-{n}.txt" for n in range(1, plan_mod.MAX_REVISIONS + 2)
-    ], "one preserved response per attempt, all attempts"
+        f"attempt-{n}.txt" for n in range(1, total + 1)
+    ], "one preserved response per attempt, all attempts (ADR-080 budget)"
     assert kept[0].read_text(encoding="utf-8") == _Unparseable.BROKEN, (
         "the preserved response is the raw text, not a collapsed opening"
     )
