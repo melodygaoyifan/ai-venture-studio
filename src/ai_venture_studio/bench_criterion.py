@@ -218,7 +218,11 @@ def _scan(
         # that builds nothing reads as build 0% over 1 of 1 — below floor,
         # not partial, not excluded — and two of those fire a criterion whose
         # only remedy is a human deciding whether to kill the project.
-        if data.get("limited_to") is not None:
+        # `only_cases` is the same purchase cut the other way — by name
+        # instead of by count — and gets the same refusal for the same
+        # reason: a run that never asked two of the five cases has not
+        # read the suite, however real the three it did ask were.
+        if data.get("limited_to") is not None or data.get("only_cases"):
             truncated.append(rel)
             continue
         # Absent OR null. A run whose build axis was empty writes the keys

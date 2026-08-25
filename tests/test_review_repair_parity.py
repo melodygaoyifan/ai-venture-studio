@@ -68,7 +68,7 @@ def _run(monkeypatch, tmp_path, review, after=None, landed=False):
         return landed, after, ""
 
     monkeypatch.setattr(autopilot, "_fix_iteration", _fake_fix)
-    verdict, detail, approvals, by_voter = autopilot.review_and_repair(
+    verdict, detail, approvals, by_voter, _causes = autopilot.review_and_repair(
         tmp_path, provider="mock", model="m", label="task-1",
     )
     return verdict, detail, calls, by_voter

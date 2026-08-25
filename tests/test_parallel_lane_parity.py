@@ -106,7 +106,7 @@ def wired(repo, monkeypatch):
 
     def _fake_review(root, *, provider, model, label, task_id="", detail=""):
         calls["reviewed"].append(label)
-        return "APPROVE", f"{detail} reviewed", [f"fix iteration ({label}): none"], {}
+        return "APPROVE", f"{detail} reviewed", [f"fix iteration ({label}): none"], {}, []
 
     monkeypatch.setattr(autopilot, "run_spec_stage", _fake_spec)
     monkeypatch.setattr(autopilot, "approve_spec", lambda root, slug: None)

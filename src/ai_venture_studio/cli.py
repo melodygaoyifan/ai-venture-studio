@@ -1438,6 +1438,13 @@ def product_bench(
     ),
     provider: str = typer.Option(None, help="Provider (e.g. 'mock')"),
     limit: int = typer.Option(None, help="Run only the first N cases"),
+    only: str = typer.Option(
+        None, "--only", metavar="CASE[,CASE]",
+        help="Run only the named cases (a targeted slice — e.g. the cases a "
+        "fix touched). Recorded as truncated like --limit: the scoreboard "
+        "names every case it never asked and stays out of the tracked "
+        "ledger the kill criterion reads.",
+    ),
     repo_dir: str = typer.Option(".", help="Where to record the result"),
     notify: bool = typer.Option(
         False, "--notify",
@@ -1489,8 +1496,9 @@ def product_bench(
             raise typer.Exit(3)
     try:
         summary = run_product_bench(
-            cases_dir, provider=provider, limit=limit, repo_dir=repo_dir,
-            resume=resume,
+            cases_dir, provider=provider, limit=limit,
+            only=[c.strip() for c in only.split(",") if c.strip()] if only else None,
+            repo_dir=repo_dir, resume=resume,
         )
     except RuntimeError as exc:
         console.print(f"[red]{exc}[/red]")
@@ -1551,6 +1559,18 @@ def product_bench(
             f"{', '.join(summary.no_probe_reading)} built nothing to probe. "
             f"That failure is in the build rate, counted once.[/dim]"
         )
+    # WHO the clean rate is charging, right under the number. Run 19 read
+    # "clean 0%" and every unclean row turned out to be machine-caused
+    # (Gate 2 blocks, voters that never answered) — an attribution that was
+    # knowable at scoring time and cost a debugging session to recover from
+    # prose. The tags distinguish the machine failing (gate2,
+    # voters_no_verdict, no_review) from the reviewer objecting to the code
+    # (findings:*), which is the difference between a defect and a verdict.
+    if summary.unclean_causes:
+        tally = ", ".join(
+            f"{cause} ×{n}" for cause, n in summary.unclean_causes.items()
+        )
+        console.print(f"  [dim]unclean rows by cause: {tally}[/dim]")
     # And the clean rate can cover fewer TASKS than the case built, for the
     # same kind of reason and with the same obligation to say so out loud.
     if summary.no_review_reading:
@@ -1790,7 +1810,7 @@ def retry_task(
     verdict = None
     if result.status == "built":
         console.print("[dim]checking the code that was written[/dim]")
-        verdict, extra_detail, approvals, _by_voter = review_and_repair(
+        verdict, extra_detail, approvals, _by_voter, _causes = review_and_repair(
             Path(repo_dir).resolve(), provider=provider,
             model="claude-opus-4-8" if provider != "mock" else "mock",
             label=spec.slug, detail=result.detail,

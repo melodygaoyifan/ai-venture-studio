@@ -251,7 +251,7 @@ def test_a_discarded_repair_does_not_get_to_set_the_verdict(monkeypatch, tmp_pat
         )],
     )
 
-    verdict, detail, _approvals, _by_voter = _review_and_repair(
+    verdict, detail, _approvals, _by_voter, _causes = _review_and_repair(
         monkeypatch, tmp_path, first=original, landed=False,
         after=of_the_discarded_diff,
         why="the repair was reviewed, found critical findings of its own, "
@@ -273,7 +273,7 @@ def test_a_discarded_repair_does_not_get_to_set_the_verdict(monkeypatch, tmp_pat
 def test_a_repair_that_landed_still_sets_the_verdict(monkeypatch, tmp_path):
     """The other direction, which ADR-037 established and this must not undo:
     when the fix stands, its re-review is the review of the shipped code."""
-    verdict, detail, approvals, _ = _review_and_repair(
+    verdict, detail, approvals, _, _c = _review_and_repair(
         monkeypatch, tmp_path,
         first=LeaderResult(verdict=Verdict.REQUEST_CHANGES, summary="s",
                            findings=[_finding(Severity.HIGH)]),
@@ -287,7 +287,7 @@ def test_a_repair_that_landed_still_sets_the_verdict(monkeypatch, tmp_path):
 
 
 def test_the_reason_reaches_the_row_instead_of_the_old_sentence(monkeypatch, tmp_path):
-    _verdict, detail, _a, _b = _review_and_repair(
+    _verdict, detail, _a, _b, _c = _review_and_repair(
         monkeypatch, tmp_path,
         first=LeaderResult(verdict=Verdict.REQUEST_CHANGES, summary="s",
                            findings=[_finding(Severity.MEDIUM)]),

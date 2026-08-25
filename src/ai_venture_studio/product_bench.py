@@ -21,6 +21,7 @@ exactly that.
 
 from __future__ import annotations
 
+import collections
 import logging
 import datetime
 import os
@@ -137,6 +138,14 @@ _REPEAT_ABORT_THRESHOLD = 2
 #: crashed". Two readers of a string literal spelled out at both ends is how
 #: a rule rots (ADR-038).
 _LIMIT_SKIP = "error: not run: --limit"
+
+#: Same contract for `--only`: the named-case slice ADR-066 priced. `--limit`
+#: can only buy a prefix of the sorted suite; a debug of run 19 needed cases
+#: 03/04/05 — the shapes the fixes touch — without paying for 01/02 again.
+#: A row skipped by name says so with its own marker, and every truncation
+#: guard (`BenchSummary.truncated`, the tracked-ledger refusal,
+#: `bench_criterion._scan`) reads both markers.
+_ONLY_SKIP = "error: not run: --only"
 
 
 def _error_signature(exc: BaseException) -> str:
@@ -567,6 +576,15 @@ class BenchSummary(BaseModel):
     # four that have always been in it.
     gate_rate: float | None = None
     gate_unmeasured: list[str] = Field(default_factory=list)
+    #: WHY the clean rate is what it is: rejection-cause tags counted across
+    #: every judged-but-unclean built task on the build axis — `{"gate2": 3,
+    #: "voters_no_verdict": 2, "findings:medium": 1}`. Run 19 reported
+    #: clean 0% and attributing it (machine defects, every row — ADR-075/076)
+    #: took a debugging session of reading prose details; the attribution is
+    #: knowable at scoring time and now travels with the rate. Rows from
+    #: before the tags existed count as "unrecorded" rather than vanishing,
+    #: so the tally always sums to the number of unclean rows.
+    unclean_causes: dict[str, int] = Field(default_factory=dict)
     #: Set when the run stopped early because the ENVIRONMENT died rather
     #: than because the cases finished. The rates below it are still honest
     #: about their own scope — that is what `unmeasured` is for — but a
@@ -597,6 +615,12 @@ class BenchSummary(BaseModel):
     #: system. A slice is a purchase; the reading is the run that spends
     #: it (ADR-066).
     limited_to: int | None = None
+    #: Set when `--only` restricted the run to named cases — the other way a
+    #: run can be a purchase rather than a reading (ADR-066). The skip rows
+    #: already say it case by case; this says it once, at the top, in the
+    #: operator's own terms, and it is the marker `bench_criterion` refuses
+    #: a hand-copied slice by when the row-level evidence is not loaded.
+    only_cases: list[str] = Field(default_factory=list)
 
     def _axis(self, axis: str) -> list[CaseResult]:
         return [c for c in self.cases if c.axis == axis]
@@ -612,16 +636,20 @@ class BenchSummary(BaseModel):
 
     @property
     def truncated(self) -> bool:
-        """Did `--limit` leave a case unasked?
+        """Did `--limit` or `--only` leave a case unasked?
 
         Read off the ROWS, not off `limited_to`, and not off a comparison of
         two counts. `--limit 5` over a five-case suite asked everything and
         is a complete reading; `--limit 5` over a suite that grew to six is
         not, and neither the flag's value nor any arithmetic on the build
         axis alone can tell those apart. The row that says it was never run
-        can.
+        can. Same rule for `--only`: naming every case is a complete
+        reading, naming fewer is a slice.
         """
-        return any(c.autopilot_status.startswith(_LIMIT_SKIP) for c in self.cases)
+        return any(
+            c.autopilot_status.startswith((_LIMIT_SKIP, _ONLY_SKIP))
+            for c in self.cases
+        )
 
     @property
     def gate_cases_total(self) -> int:
@@ -1287,6 +1315,11 @@ def run_case(
                  # blocking finding; the row now carries that on its own.
                  **({"blocking_by_voter": o.blocking_by_voter}
                     if getattr(o, "blocking_by_voter", None) else {}),
+                 # The rejection as countable tags — run 19's "clean 0%" was
+                 # machine-caused on every row and the headline could not say
+                 # so; `summarise` counts these into `unclean_causes`.
+                 **({"rejection_causes": o.rejection_causes}
+                    if getattr(o, "rejection_causes", None) else {}),
                  # A `built` row that nothing imports scores as a build. It
                  # still does — the build rate is a build rate, and quietly
                  # redefining it would break the series (ADR-051) — but the
@@ -1338,13 +1371,14 @@ def run_case(
 
 def run_product_bench(
     cases_dir: str | Path, *, provider: str | None = None, limit: int | None = None,
+    only: list[str] | None = None,
     repo_dir: str | Path = ".", resume: bool = False,
 ) -> BenchSummary:
     pidfile = acquire_bench_lock(repo_dir)
     try:
         return _run_product_bench(
-            cases_dir, provider=provider, limit=limit, repo_dir=repo_dir,
-            resume=resume,
+            cases_dir, provider=provider, limit=limit, only=only,
+            repo_dir=repo_dir, resume=resume,
         )
     finally:
         release_bench_lock(pidfile)
@@ -1352,6 +1386,7 @@ def run_product_bench(
 
 def _run_product_bench(
     cases_dir: str | Path, *, provider: str | None = None, limit: int | None = None,
+    only: list[str] | None = None,
     repo_dir: str | Path = ".", resume: bool = False,
 ) -> BenchSummary:
     import time
@@ -1364,6 +1399,19 @@ def _run_product_bench(
     # beyond the limit are recorded below as rows nobody asked, which is what
     # they are, so the denominator travels with the rates (ADR-035/066).
     cases = load_cases(cases_dir)
+    # A name that matches nothing is a refused run, not a quiet no-op: the
+    # likeliest cause is a typo, and a typo'd `--only` that silently ran
+    # zero cases would bill nothing, write a scoreboard of pure skip rows,
+    # and read like the suite had been asked (ADR-043's shape: a nothing
+    # that cannot say why).
+    if only is not None:
+        known = {c.name for c in cases}
+        unknown = sorted(set(only) - known)
+        if unknown:
+            raise RuntimeError(
+                f"--only names no such case(s): {', '.join(unknown)} — "
+                f"the suite has: {', '.join(sorted(known))}"
+            )
     # Loaded ONCE, here, and handed down: prices belong to the operator's repo,
     # never to the throwaway workspace each case builds in (see
     # `bench_cost_model`). Reading it per case would also let a price table
@@ -1395,6 +1443,17 @@ def _run_product_bench(
                 CaseResult(
                     name=case.name,
                     autopilot_status=f"{_LIMIT_SKIP} {limit}",
+                    axis=case.axis,
+                )
+            )
+            continue
+        if only is not None and case.name not in only:
+            # Same shape as the `--limit` row above, same reasons: out of
+            # every rate, into `unmeasured`, and the status names the flag.
+            results.append(
+                CaseResult(
+                    name=case.name,
+                    autopilot_status=_ONLY_SKIP,
                     axis=case.axis,
                 )
             )
@@ -1484,12 +1543,13 @@ def _run_product_bench(
 
     return summarise(
         results, aborted=aborted, run_stamp=run_stamp, limited_to=limit,
+        only_cases=sorted(only) if only else [],
     )
 
 
 def summarise(
     results: list[CaseResult], *, aborted: str = "", run_stamp: str = "",
-    limited_to: int | None = None,
+    limited_to: int | None = None, only_cases: list[str] | None = None,
 ) -> BenchSummary:
     """Turn finished case rows into the run's scoreboard.
 
@@ -1545,6 +1605,21 @@ def summarise(
         if metered
         else None
     )
+    # The attribution beside the clean rate: cause tags over every judged
+    # built task the rate counts as unclean. Same scope as the rate itself —
+    # build axis, unreviewed rows out — so the tally sums to exactly the
+    # rows the rate is charging. A row from before the tags existed counts
+    # as "unrecorded": absent evidence stays visible, never a silent drop.
+    unclean_causes: collections.Counter[str] = collections.Counter()
+    for r in build:
+        unjudged = set(r.unreviewed)
+        for row in r.outcomes:
+            if row.get("status") != "built" or row.get("task_id") in unjudged:
+                continue
+            if row.get("review") in CLEAN_VERDICTS:
+                continue
+            unclean_causes.update(row.get("rejection_causes") or ["unrecorded"])
+
     return BenchSummary(
         cases=results,
         build_rate=_avg([r.build_rate for r in build]),
@@ -1575,10 +1650,12 @@ def summarise(
         gate_unmeasured=[
             r.name for r in increment if not r.measured or r.gate_rate is None
         ],
+        unclean_causes=dict(unclean_causes.most_common()),
         aborted=aborted,
         spend=run_spend,
         run_stamp=run_stamp,
         limited_to=limited_to,
+        only_cases=only_cases or [],
     )
 
 
@@ -1672,14 +1749,21 @@ def save_summary(
     # about, inverted and aimed at good runs. The key below is placed by this
     # function or not at all, the same way `cost` is.
     payload.pop("limited_to", None)
+    payload.pop("only_cases", None)
     if summary.truncated:
         # Same placement and the same reason as `aborted` above, and written
         # under the same rule: only when it actually happened. Keyed on
         # `truncated` rather than on "was `--limit` passed", because
         # `--limit 6` over six cases asked every one of them and is a
         # complete reading — the fact that matters is whether a case went
-        # unasked, not whether a flag went by.
-        payload["limited_to"] = summary.limited_to
+        # unasked, not whether a flag went by. `--only` naming every case is
+        # the same complete reading, so its marker follows the same rule —
+        # and `limited_to: None` is never written: the marker for a slice is
+        # whichever flag actually cut it.
+        if summary.limited_to is not None:
+            payload["limited_to"] = summary.limited_to
+        if summary.only_cases:
+            payload["only_cases"] = list(summary.only_cases)
     if summary.gate_cases_total:
         payload["rates"]["increment"] = {
             "gate_rate": (

@@ -121,7 +121,7 @@ def test_the_row_names_the_gate_that_refused_it(monkeypatch, tmp_path):
             ["diff too large (2361 lines > 2000); split the PR"]
         ),
     )
-    verdict, detail, _approvals, _by_voter = autopilot.review_and_repair(
+    verdict, detail, _approvals, _by_voter, _causes = autopilot.review_and_repair(
         tmp_path, provider="mock", model="m", label="slug", task_id="t4",
     )
     assert verdict is None
@@ -142,7 +142,7 @@ def test_a_review_that_ran_says_nothing_extra(monkeypatch, tmp_path):
         findings: list = []
 
     monkeypatch.setattr(autopilot, "_review_head", lambda root, provider: _Review())
-    verdict, detail, _a, _b = autopilot.review_and_repair(
+    verdict, detail, _a, _b, _c = autopilot.review_and_repair(
         tmp_path, provider="mock", model="m", label="slug", task_id="t4",
     )
     assert verdict == "APPROVE"

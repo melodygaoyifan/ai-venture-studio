@@ -192,7 +192,7 @@ def test_a_repair_cap_that_drops_findings_says_so(monkeypatch, tmp_path):
     monkeypatch.setattr(
         autopilot, "_fix_iteration", lambda *a, **k: (False, None, "")
     )
-    _verdict, detail, _approvals, _by_voter = autopilot.review_and_repair(
+    _verdict, detail, _approvals, _by_voter, _causes = autopilot.review_and_repair(
         tmp_path, provider="mock", model="m", label="task-1",
     )
     assert f"{autopilot.MAX_REPAIR_FINDINGS} of {len(many)}" in detail
@@ -213,7 +213,7 @@ def test_a_file_cap_that_hides_a_site_says_so_too(monkeypatch, tmp_path):
         lambda root, provider: _review("REQUEST_CHANGES", [folded]),
     )
     monkeypatch.setattr(autopilot, "_fix_iteration", lambda *a, **k: (False, None, ""))
-    _verdict, detail, _approvals, _by_voter = autopilot.review_and_repair(
+    _verdict, detail, _approvals, _by_voter, _causes = autopilot.review_and_repair(
         tmp_path, provider="mock", model="m", label="task-1",
     )
     assert "were not shown either" in detail
@@ -252,7 +252,7 @@ def test_a_rejection_records_which_voter_rejected(monkeypatch, tmp_path):
         lambda root, provider: _review("REQUEST_CHANGES", [tool, other, note]),
     )
     monkeypatch.setattr(autopilot, "_fix_iteration", lambda *a, **k: (False, None, ""))
-    _verdict, _detail, _approvals, by_voter = autopilot.review_and_repair(
+    _verdict, _detail, _approvals, by_voter, _causes = autopilot.review_and_repair(
         tmp_path, provider="mock", model="m", label="task-1",
     )
     assert by_voter == {"tool:bandit": 1, "correctness": 1}, (
@@ -267,7 +267,7 @@ def test_a_clean_review_names_no_voter(monkeypatch, tmp_path):
             CLEAN_VERDICT_VALUES[1], [_mktemp_finding("app/a.py", Severity.LOW)]
         ),
     )
-    _verdict, _detail, _approvals, by_voter = autopilot.review_and_repair(
+    _verdict, _detail, _approvals, by_voter, _causes = autopilot.review_and_repair(
         tmp_path, provider="mock", model="m", label="task-1",
     )
     assert by_voter == {}

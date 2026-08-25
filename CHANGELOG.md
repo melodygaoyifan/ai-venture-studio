@@ -4,6 +4,22 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.120.0 — the rate says who rejected
+
+Run 19's "clean 0%" took a debugging session to attribute; the attribution
+was knowable at scoring time (ADR-078). `review_and_repair` now returns the
+structured rejection causes it always held — `gate2`, `voters_no_verdict`,
+`findings:<severity>` (actionable severities only; a LOW cannot reject
+alone), `no_review`, `other` — and they travel row → summary
+(`unclean_causes`, pre-existing rows tally `unrecorded`) → the printed
+scoreboard, so a future 0% announces its own causes. And
+`avs product-bench --only CASE[,CASE]` buys a named slice of the suite
+under ADR-066's full honesty contract: whole-suite denominator, named skip
+rows, out of the tracked ledger, refused by the criterion by its
+`only_cases` marker, unknown names refused loudly. (Also fixes the
+would-have-been `limited_to: None` payload, which the criterion's
+`is not None` check could not catch.) No recorded rate re-scored.
+
 ## v0.119.0 — one trailer per section
 
 The last unmapped run-19 finding (ADR-077). Case 03 t2's design-memory

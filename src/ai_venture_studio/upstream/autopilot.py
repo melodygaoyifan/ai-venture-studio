@@ -144,6 +144,15 @@ class TaskOutcome(BaseModel):
     #: it, which is the difference between tightening the code and fixing a
     #: miscalibrated reviewer. Empty on a clean verdict and on older records.
     blocking_by_voter: dict[str, int] = Field(default_factory=dict)
+    #: WHY the verdict is not clean, as tags a summary can count — the same
+    #: facts `detail` states in words. Run 19's clean rate read 0% and it
+    #: took a debugging session to learn every unclean row was machine-caused
+    #: (Gate 2 blocks, voters that never answered), not the reviewer
+    #: objecting to the code; the headline could not say so because the cause
+    #: lived only in prose. `["gate2"]`, `["voters_no_verdict"]`,
+    #: `["findings:medium"]`, combinations thereof, `["no_review"]` when no
+    #: verdict was produced. Empty on clean verdicts and on older records.
+    rejection_causes: list[str] = Field(default_factory=list)
 
 
 class AutopilotResult(BaseModel):
@@ -787,8 +796,9 @@ def _attempt_task(
     verdict = None
     detail = built.detail
     by_voter: dict[str, int] = {}
+    causes: list[str] = []
     if built.status == "built":
-        verdict, detail, approvals, by_voter = review_and_repair(
+        verdict, detail, approvals, by_voter, causes = review_and_repair(
             root, provider=provider, model=model, label=spec.slug,
             task_id=task.id, detail=detail,
         )
@@ -802,6 +812,7 @@ def _attempt_task(
         modified_existing=built.modified_existing,
         wireup_issues=built.wireup_issues,
         blocking_by_voter=by_voter,
+        rejection_causes=causes,
     )
 
 
@@ -1205,7 +1216,7 @@ def review_and_repair(
     label: str,
     task_id: str = "",
     detail: str = "",
-) -> tuple[str | None, str, list[str], dict[str, int]]:
+) -> tuple[str | None, str, list[str], dict[str, int], list[str]]:
     """Gate 3 for one just-built module: review, one bounded repair pass on
     critical/high findings, re-review, roll back if it did not clear.
 
@@ -1216,7 +1227,8 @@ def review_and_repair(
     empty verdict in the report while the modules built by `create` beside
     them carried a real one. A retry is not a lesser build.
 
-    Returns (verdict, detail, auto-approval lines, blocking findings by voter).
+    Returns (verdict, detail, auto-approval lines, blocking findings by
+    voter, rejection cause tags).
     """
     approvals: list[str] = []
     if task_id:
@@ -1310,6 +1322,7 @@ def review_and_repair(
     # what it objected to, which is ADR-036's evidence-deletion failure one
     # stage over: a reviewer rejecting everything correctly and one rejecting
     # everything spuriously produce byte-identical records.
+    causes: list[str] = []
     if verdict not in CLEAN_VERDICT_VALUES:
         # GATE 2 FIRST, because when it fired it is the whole answer. The test
         # gate downgrades an APPROVE deterministically and writes why into
@@ -1326,7 +1339,8 @@ def review_and_repair(
         )))
         if why:
             detail = (detail + " " if detail else "") + why
-    return verdict, detail, approvals, _blocking_by_voter(final_review)
+        causes = _rejection_causes(final_review, gate2_blocked=bool(gate2))
+    return verdict, detail, approvals, _blocking_by_voter(final_review), causes
 
 
 def _blocking_by_voter(review) -> dict[str, int]:
@@ -1347,6 +1361,48 @@ def _blocking_by_voter(review) -> dict[str, int]:
         if f.severity in ACTIONABLE_SEVERITIES
     )
     return dict(counts.most_common())
+
+
+#: Severity tags in reporting order — worst first, and only the severities
+#: the leader can actually reject on. Derived from the same set the leader
+#: blocks on, so a change there cannot leave this list silently narrower.
+_CAUSE_SEVERITY_ORDER = tuple(
+    s for s in (Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM)
+    if s in ACTIONABLE_SEVERITIES
+)
+
+
+def _rejection_causes(review, *, gate2_blocked: bool) -> list[str]:
+    """The rejection as data — every trigger that can reject, tagged.
+
+    `detail` already says all of this in words, per row. What the words
+    cannot do is be counted: run 19's headline read "clean 0%" and
+    attributing it — machine defects, every row — took a debugging session
+    of reading prose details (ADR-075/076). These tags are the same three
+    facts the detail is composed from, in the same order, so the scoreboard
+    can print the attribution next to the rate.
+    """
+    if not review:
+        return ["no_review"]
+    causes: list[str] = []
+    if gate2_blocked:
+        causes.append("gate2")
+    # The leader's second trigger: two voters whose status was not OK reject
+    # on their own, findings or none (see `_blocked_voter_note`).
+    if len(list(getattr(review, "blocked_voters", None) or [])) >= 2:
+        causes.append("voters_no_verdict")
+    present = {
+        f.severity
+        for f in (review.findings or [])
+        if f.severity in ACTIONABLE_SEVERITIES
+    }
+    causes.extend(
+        f"findings:{s.value}" for s in _CAUSE_SEVERITY_ORDER if s in present
+    )
+    # A verdict this function cannot explain is still a fact worth counting
+    # as itself rather than as silence — e.g. an escalation verdict whose
+    # findings all sit below the actionable line.
+    return causes or ["other"]
 
 
 def _gate2_note(review) -> str:
@@ -2259,7 +2315,7 @@ def _build_wave_parallel(
         # because the wave loop was hand-written rather than routed through
         # `_attempt_task`. Serial on purpose: review and repair drive the
         # working tree, and the merges are already serialized.
-        verdict, review_detail, approvals, by_voter = review_and_repair(
+        verdict, review_detail, approvals, by_voter, causes = review_and_repair(
             root, provider=provider, model=model, label=result.slug,
             task_id=task.id, detail=f"parallel lane {task.lane}",
         )
@@ -2278,6 +2334,7 @@ def _build_wave_parallel(
                 modified_existing=result.modified_existing,
                 wireup_issues=result.wireup_issues,
                 blocking_by_voter=by_voter,
+                rejection_causes=causes,
             )
         )
     return outcomes

@@ -258,7 +258,7 @@ def test_a_rejection_by_silence_says_so_and_names_the_silent(
     monkeypatch.setattr(
         autopilot, "_fix_iteration", lambda *a, **k: (False, None, "")
     )
-    _verdict, detail, _approvals, by_voter = autopilot.review_and_repair(
+    _verdict, detail, _approvals, by_voter, _causes = autopilot.review_and_repair(
         tmp_path, provider="mock", model="m", label="t4",
     )
 
@@ -286,7 +286,7 @@ def test_a_finding_that_blocks_keeps_the_note_but_not_the_claim(
     monkeypatch.setattr(
         autopilot, "_fix_iteration", lambda *a, **k: (False, None, "")
     )
-    _v, detail, _a, _bv = autopilot.review_and_repair(
+    _v, detail, _a, _bv, _c = autopilot.review_and_repair(
         tmp_path, provider="mock", model="m", label="t1",
     )
     assert "2 voter(s) returned no verdict" in detail
@@ -333,7 +333,7 @@ def test_the_gate_2_reason_reaches_the_bench_row(monkeypatch, tmp_path):
     monkeypatch.setattr(
         autopilot, "_fix_iteration", lambda *a, **k: (False, None, "")
     )
-    _v, detail, _a, _bv = autopilot.review_and_repair(
+    _v, detail, _a, _bv, _c = autopilot.review_and_repair(
         tmp_path, provider="mock", model="m", label="t1",
     )
     assert "Gate 2 blocked" in detail
@@ -356,7 +356,7 @@ def test_gate_2_takes_the_decisive_claim_away_from_a_blocked_voter(
     monkeypatch.setattr(
         autopilot, "_fix_iteration", lambda *a, **k: (False, None, "")
     )
-    _v, detail, _a, _bv = autopilot.review_and_repair(
+    _v, detail, _a, _bv, _c = autopilot.review_and_repair(
         tmp_path, provider="mock", model="m", label="t3",
     )
     assert "Gate 2 blocked" in detail
