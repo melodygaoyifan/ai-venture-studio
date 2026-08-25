@@ -4,6 +4,19 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.119.0 — one trailer per section
+
+The last unmapped run-19 finding (ADR-077). Case 03 t2's design-memory
+section carried two consecutive, divergent `files:` trailers: the spec
+model — shown the prior design.md as memory — ended its design text with an
+imitated trailer copied from t1's section (a guessed, wrong file list), and
+`_append_design_memory` appended the real one after it. The appender now
+strips trailing trailer-format lines from the design text before writing
+its own, so each section carries exactly one `files:` record, from disk
+truth. Mid-prose `files:` mentions are untouched. With this, every run-19
+outcome shape maps to a shipped fix or to genuine product-code review
+findings.
+
 ## v0.118.0 — the disk already knew
 
 The four run-19 findings ADR-075's debug did not reach (ADR-076), same

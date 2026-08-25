@@ -797,8 +797,20 @@ def _append_design_memory(repo: Path, spec: Spec, files: list[str]) -> None:
     path.parent.mkdir(exist_ok=True)
     if not path.exists():
         path.write_text("# Architecture (evolving — appended per build)\n", encoding="utf-8")
+    # The spec stage reads this file back, and a model that has seen prior
+    # sections sometimes ends its design text with a "files:" trailer of its
+    # own in imitation — a guessed list that diverges from what was actually
+    # written (run 19, case 03 t2). The trailer is this function's record of
+    # disk truth; drop model-authored ones so each section carries exactly one.
+    design_lines = spec.design.strip().splitlines()
+    while design_lines and (
+        not design_lines[-1].strip()
+        or design_lines[-1].lstrip().startswith("files:")
+    ):
+        design_lines.pop()
+    design = "\n".join(design_lines)
     entry = (
-        f"\n## {spec.title} ({spec.slug})\n\n{spec.design.strip()}\n\n"
+        f"\n## {spec.title} ({spec.slug})\n\n{design}\n\n"
         f"files: {', '.join(f for f in files if not f.startswith('tests/'))}\n"
     )
     path.write_text(path.read_text(encoding="utf-8") + entry, encoding="utf-8")
