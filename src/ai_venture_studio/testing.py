@@ -149,9 +149,34 @@ def docker_available() -> bool:
         return False
 
 
+def range_tip(target: str, repo_dir: str | Path = ".") -> str | None:
+    """The committed tip of a local revision range (`A..B`, `A...B`) as a
+    full SHA, or None for anything else.
+
+    A range's post-image is a COMMIT, and the gate can test that commit
+    directly instead of re-applying the reviewed diff onto HEAD. The diff
+    text cannot always round-trip: `git diff` without `--binary` emits a
+    stub line for a binary file that `git apply` refuses outright, so a
+    sqlite db committed alongside the code blocked Gate 2 on an apply the
+    gate never needed (bench run 19, case 03 t4). PR/MR URLs and single
+    revisions — whose post-image is the working tree, not a commit —
+    return None and keep the apply path.
+    """
+    if ".." not in target:
+        return None
+    tip = target.rsplit("..", 1)[-1].strip() or "HEAD"
+    out = _run(
+        [resolve("git"), "rev-parse", "--verify", f"{tip}^{{commit}}"],
+        repo_dir, timeout=30,
+    )
+    if out.returncode != 0:
+        return None
+    return out.stdout.strip()
+
+
 def run_test_gate(
     repo_dir: str, diff_raw: str, *, mode: str = "standard",
-    changed_files: list[str] | None = None,
+    changed_files: list[str] | None = None, checkout: str | None = None,
 ) -> TestReport:
     repo = Path(repo_dir).resolve()
     if not (repo / ".git").exists():
@@ -162,7 +187,8 @@ def run_test_gate(
     worktree = Path(tempfile.mkdtemp(prefix="autoproduct-testgate-"))
     try:
         return _run_gate_in_worktree(
-            repo, worktree, diff_raw, mode=mode, changed_files=changed_files or []
+            repo, worktree, diff_raw, mode=mode,
+            changed_files=changed_files or [], checkout=checkout,
         )
     except subprocess.TimeoutExpired as exc:
         return TestReport(status="error", summary=f"timed out: {str(exc)[:200]}")
@@ -172,17 +198,23 @@ def run_test_gate(
 
 
 def _run_gate_in_worktree(
-    repo: Path, worktree: Path, diff_raw: str, *, mode: str, changed_files: list[str]
+    repo: Path, worktree: Path, diff_raw: str, *, mode: str,
+    changed_files: list[str], checkout: str | None = None,
 ) -> TestReport:
     git = resolve("git")
-    added = _run([git, "worktree", "add", "--detach", str(worktree), "HEAD"], repo)
+    added = _run(
+        [git, "worktree", "add", "--detach", str(worktree), checkout or "HEAD"],
+        repo,
+    )
     if added.returncode != 0:
         return TestReport(
             status="error",
             summary="could not create isolated worktree",
             detail=added.stderr[:400],
         )
-    if diff_raw.strip():
+    # With a checkout the worktree already IS the post-image; applying the
+    # diff on top would either no-op or fail, never inform.
+    if diff_raw.strip() and checkout is None:
         patch = worktree / ".ai_venture_studio.patch"
         patch.write_text(diff_raw, encoding="utf-8")
         applied = _run([git, "apply", "--3way", patch.name], worktree)

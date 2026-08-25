@@ -858,6 +858,20 @@ def _retry_failed_tasks(
             root, task.id, "retry",
             f"first attempt failed — retrying with its failure as context: {task.title}",
         )
+        # The retry's own review reads outcomes.yaml from disk MID-attempt,
+        # and the row it finds must describe the present, not the past: a
+        # stale "build_failed / workspace reset" row next to a commit that
+        # implements the task reads as a shipped contradiction, and run 19
+        # rolled back a recovered task on exactly that finding (case 05 t5).
+        in_progress = prior.model_copy(deep=True)
+        in_progress.detail = (
+            (prior.detail + " " if prior.detail else "")
+            + "(auto-retry in progress — the change under review may already "
+            "implement this task; this row records the first attempt)"
+        )
+        record_outcome(outcomes, in_progress)
+        if persist:
+            _write_outcomes(root, outcomes)
         outcome = _attempt_task(
             root, task, provider=provider, model=model, fdr_text=fdr_text,
             auto_approvals=auto_approvals,

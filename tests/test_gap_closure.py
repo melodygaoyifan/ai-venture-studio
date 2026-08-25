@@ -117,6 +117,8 @@ def test_build_retries_after_refused_write(tmp_path):
     from ai_venture_studio.providers.base import Provider, register
     from ai_venture_studio.upstream import approve_spec, run_build
 
+    declared_skeletons: list[str] = []
+
     @register
     class LockBumper(Provider):
         name = "lock_bumper"
@@ -132,6 +134,14 @@ def test_build_retries_after_refused_write(tmp_path):
                      {"path": "tests/test_feature2.py",
                       "new_content": "from feature2 import VALUE\n\n"
                                      "def test_v():\n    assert VALUE == 2\n"}]
+            # The spec's declared skeletons must exist before the build may
+            # save (the ledger cites them as verified_by), so this
+            # implementer writes them like a compliant one would.
+            for rel in declared_skeletons:
+                files.append({"path": rel,
+                              "new_content": "from feature2 import VALUE\n\n"
+                                             "def test_declared():\n"
+                                             "    assert VALUE == 2\n"})
             if LockBumper.calls["n"] == 1 and "WRITE REFUSED" not in messages[0]["content"]:
                 # First attempt: touches the pre-existing read-only test.
                 files.append({"path": "tests/test_prior.py",
@@ -147,7 +157,7 @@ def test_build_retries_after_refused_write(tmp_path):
     subprocess.run([resolve("git"), "add", "-A"], cwd=root, check=True)
     spec = run_spec_stage(root, "an item store API (task:f2)", provider="mock")
     approve_spec(root, spec.slug)
-    # Force the spec's skeletons aside so LockBumper's files drive the gate.
+    declared_skeletons.extend(s.path for s in spec.test_skeletons)
     result = run_build(root, spec.slug, provider="lock_bumper")
     assert result.status == "built", result.detail
     assert result.iterations == 2  # refused once, informed retry succeeded

@@ -3,10 +3,10 @@
 # the hermetic suite enforces it (tests/test_editions_platform.py).
 claims:
   - id: PC-1
-    text: "2537 hermetic tests pass via uv run pytest at the current tag"
+    text: "2545 hermetic tests pass via uv run pytest at the current tag"
     kind: demand
     source_type: primary_measured
-    n: 2537
+    n: 2545
     evidence:
       - {method: pytest_run, locator: "repo://tests (uv run pytest)",
          retrieved_at: "2026-08-21T00:00:00Z"}
@@ -244,7 +244,12 @@ claims:
       an empty slice (checked false), so the gate was inert, not wrong.
       All of these are fixed in v0.117.0 (ADR-075); NONE OF THE RECORDED
       VALUES here are re-scored. HISTORY.md carries the corrected
-      three-way decomposition of the clean rate.
+      three-way decomposition of the clean rate. A second correction
+      (2026-08-25, ADR-076): the "repairs honestly discarded because they
+      broke the suite" rows were the SAME site-packages shadowing at the
+      repair gate's call site — the shield in _pytest_in_subprocess has
+      covered that gate since v0.117.0, and the record, not the code, was
+      what needed fixing.
 
       Six defects found by inspecting this run and run 17 are fixed in
       v0.107.0 (ADR-058) — the intake bar above among them, plus the YAML

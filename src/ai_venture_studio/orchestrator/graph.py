@@ -259,11 +259,21 @@ def test_gate_node(state: ReviewState, *, repo_dir: str) -> dict[str, Any]:
                 status="skipped", summary="fast mode skips the test gate"
             ).model_dump(mode="json")
         }
+    # A committed range is gated at its own tip — the diff text cannot
+    # always round-trip through `git apply` (binary stubs; bench run 19).
+    # A caller-supplied diff has no committed tip to trust, so it keeps
+    # the apply path.
+    checkout = (
+        None
+        if state.get("diff_supplied")
+        else testing.range_tip(state["target"], repo_dir)
+    )
     report = testing.run_test_gate(
         repo_dir,
         state["diff"]["raw"],
         mode=state.get("mode", "standard"),
         changed_files=state["diff"].get("changed_files", []),
+        checkout=checkout,
     )
     update: dict[str, Any] = {"test_report": report.model_dump(mode="json")}
     verdict = Verdict(state["leader"]["verdict"])
@@ -548,6 +558,7 @@ def run_review(
     }
     if diff_text is not None:
         initial["diff"] = {"raw": diff_text}
+        initial["diff_supplied"] = True
     final = app.invoke(initial, config={"configurable": {"thread_id": review_id}})
     result = (
         LeaderResult.model_validate(final["leader"]) if final.get("leader") else None

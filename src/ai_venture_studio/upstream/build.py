@@ -1362,6 +1362,28 @@ def _run_build_inner(
         ):
             # skipped = JS tests exist but no node runtime; the skip is
             # visible in the report and review still judges the diff.
+            # A green suite is not the spec's proof: sync_ledger cites each
+            # criterion's declared skeleton paths as `verified_by`, so a
+            # declared file nobody wrote becomes a built requirement whose
+            # proof never existed (run 19, case 05 t5 — five such rows on an
+            # established product whose 39 old tests kept the gate green).
+            missing_skeletons = [
+                s.path for s in spec.test_skeletons
+                if s.path and not (repo / s.path).exists()
+            ]
+            if missing_skeletons:
+                progress.step(
+                    repo, slug, "build",
+                    "the spec's declared test files are missing — fixing",
+                )
+                feedback = (
+                    "The suite passed, but these test files your spec declares "
+                    "as the proof of its acceptance criteria do not exist on "
+                    "disk: " + "; ".join(missing_skeletons) + ". Write them as "
+                    "real tests for the criteria they cover — the requirements "
+                    "ledger will cite them as verification."
+                )
+                continue
             if project.profile in ("web", "miniprogram"):
                 progress.step(
                     repo, slug, "build",

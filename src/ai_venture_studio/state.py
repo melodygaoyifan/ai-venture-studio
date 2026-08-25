@@ -148,6 +148,7 @@ class ReviewState(TypedDict, total=False):
     dor_pass: bool
     dor_reasons: list[str]
     diff: dict[str, Any]  # serialized ParsedDiff
+    diff_supplied: bool  # diff came from the caller, not from target; Gate 2 must apply it
     policy: dict[str, int]  # effective thresholds (ai_venture_studio.policy)
     policy_weakened: list[str]  # thresholds looser than the shipped defaults
     project_context: str  # CLAUDE.md contents, if present

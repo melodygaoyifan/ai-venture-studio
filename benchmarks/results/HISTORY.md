@@ -81,8 +81,20 @@ the two rules made the run due, beside the command that spends the money.
 > shields the subprocess gate (temporary `tests/__init__.py` + `PYTHONPATH`
 > prepend, removed after). (3) The remainder are the reviewer working: the
 > `N+1 per-candidate query` catch in case 04 and the `B310` catch in case 01
-> are real findings, and several repairs were attempted and honestly
-> discarded because they broke the suite. The 0% clean rate is therefore
+> are real findings. *(Corrected 2026-08-25, v0.118.0 debug: this note
+> originally added "several repairs were attempted and honestly discarded
+> because they broke the suite" — that attribution is defect (2) at a second
+> call site. The repair gate runs the SAME host-subprocess suite the review
+> gate runs, so the eight `repair attempted, not applied: the repair broke
+> the suite (failed)` rows in cases 02–05 were read through the same
+> site-packages `tests` shadowing; reproduced on the preserved case-02
+> workspace, where the bare host suite reports 4 collection errors and the
+> v0.117.0-shielded gate reports 31 passed. Whether each discarded repair was
+> actually good is unknowable now — what is known is that the gate that
+> condemned them was reading the wrong package. The shield lands inside the
+> shared `_pytest_in_subprocess`, so the repair gate has been covered since
+> v0.117.0; no separate fix was needed, only this record.)* The 0% clean
+> rate is therefore
 > dominated by two harness-side defects, not by product quality. Per the
 > standing direction, no new instrument was built off this reading — the
 > debug that produced these corrections is the v0.117.0 change itself.

@@ -4,6 +4,32 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.118.0 — the disk already knew
+
+The four run-19 findings ADR-075's debug did not reach (ADR-076), same
+loop: debug, push, deploy, no new instrument. In each, the truth was
+already on disk and the machine re-derived it badly or read a stale copy.
+
+- **Gate 2 gates a committed range at its own tip**: `git diff` without
+  `--binary` cannot round-trip a binary file, so a committed sqlite db
+  blocked the gate on an apply it never needed (case 03 t4, reproduced at
+  `55fa6a4`). `range_tip()` + `run_test_gate(checkout=)` check the tip
+  out and skip the apply; caller-supplied diffs and PR URLs keep the
+  apply path.
+- **The retry row tells the truth while the retry runs**: outcomes.yaml
+  is rewritten before `_attempt_task`, so the review running inside the
+  retry no longer reads the stale `build_failed / workspace reset` row —
+  the finding that rolled back case 05 t5's genuine recovery.
+- **A declared test file must exist before `built`**: on an established
+  product a green pre-existing suite let a task ship with no tests, and
+  the ledger cited five spec-declared files nobody wrote as its proof.
+  The build gate now names missing skeleton paths as failure feedback.
+- **Attribution corrected in place** (HISTORY.md + PC-19): the eight
+  "repair broke the suite and was discarded" rows were ADR-075's defect B
+  at the repair gate's call site (bare host suite: 4 collection errors;
+  shielded gate: 31 passed, preserved case-02 workspace). Covered since
+  v0.117.0 by the shared shield; no rate re-scored.
+
 ## v0.117.0 — the rates were right; the reasons were wrong
 
 The run-19 debug (ADR-075), per the standing direction: debug, push, deploy
