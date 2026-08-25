@@ -585,6 +585,18 @@ def run_planning(
             # model that answered in prose, and the plan is where ~42% of MAS
             # failures enter.
             opening = " ".join(str(raw).split())[:160]
+            # The opening is whitespace-collapsed for display, and until now
+            # it was ALL that survived a failed attempt — run 19b's case 04
+            # burned three planner attempts and left nothing to debug with,
+            # not even whether the response had newlines. Failed builds keep
+            # their worktree (.mas/failed-builds/); failed plans now keep
+            # their response.
+            kept = (
+                Path(repo_dir) / ".mas" / "failed-plans"
+                / f"attempt-{revision + 1}.txt"
+            )
+            kept.parent.mkdir(parents=True, exist_ok=True)
+            kept.write_text(str(raw), encoding="utf-8")
             # THE PARSER SAID WHERE IT BROKE AND WE KEPT ONLY THE WORD FOR
             # WHAT KIND OF BREAK IT WAS. A yaml ScannerError carries "line 3,
             # column 9: expected alphabetic or numeric character but found
@@ -603,7 +615,8 @@ def run_planning(
             )
             tasks, dag_issues, critics, advisories = [], [
                 f"unparseable planner output ({type(exc).__name__}: {why}); "
-                f"response began: {opening!r}"
+                f"response began: {opening!r}; full response preserved at "
+                f".mas/failed-plans/{kept.name}"
             ], [], []
             continue
         for task in tasks:

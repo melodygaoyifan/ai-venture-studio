@@ -4,6 +4,18 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.121.0 — the feedback names the problem, and the evidence stays
+
+Run 19b case 04 died after three planner attempts on "no YAML mapping with
+any of ('tasks',) found" — a revision feedback that names no problem — and
+left nothing on disk to debug (ADR-079). `extract_mapping`'s ValueError now
+carries the parser's own objection ("closest attempt: line 3, column 9 …" /
+"parsed to str, not a mapping" / "a mapping parsed but its keys are […]"),
+so the retry prompt shows the model the actual break — completing run 16's
+ADR-041 fix one call deeper. And `run_planning` preserves each failed
+attempt's full raw response at `.mas/failed-plans/attempt-N.txt` (the way
+failed builds keep their worktree), naming the path in the blocked reason.
+
 ## v0.120.0 — the rate says who rejected
 
 Run 19's "clean 0%" took a debugging session to attribute; the attribution
