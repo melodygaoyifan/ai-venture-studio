@@ -4,6 +4,24 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.124.0 — the revision sees the plan it revises
+
+Run 19b case 04, verification run on v0.123.0: planning blocked on a
+lane collision that two revisions failed to clear — because no
+corrective-feedback path showed the planner the plan being corrected.
+Provider calls are stateless, so every revision was a blind re-roll: a
+collision-free attempt was lost to a trailing-prose parse break and
+regenerated (with a new collision) instead of repaired, and the dag
+feedback could name a collision between `files_expected` the
+blast_radius fallback had derived — globs the planner never wrote and
+so could never narrow. All three paths now append a bounded
+`<your_previous_response>` block (ADR-082): dag/critic revisions carry
+the plan as the checker read it ("change only what the issues
+require"), parse nudges carry the raw response ("fix ONLY the parse
+problem"), truncation carries the cut-off response. Closes the
+ADR-079 → 080 → 081 chain: legible failure, deliverable feedback,
+informed actor — and now the artifact acted on.
+
 ## v0.123.0 — the repair hears why it was discarded
 
 Run 19b case 04, final run: the review named the probe-killing defect

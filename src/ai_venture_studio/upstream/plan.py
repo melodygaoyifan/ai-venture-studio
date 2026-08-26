@@ -41,6 +41,26 @@ _MAX_PARSE_NUDGES = 2
 # nothing, since the planner runs once per feature.
 _PLANNER_MAX_TOKENS = 8192
 
+# A revision is an edit, not a re-roll (ADR-082). Provider calls are
+# stateless, so every corrective feedback path must carry the thing being
+# corrected: without it the model is told "fix that exact problem" in a plan
+# it cannot see and regenerates the whole arrangement from scratch. Run 19b,
+# case 04 (v0.123.0): a collision-free plan was lost to a trailing-prose
+# parse break, and the blind regeneration that followed introduced a NEW
+# lane collision, which blind dag revisions then failed to clear — the case
+# blocked in planning without the code under test ever running.
+_PREV_RESPONSE_CHARS = 12_000
+
+
+def _shown_back(previous: str, instruction: str) -> str:
+    """The plan (or raw response) being revised, plus how to revise it."""
+    return (
+        "\n\n<your_previous_response>\n"
+        + previous.strip()[:_PREV_RESPONSE_CHARS]
+        + "\n</your_previous_response>\n"
+        + instruction
+    )
+
 
 class Task(BaseModel):
     id: str
@@ -585,6 +605,10 @@ def run_planning(
                 "YOUR LAST RESPONSE WAS CUT OFF at the output limit, so the plan "
                 "was incomplete and was discarded. Return the SAME plan with "
                 "shorter descriptions — every task, fewer words each."
+            ) + _shown_back(
+                str(raw),
+                "That is the cut-off response — it ends where the limit fell. "
+                "Keep its tasks; shorten the words.",
             )
             tasks, dag_issues, critics, advisories = (
                 [], ["planner response truncated at the output cap"], [], []
@@ -627,6 +651,11 @@ def run_planning(
                 f"Your previous response failed to parse. {type(exc).__name__}: "
                 f"{why}. Fix that exact problem. Respond with ONLY the YAML "
                 "schema given, double-quoting every string value."
+            ) + _shown_back(
+                str(raw),
+                "Fix ONLY the parse problem in that response — keep every "
+                "task, lane, dependency and file exactly as written, and "
+                "drop anything that is not the YAML mapping.",
             )
             tasks, dag_issues, critics, advisories = [], [
                 f"unparseable planner output ({type(exc).__name__}: {why}); "
@@ -690,7 +719,23 @@ def run_planning(
         payload = {"dag_issues": dag_issues, "critic_majors": majors}
         if advisories:
             payload["advisories_not_blocking"] = advisories
-        feedback = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
+        # The plan is shown back AS THE CHECKER READ IT — after the
+        # blast_radius fallback above — because a lane collision can be
+        # between files_expected the planner never wrote (run 19b, case 04:
+        # told twice it listed 'app/models.py' in two tasks, it could not
+        # narrow globs it had omitted).
+        feedback = yaml.safe_dump(
+            payload, sort_keys=False, allow_unicode=True
+        ) + _shown_back(
+            yaml.safe_dump(
+                {"tasks": [t.model_dump() for t in tasks]},
+                sort_keys=False, allow_unicode=True,
+            ),
+            "That is your plan exactly as the checker read it, including "
+            "any files_expected derived for tasks that omitted them. "
+            "Return the COMPLETE corrected plan: keep every task the "
+            "issues do not name, change only what the issues require.",
+        )
         revision += 1
 
     source_fdr = fdr_text if fdr_text is not None else read_fdr(repo_dir)
