@@ -63,7 +63,7 @@ def _run(monkeypatch, tmp_path, review, after=None, landed=False):
     calls: list[list[VoterFinding]] = []
     monkeypatch.setattr(autopilot, "_review_head", lambda root, provider: review)
 
-    def _fake_fix(root, provider, model, findings):
+    def _fake_fix(root, provider, model, findings, *, prior_failure=""):
         calls.append(list(findings))
         return landed, after, ""
 
@@ -102,7 +102,9 @@ def test_a_medium_only_rejection_gets_a_repair_attempt(monkeypatch, tmp_path):
         monkeypatch, tmp_path,
         _review("REQUEST_CHANGES", [_finding(Severity.MEDIUM)]),
     )
-    assert len(calls) == 1 and calls[0][0].severity is Severity.MEDIUM
+    # ≥1, not ==1: a failing repair may be retried (ADR-081); the point
+    # here is that a MEDIUM-only rejection is attempted at all.
+    assert calls and calls[0][0].severity is Severity.MEDIUM
 
 
 def test_a_rejection_records_what_it_objected_to(monkeypatch, tmp_path):

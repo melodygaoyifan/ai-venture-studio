@@ -63,6 +63,16 @@ if not ROLLBACK_SEVERITIES < frozenset(ACTIONABLE_SEVERITIES):
 MAX_REPAIR_FINDINGS = 8
 MAX_REPAIR_FILES = 12
 
+#: How many repair passes one review may buy. A discarded repair used to end
+#: the matter: run 19b's case 04 lost all three probes to a 405 guard whose
+#: repair was reviewed, found worse, discarded — and never re-attempted, even
+#: though the discard reason (the exact feedback a second attempt needed) had
+#: just been composed for the scoreboard. Same shape as ADR-080's parse
+#: nudges: the cure existed and was shown to nobody. The second attempt is
+#: INFORMED — it is handed why the first was discarded — or it is not worth
+#: buying (ADR-081).
+MAX_REPAIR_ATTEMPTS = 2
+
 #: Output cap for the repair pass. Named so the refusal below can quote it —
 #: an unnamed 16384 sat inline while this was the one writer stage that never
 #: asked whether its response had been cut off.
@@ -1217,8 +1227,9 @@ def review_and_repair(
     task_id: str = "",
     detail: str = "",
 ) -> tuple[str | None, str, list[str], dict[str, int], list[str]]:
-    """Gate 3 for one just-built module: review, one bounded repair pass on
-    critical/high findings, re-review, roll back if it did not clear.
+    """Gate 3 for one just-built module: review, up to MAX_REPAIR_ATTEMPTS
+    bounded repair passes on actionable findings (each retry told why the
+    previous attempt was discarded), re-review, roll back what did not clear.
 
     Shared so that every path which builds a module also reviews it.
     `retry-task` used to skip this entirely — it ran spec + build and
@@ -1263,7 +1274,41 @@ def review_and_repair(
         )
     final_review = review
     if serious:
-        landed, after, why_not = _fix_iteration(root, provider, model, serious)
+        # A DISCARD IS FEEDBACK, NOT A FINAL ANSWER (ADR-081). Up to
+        # MAX_REPAIR_ATTEMPTS passes; each retry is handed why the previous
+        # attempt was discarded. The reason was already being composed — for
+        # the scoreboard — and shown to no model: run 19b's case 04 lost all
+        # three probes to a 405 guard whose repair failed once and was never
+        # re-asked. The re-review of a discarded diff is evidence about the
+        # ATTEMPT, so its blocking findings travel in the retry prompt only —
+        # never into the row, whose findings must describe the code that
+        # survived (see the rollback comment below).
+        landed, after, why_not = False, None, ""
+        row_whys: list[str] = []
+        prior = ""
+        for _attempt in range(MAX_REPAIR_ATTEMPTS):
+            if prior and task_id:
+                progress.step(
+                    root, task_id, "fix",
+                    "repairing again — the first attempt was discarded",
+                )
+            landed, after, why_not = _fix_iteration(
+                root, provider, model, serious, prior_failure=prior,
+            )
+            if landed:
+                break
+            row_whys.append(why_not)
+            prior = why_not
+            if after is not None:
+                worse_titles = "; ".join(
+                    f.title for f in (after.findings or [])
+                    if f.severity in ROLLBACK_SEVERITIES
+                )
+                if worse_titles:
+                    prior += (
+                        " — the discarded attempt's own findings: "
+                        + worse_titles
+                    )
         if landed and after:
             verdict = after.verdict.value
             # The verdict comes from the re-review, so the reasons must too.
@@ -1277,6 +1322,13 @@ def review_and_repair(
                 "found nothing serious"
             )
             detail = (detail + " " if detail else "") + "(after fix iteration)"
+            if row_whys:
+                # The attempt that landed is the one the verdict describes;
+                # the discarded one is history worth a clause, not findings.
+                detail += (
+                    " (an earlier repair attempt was discarded: "
+                    f"{row_whys[0]})"
+                )
         else:
             # THE VERDICT DESCRIBES THE CODE THAT SURVIVED. When a repair is
             # rolled back, `git reset --hard` puts the PRE-fix tree back — and
@@ -1291,8 +1343,11 @@ def review_and_repair(
             # The discarded attempt is still evidence — about the repair pass,
             # not about the product — so it rides in the reason, not in the
             # verdict.
+            distinct_whys = list(dict.fromkeys(w for w in row_whys if w))
             detail = (detail + " " if detail else "") + (
-                f"(repair attempted, not applied: {why_not})" if why_not
+                "(repair attempted, not applied: "
+                + "; then ".join(distinct_whys) + ")"
+                if distinct_whys
                 else "(repair attempted, not applied)"
             )
         # SAY WHAT THE CAPS DROPPED. A repair pass shown 8 of 11 findings
@@ -1558,9 +1613,15 @@ def _repair_scope(findings) -> tuple[list, list[str], list[str]]:
     return repairing, wanted[:MAX_REPAIR_FILES], wanted[MAX_REPAIR_FILES:]
 
 
-def _fix_iteration(root: Path, provider: str, model: str, findings):
+def _fix_iteration(
+    root: Path, provider: str, model: str, findings, *, prior_failure: str = ""
+):
     """One bounded repair pass: findings → implementer → suite must pass
     → commit → RE-REVIEW, rolled back if it made things worse.
+
+    `prior_failure`, when set, is why the previous pass over these same
+    findings was discarded — shown to the implementer so the retry is
+    informed rather than a coin re-flip (ADR-081).
 
     Returns (landed, review_after, why). `review_after` is handed back so the
     caller records the post-fix verdict without paying for a second review.
@@ -1606,13 +1667,24 @@ def _fix_iteration(root: Path, provider: str, model: str, findings):
     file_blocks = "\n\n".join(
         f"<file path=\"{p}\">\n{t}\n</file>" for p, t in sources.items()
     )
+    prior_block = ""
+    if prior_failure:
+        prior_block = (
+            "<previous_repair_attempt>\n"
+            "A previous repair for these same findings was DISCARDED: "
+            f"{prior_failure}\n"
+            "Do not resubmit that change — address the reason it was "
+            "discarded.\n"
+            "</previous_repair_attempt>\n\n"
+        )
     raw = get_provider(provider).complete(
         model=model,
         system=f"You are the {IMPLEMENTER_MARKER}. Fix ONLY the review "
         "findings below in the provided files — smallest change, complete "
         "file contents back, no drive-by edits.\n\nRespond with ONLY YAML:\n"
         "files:\n  - path: ...\n    new_content: |\n      ...",
-        user=f"<review_findings>\n{listing}</review_findings>\n\n{file_blocks}",
+        user=f"{prior_block}<review_findings>\n{listing}"
+        f"</review_findings>\n\n{file_blocks}",
         max_tokens=_FIX_MAX_TOKENS,
     )
     if last_response_truncated():

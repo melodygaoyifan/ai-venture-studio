@@ -4,6 +4,21 @@ SemVer over the enumerated contract surface (CONTRIBUTING.md). One entry
 per release, newest first; the git tags v0.8.0–v0.27.0 predate this file
 and are summarized in the README roadmap and docs/implementation-map.md.
 
+## v0.123.0 — the repair hears why it was discarded
+
+Run 19b case 04, final run: the review named the probe-killing defect
+("New 405 guard makes POST /api/candidates unreachable", critical), the
+repair broke the suite and was correctly discarded — and the discard was
+final, so the named defect shipped and all three probes died on
+`(405, {})`. A discarded repair now buys one more pass
+(`MAX_REPAIR_ATTEMPTS = 2`), and the retry is informed: the discard
+reason — and, after a rollback, the discarded diff's own blocking
+findings — ride in a `<previous_repair_attempt>` block of the implementer
+prompt (ADR-081). The row still describes only the code that survived;
+a double failure names each attempt's distinct reason. Worst case per
+unclean task rises 1 → 2 implementer calls and re-reviews, only on the
+path that previously guaranteed the finding shipped unrepaired.
+
 ## v0.122.0 — a nudge is not a revision
 
 Run 19b case 04, third run — the first debuggable by reading, thanks to
